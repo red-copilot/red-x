@@ -50,7 +50,11 @@ No fixed coverage threshold; add focused tests for each change. Frontend changes
 
 ## Commit & Pull Request Guidelines
 
-The branch has no commits yet. Use Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`). PRs should explain the problem and change, list verification commands, link issues, and call out API/schema/config/security changes. Include UI screenshots and update `docs/PARITY.md` or `docs/SCANNER-DIFFERENCES.md` when behavior changes.
+Use Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
+
+Auto-commit completed work: once a task's relevant verification passes, stage only the files changed for that task and create a Conventional Commit automatically. Never include unrelated pre-existing changes, generated artifacts, or secrets. Do not push unless explicitly asked. If verification fails or there are no task changes, do not commit.
+
+PRs should explain the problem and change, list verification commands, link issues, and call out API/schema/config/security changes. Include UI screenshots and update `docs/PARITY.md` or `docs/SCANNER-DIFFERENCES.md` when behavior changes.
 
 ## Security & Configuration
 
