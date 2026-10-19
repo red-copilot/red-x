@@ -179,6 +179,23 @@ LIMIT $limit`, map[string]any{"orgId": orgID, "limit": limit})
 		for _, rec := range ipFindings {
 			addFindingNode(nodeByID, edgeByID, &risks, rec, "ip")
 		}
+		if depth >= 3 {
+			serviceFindings, err := r.query(ctx, `
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(:Domain)-[:RESOLVES_TO]->(:IP)-[:EXPOSES]->(s:Service)
+MATCH (f:Finding)-[:FOUND_ON]->(s)
+RETURN f.id AS id, f.kind AS kind, f.severity AS severity, f.title AS title,
+       f.dedupeKey AS dedupeKey, f.createdAt AS createdAt, s.key AS target
+LIMIT $limit`, map[string]any{"orgId": orgID, "limit": limit})
+			if err != nil {
+				return nil, nil, false, err
+			}
+			if len(serviceFindings) >= limit {
+				truncated = true
+			}
+			for _, rec := range serviceFindings {
+				addFindingNode(nodeByID, edgeByID, &risks, rec, "service")
+			}
+		}
 	}
 
 	riskByTarget := latestRiskByTarget(risks)

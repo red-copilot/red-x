@@ -1,19 +1,19 @@
 <template>
-  <v-chart class="map" :option="option" autoresize @click="onClick" />
+  <v-chart v-if="ready" class="map" :option="option" autoresize @click="onClick" />
+  <div v-else class="map-loading">加载世界地图…</div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { use, registerMap } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { ScatterChart, LinesChart } from 'echarts/charts'
 import { GeoComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
-import world from '@/assets/world.geo.json'
 import type { GraphNode, GraphSnapshot, MapPoint, OrgBubble, Risk } from './types'
 
 use([CanvasRenderer, ScatterChart, LinesChart, GeoComponent, TooltipComponent])
-registerMap('world', world as any)
+
 
 const props = defineProps<{
   organizations: OrgBubble[]
@@ -22,6 +22,13 @@ const props = defineProps<{
   graphOn: boolean
   selectedOrgId: string
 }>()
+
+const ready = ref(false)
+onMounted(async () => {
+  const mod = await import('@/assets/world.geo.json')
+  registerMap('world', ((mod as any).default || mod) as any)
+  ready.value = true
+})
 
 const emit = defineEmits<{
   (e: 'select-org', id: string): void
@@ -146,4 +153,5 @@ function onClick(params: any) {
 
 <style scoped>
 .map { width: 100%; height: 100%; min-height: 420px; }
+.map-loading { display: grid; place-items: center; height: 100%; color: #5f7aa8; }
 </style>

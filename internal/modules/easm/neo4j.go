@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -103,11 +104,13 @@ MERGE (d)-[:RESOLVES_TO]->(ip)`,
 				"cdn": cdn, "cdnName": cdnName, "ips": ips,
 			})
 	case domain.AssetIP:
-		return w.exec(ctx, `MERGE (ip:IP {addr:$key}) SET ip.mongoId=$id, ip.cdn=$cdn, ip.cdnName=$cdnName`,
+		cdn, cdnName := cdnOf(asset.Data)
+		return w.exec(ctx, `MERGE (ip:IP {addr:$key})
+SET ip.mongoId=$id,
+    ip.cdn = CASE WHEN ip.cdn THEN true ELSE $cdn END,
+    ip.cdnName = CASE WHEN ip.cdnName IS NULL OR ip.cdnName = '' THEN $cdnName ELSE ip.cdnName END`,
 			map[string]any{
-				"key": asset.Key, "id": asset.ID.Hex(),
-				"cdn":     asset.Data["cdnName"] != nil && asset.Data["cdnName"] != "",
-				"cdnName": stringValue(asset.Data["cdnName"]),
+				"key": asset.Key, "id": asset.ID.Hex(), "cdn": cdn, "cdnName": cdnName,
 			})
 	case domain.AssetService:
 		return w.exec(ctx, `
@@ -127,7 +130,7 @@ MERGE (ip)-[:EXPOSES]->(s)`,
 }
 
 func (w *Neo4jWriter) MergeFinding(ctx context.Context, finding domain.Finding) error {
-	label, target := findingTargetNode(finding.Target)
+	label, target, port := findingTargetNode(finding.Target)
 	if target == "" {
 		return w.exec(ctx, `MERGE (f:Finding {id:$id}) SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt`,
 			map[string]any{
@@ -135,6 +138,24 @@ func (w *Neo4jWriter) MergeFinding(ctx context.Context, finding domain.Finding) 
 				"severity": finding.Severity, "title": finding.Title,
 				"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
 			})
+	}
+	if label == "IP" && port != "" {
+		if portNum, err := strconv.Atoi(port); err == nil {
+			return w.exec(ctx, `
+MERGE (f:Finding {id:$id})
+SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt
+WITH f
+MERGE (ip:IP {addr:$target})
+MERGE (f)-[:FOUND_ON]->(ip)
+WITH f, ip
+OPTIONAL MATCH (ip)-[:EXPOSES]->(s:Service {port:$port})
+FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END | MERGE (f)-[:FOUND_ON]->(s))`,
+				map[string]any{
+					"id": finding.ID.Hex(), "kind": string(finding.Kind),
+					"severity": finding.Severity, "title": finding.Title, "target": target,
+					"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt, "port": portNum,
+				})
+		}
 	}
 	query := fmt.Sprintf(`
 MERGE (f:Finding {id:$id})
@@ -178,33 +199,33 @@ func (w *Neo4jWriter) Reset(ctx context.Context) error {
 	return w.exec(ctx, `MATCH (n) WHERE n:Organization OR n:Domain OR n:IP OR n:Service OR n:Finding DETACH DELETE n`, nil)
 }
 
-func findingTargetNode(raw string) (label, target string) {
+func findingTargetNode(raw string) (label, target, port string) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", ""
+		return "", "", ""
 	}
 	if strings.Contains(s, "://") {
 		if u, err := url.Parse(s); err == nil {
-			s = u.Hostname()
+			s = u.Host
 		}
 	}
 	if i := strings.IndexAny(s, "/?#"); i >= 0 {
 		s = s[:i]
 	}
-	if host, _, err := net.SplitHostPort(s); err == nil {
-		s = host
+	if host, p, err := net.SplitHostPort(s); err == nil {
+		s, port = host, p
 	}
 	s = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".")
 	if s == "" {
-		return "", ""
+		return "", "", ""
 	}
 	if ip, err := netip.ParseAddr(s); err == nil && ip.IsValid() {
-		return "IP", ip.String()
+		return "IP", ip.String(), port
 	}
 	if strings.Contains(s, ".") {
-		return "Domain", s
+		return "Domain", s, port
 	}
-	return "", ""
+	return "", "", ""
 }
 
 func targetKey(label string) string {

@@ -14,6 +14,7 @@ import (
 	"github.com/red-copilot/red-x/internal/platform/geoip"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -59,6 +60,7 @@ type Service struct {
 	health      Health
 	chinazGuard providerGuard
 	icpGuard    providerGuard
+	lookupGroup singleflight.Group
 }
 
 func NewService(repo Repository, store ICPServiceStore, queue jobs.Queue, chinaz DomainLookupProvider, icpQuery OrganizationLookupProvider, log *slog.Logger) *Service {
@@ -80,7 +82,7 @@ func (s *Service) SetGeoResolver(r geoip.Resolver) {
 func (s *Service) SetGraphReader(r GraphReader) {
 	s.GraphReader = r
 	if r != nil {
-		s.setHealth("neo4j", "ok")
+		s.setHealth("neo4j", "unknown")
 	}
 }
 
@@ -272,9 +274,9 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 		key := ""
 		if targetSet[f.Target] {
 			key = f.Target
-		} else if label, value := findingTargetNode(f.Target); label == "IP" && targetSet[value] {
+		} else if label, value, _ := findingTargetNode(f.Target); label == "IP" && targetSet[value] {
 			key = value
-		} else if label, value := findingTargetNode(f.Target); label == "Domain" && targetSet[value] {
+		} else if label, value, _ := findingTargetNode(f.Target); label == "Domain" && targetSet[value] {
 			key = value
 		}
 		if key == "" {
@@ -425,8 +427,10 @@ func (s *Service) Graph(ctx context.Context, orgID bson.ObjectID, depth, limit i
 	}
 	nodes, edges, truncated, err := s.GraphReader.ReadOrganizationGraph(ctx, orgID.Hex(), depth, limit)
 	if err != nil {
+		s.setHealth("neo4j", "unavailable")
 		return nil, err
 	}
+	s.setHealth("neo4j", "ok")
 	return &GraphSnapshot{Nodes: nodes, Edges: edges, Truncated: truncated, Aggregated: truncated}, nil
 }
 

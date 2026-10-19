@@ -149,8 +149,8 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{ColOrganizations, []mongo.IndexModel{unique("canonicalName", "region"), plain("status")}},
 		{ColOrganizationDomains, []mongo.IndexModel{
 			unique("organizationId", "rootDomain"),
-			{Keys: bson.D{{Key: "rootDomain", Value: 1}}, Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"status": "confirmed"})},
-			plain("rootDomain"), plain("status"),
+			{Keys: bson.D{{Key: "rootDomain", Value: 1}}, Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"status": "confirmed"}).SetName("uniq_confirmed_root_domain")},
+			plain("status"),
 		}},
 		{ColICPEvidence, []mongo.IndexModel{plain("provider", "queryType", "queryKey"), ttl("expiresAt", 0)}},
 		{ColIPLocations, []mongo.IndexModel{unique("ip")}},

@@ -46,17 +46,24 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	if err != nil {
 		return nil, err
 	}
-	if err := s.chinazGuard.acquire(ctx); err != nil {
-		return nil, err
-	}
-	res, err := s.Chinaz.LookupByDomain(ctx, root)
+	v, err, _ := s.lookupGroup.Do(root, func() (any, error) {
+		if err := s.chinazGuard.acquire(ctx); err != nil {
+			return nil, err
+		}
+		out, err := s.Chinaz.LookupByDomain(ctx, root)
+		if err != nil {
+			s.chinazGuard.failure()
+			s.setHealth("chinaz", icpHealth(err))
+			return nil, err
+		}
+		s.chinazGuard.success()
+		s.setHealth("chinaz", "ok")
+		return out, nil
+	})
 	if err != nil {
-		s.chinazGuard.failure()
-		s.setHealth("chinaz", icpHealth(err))
 		return nil, err
 	}
-	s.chinazGuard.success()
-	s.setHealth("chinaz", "ok")
+	res, _ := v.(DomainICPResult)
 	now := time.Now().UTC()
 	ev := &domain.ICPEvidence{
 		Provider: "chinaz", QueryType: "domain", QueryKey: root, Raw: res.RawHTML,

@@ -10,16 +10,18 @@ func TestFindingTargetNode(t *testing.T) {
 		target string
 		label  string
 		value  string
+		port   string
 	}{
-		{"https://a.example.com/path?q=1", "Domain", "a.example.com"},
-		{"8.8.8.8:443", "IP", "8.8.8.8"},
-		{"example.com.", "Domain", "example.com"},
-		{"not a target", "", ""},
+		{"https://a.example.com/path?q=1", "Domain", "a.example.com", ""},
+		{"8.8.8.8:443", "IP", "8.8.8.8", "443"},
+		{"https://1.1.1.1:8443/x", "IP", "1.1.1.1", "8443"},
+		{"example.com.", "Domain", "example.com", ""},
+		{"not a target", "", "", ""},
 	}
 	for _, tc := range cases {
-		label, value := findingTargetNode(tc.target)
-		if label != tc.label || value != tc.value {
-			t.Fatalf("findingTargetNode(%q) = (%q,%q), want (%q,%q)", tc.target, label, value, tc.label, tc.value)
+		label, value, port := findingTargetNode(tc.target)
+		if label != tc.label || value != tc.value || port != tc.port {
+			t.Fatalf("findingTargetNode(%q) = (%q,%q,%q), want (%q,%q,%q)", tc.target, label, value, port, tc.label, tc.value, tc.port)
 		}
 	}
 }
