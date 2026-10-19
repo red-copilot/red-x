@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/modules/tasking"
-	"github.com/Aabyss-Team/ARL/internal/platform/httpx"
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/modules/tasking"
+	"github.com/red-copilot/red-x/internal/platform/httpx"
+	"github.com/red-copilot/red-x/internal/store"
 )
 
 type createTaskRequest struct {

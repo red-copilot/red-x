@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/platform/httpx"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/httpx"
 )
 
 func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {

@@ -1,12 +1,4 @@
 .git
-.venv
-__pycache__
-app
-test
-docker
-misc
-legacy
-image
 *.log
 data
 web/node_modules

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/pdtools"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 func TestMain(m *testing.M) {

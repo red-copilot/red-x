@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Aabyss-Team/ARL/internal/modules/discovery"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
 	"github.com/PuerkitoBio/goquery"
 	"gopkg.in/yaml.v3"
 )

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/modules/webintel"
-	"github.com/Aabyss-Team/ARL/internal/platform/httpx"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/modules/webintel"
+	"github.com/red-copilot/red-x/internal/platform/httpx"
 	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v3"

@@ -140,4 +140,4 @@ deploy/               Docker、Compose、systemd
 
 ## License
 
-MIT。原 ARL/NPoC 代码和规则文件的版权与许可声明保留在仓库中。
+MIT。第三方依赖、字典、指纹、WIH 规则和 PoC 规则的版权与许可声明保留在仓库中。

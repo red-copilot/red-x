@@ -1,4 +1,4 @@
-module github.com/Aabyss-Team/ARL
+module github.com/red-copilot/red-x
 
 go 1.27.2
 

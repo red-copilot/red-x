@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/config"
 )
 
 type Notifier struct {

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/gologger/formatter"
 	"github.com/projectdiscovery/gologger/levels"

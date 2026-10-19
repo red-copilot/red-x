@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
-	"github.com/Aabyss-Team/ARL/internal/platform/pdtools"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/httpx/runner"
 )

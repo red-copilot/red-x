@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/platform/security"
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/security"
+	"github.com/red-copilot/red-x/internal/store"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

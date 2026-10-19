@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/logx"
+	"github.com/red-copilot/red-x/internal/platform/logx"
 )
 
 func TestMemoryQueue(t *testing.T) {

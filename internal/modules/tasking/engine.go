@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/modules/discovery"
-	"github.com/Aabyss-Team/ARL/internal/modules/poc"
-	"github.com/Aabyss-Team/ARL/internal/modules/webintel"
-	"github.com/Aabyss-Team/ARL/internal/platform/config"
-	"github.com/Aabyss-Team/ARL/internal/platform/jobs"
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
+	"github.com/red-copilot/red-x/internal/modules/poc"
+	"github.com/red-copilot/red-x/internal/modules/webintel"
+	"github.com/red-copilot/red-x/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/jobs"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/store"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

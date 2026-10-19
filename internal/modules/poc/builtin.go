@@ -3,7 +3,7 @@ package poc
 import (
 	"path/filepath"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 )
 
 func Builtin(client *HTTPClient, dictDir string) []Plugin {

@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/app"
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/platform/config"
-	"github.com/Aabyss-Team/ARL/internal/platform/jobs"
-	"github.com/Aabyss-Team/ARL/internal/platform/logx"
-	"github.com/Aabyss-Team/ARL/internal/platform/pdtools"
+	"github.com/red-copilot/red-x/internal/app"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/jobs"
+	"github.com/red-copilot/red-x/internal/platform/logx"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 var version = "3.0.0"

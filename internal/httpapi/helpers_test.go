@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/config"
 )
 
 func TestOpenAPISpecIsJSON(t *testing.T) {

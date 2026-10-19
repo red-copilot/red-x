@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 )
 
 func TestNormalizeResolvers(t *testing.T) {

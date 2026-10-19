@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/platform/httpx"
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/httpx"
+	"github.com/red-copilot/red-x/internal/store"
 )
 
 func (s *Server) handleListMonitors(w http.ResponseWriter, r *http.Request) {

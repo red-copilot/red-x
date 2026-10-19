@@ -3,7 +3,7 @@ package webintel
 import (
 	"strings"
 
-	"github.com/Aabyss-Team/ARL/internal/modules/discovery"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
 )
 
 func AutoTag(site *discovery.SiteResult) {

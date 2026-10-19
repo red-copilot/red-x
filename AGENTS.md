@@ -10,7 +10,7 @@ ARL is a Go modular monolith with an embedded Vue 3 console.
 - `internal/platform/`: config, logging, queues, network safety, notifications.
 - `web/src/`: Vue/TypeScript; output goes to `internal/webui/dist`.
 - `assets/`: dictionaries, fingerprints, WIH rules, and standard nuclei templates.
-- `deploy/`, `docs/`, `legacy/`: deployment, design/parity docs, read-only historical Python.
+- `deploy/`, `docs/`: deployment and design/parity docs.
 
 ## Build, Test, and Development Commands
 
@@ -58,4 +58,4 @@ PRs should explain the problem and change, list verification commands, link issu
 
 ## Security & Configuration
 
-Never commit secrets. `config.example.yaml` is a template; use `ARL_*` env overrides. Preserve blacklist/SSRF checks, CSRF and RBAC. `legacy/` is reference only.
+Never commit secrets. `config.example.yaml` is a template; use `ARL_*` env overrides. Preserve blacklist/SSRF checks, CSRF and RBAC.

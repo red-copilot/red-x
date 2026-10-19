@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/platform/httpx"
-	"github.com/Aabyss-Team/ARL/internal/platform/pdtools"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/httpx"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 type loginRequest struct {

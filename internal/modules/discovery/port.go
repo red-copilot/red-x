@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/platform/netsafe"
-	"github.com/Aabyss-Team/ARL/internal/platform/pdtools"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	"github.com/projectdiscovery/naabu/v2/pkg/port"
 	naaburesult "github.com/projectdiscovery/naabu/v2/pkg/result"
 	naaburunner "github.com/projectdiscovery/naabu/v2/pkg/runner"

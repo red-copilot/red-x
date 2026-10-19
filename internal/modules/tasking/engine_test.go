@@ -3,7 +3,7 @@ package tasking
 import (
 	"testing"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
+	"github.com/red-copilot/red-x/internal/domain"
 )
 
 func TestMergePolicy(t *testing.T) {

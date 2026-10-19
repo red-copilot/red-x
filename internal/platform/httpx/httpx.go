@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/store"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 )

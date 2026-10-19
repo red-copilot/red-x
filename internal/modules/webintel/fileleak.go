@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/modules/discovery"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
 )
 
 type FileLeakResult struct {

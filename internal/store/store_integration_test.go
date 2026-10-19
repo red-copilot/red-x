@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
+	"github.com/red-copilot/red-x/internal/domain"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

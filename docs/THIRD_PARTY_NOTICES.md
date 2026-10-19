@@ -11,5 +11,5 @@ ARL embeds the following MIT-licensed ProjectDiscovery projects:
 - [nuclei](https://github.com/projectdiscovery/nuclei)
 
 Their copyright and license notices remain with their respective source
-repositories. ARL's dictionaries, fingerprint data, WIH rules and NPoC plugin
-sources retain the notices shipped with the original ARL project.
+repositories. The dictionaries, fingerprint data, WIH rules and PoC plugin
+sources retain the notices shipped with their upstream projects.

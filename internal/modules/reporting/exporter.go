@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Aabyss-Team/ARL/internal/domain"
-	"github.com/Aabyss-Team/ARL/internal/store"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/store"
 	"github.com/xuri/excelize/v2"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
