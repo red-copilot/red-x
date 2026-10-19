@@ -55,6 +55,7 @@ type fakeICPStore struct {
 	evidence []*domain.ICPEvidence
 	jobs     map[bson.ObjectID]*domain.ICPJob
 	audits   []domain.AuditEvent
+	outbox   []string
 }
 
 func newFakeICPStore() *fakeICPStore {
@@ -78,6 +79,16 @@ func (f *fakeICPStore) CreateOrganization(_ context.Context, org *domain.Organiz
 func (f *fakeICPStore) FindOrganizationByName(_ context.Context, name string) (*domain.Organization, error) {
 	return f.byName[name], nil
 }
+func (f *fakeICPStore) FindOrganizationByNameAndRegion(_ context.Context, name, region string) (*domain.Organization, error) {
+	org := f.byName[name]
+	if org == nil {
+		return nil, nil
+	}
+	if region != "" && org.Region != region {
+		return nil, nil
+	}
+	return org, nil
+}
 func (f *fakeICPStore) GetOrganization(_ context.Context, id bson.ObjectID) (*domain.Organization, error) {
 	return f.orgs[id], nil
 }
@@ -88,6 +99,15 @@ func (f *fakeICPStore) UpsertOrganizationDomain(_ context.Context, od *domain.Or
 	}
 	f.domains[key] = od
 	return nil
+}
+func (f *fakeICPStore) ListOrganizationDomains(_ context.Context, orgID bson.ObjectID, status string) ([]domain.OrganizationDomain, error) {
+	var out []domain.OrganizationDomain
+	for _, od := range f.domains {
+		if od.OrganizationID == orgID && (status == "" || string(od.Status) == status) {
+			out = append(out, *od)
+		}
+	}
+	return out, nil
 }
 func (f *fakeICPStore) ConfirmOrganizationDomains(_ context.Context, orgID bson.ObjectID, domains []string) (int, error) {
 	n := 0
@@ -137,6 +157,10 @@ func (f *fakeICPStore) GetICPJob(_ context.Context, id bson.ObjectID) (*domain.I
 func (f *fakeICPStore) AddAudit(_ context.Context, e domain.AuditEvent) {
 	f.audits = append(f.audits, e)
 }
+func (f *fakeICPStore) AppendGraphOutbox(_ context.Context, entityType, entityID string, _ domain.GraphOutboxOp) error {
+	f.outbox = append(f.outbox, entityType+":"+entityID)
+	return nil
+}
 
 func TestLookupDomainCreatesCandidateOrganization(t *testing.T) {
 	st := newFakeICPStore()
@@ -151,8 +175,8 @@ func TestLookupDomainCreatesCandidateOrganization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Confidence != domain.ConfidenceHigh {
-		t.Fatalf("expected high confidence, got %s", out.Confidence)
+	if out.Confidence != domain.ConfidenceMedium {
+		t.Fatalf("expected medium confidence for a first lookup, got %s", out.Confidence)
 	}
 	if len(st.orgs) != 1 || len(st.domains) != 1 {
 		t.Fatalf("expected org and candidate domain, got orgs=%d domains=%d", len(st.orgs), len(st.domains))
@@ -162,8 +186,8 @@ func TestLookupDomainCreatesCandidateOrganization(t *testing.T) {
 			t.Fatalf("unexpected domain record: %+v", od)
 		}
 	}
-	if len(st.evidence) != 1 || len(st.audits) != 1 {
-		t.Fatalf("expected evidence and audit, got %d/%d", len(st.evidence), len(st.audits))
+	if len(st.evidence) != 1 || len(st.audits) != 1 || len(st.outbox) != 1 {
+		t.Fatalf("expected evidence, audit and organization outbox, got %d/%d/%d", len(st.evidence), len(st.audits), len(st.outbox))
 	}
 }
 
@@ -268,5 +292,26 @@ func TestConfirmDomainsWritesAuditAndOutbox(t *testing.T) {
 	}
 	if st.domains[org.ID.Hex()+":example.com"].Status != domain.DomainStatusConfirmed {
 		t.Fatal("domain was not confirmed")
+	}
+}
+
+func TestProviderGuardOpensCircuit(t *testing.T) {
+	g := &providerGuard{}
+	for i := 0; i < 5; i++ {
+		g.failure()
+	}
+	if err := g.acquire(context.Background()); !errors.Is(err, ErrICPUnavailable) {
+		t.Fatalf("expected open circuit, got %v", err)
+	}
+}
+
+func TestHealthTracksProviderOutcome(t *testing.T) {
+	st := newFakeICPStore()
+	svc := NewService(nil, st, nil, fakeChinaz{err: ErrICPCookieExpired}, nil, nil)
+	if _, err := svc.LookupDomain(context.Background(), "example.com", "alice"); !errors.Is(err, ErrICPCookieExpired) {
+		t.Fatalf("expected cookie error, got %v", err)
+	}
+	if got := svc.Health(context.Background()).Chinaz; got != "cookie_expired" {
+		t.Fatalf("health = %q", got)
 	}
 }

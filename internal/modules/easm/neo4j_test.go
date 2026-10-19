@@ -1,6 +1,9 @@
 package easm
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFindingTargetNode(t *testing.T) {
 	cases := []struct {
@@ -27,5 +30,38 @@ func TestStringSlice(t *testing.T) {
 	}
 	if got := stringSlice(nil); len(got) != 0 {
 		t.Fatalf("unexpected nil slice: %v", got)
+	}
+}
+
+func TestCapGraphKeepsOrganizationAndFiltersEdges(t *testing.T) {
+	nodes := []GraphNode{
+		{ID: "o", Type: "organization"},
+		{ID: "d1", Type: "domain"},
+		{ID: "d2", Type: "domain"},
+		{ID: "f1", Type: "finding"},
+	}
+	edges := []GraphEdge{
+		{ID: "e1", Source: "o", Target: "d1"},
+		{ID: "e2", Source: "d2", Target: "f1"},
+	}
+	kept, out, capped := capGraph(nodes, edges, 2)
+	if !capped || len(kept) != 2 || kept[0].ID != "o" {
+		t.Fatalf("unexpected cap: capped=%v kept=%+v", capped, kept)
+	}
+	if len(out) != 1 || out[0].ID != "e1" {
+		t.Fatalf("dangling edges survived cap: %+v", out)
+	}
+}
+
+func TestLatestRiskByTarget(t *testing.T) {
+	now := time.Now().UTC()
+	risks := []findingRisk{
+		{targetID: "ip:1", dedupeKey: "a", severity: "high", createdAt: now.Add(-time.Hour)},
+		{targetID: "ip:1", dedupeKey: "a", severity: "low", createdAt: now},
+		{targetID: "ip:1", dedupeKey: "b", severity: "critical", createdAt: now.Add(-2 * time.Hour)},
+		{targetID: "ip:1", dedupeKey: "c", severity: "info", createdAt: now},
+	}
+	if got := latestRiskByTarget(risks)["ip:1"]; got != "critical" {
+		t.Fatalf("unexpected risk: %q", got)
 	}
 }

@@ -74,3 +74,10 @@ func TestMaxMindLookupErrorIsUnlocated(t *testing.T) {
 		t.Fatalf("expected ErrIPUnlocated, got %v", err)
 	}
 }
+
+func TestMaxMindZeroCoordinatesIsUnlocated(t *testing.T) {
+	r := &MaxMindResolver{city: fakeCity{city: &geoip2.City{}}, asn: fakeASN{}}
+	if _, err := r.Resolve(context.Background(), netip.MustParseAddr("8.8.8.8")); !errors.Is(err, ErrIPUnlocated) {
+		t.Fatalf("expected ErrIPUnlocated, got %v", err)
+	}
+}

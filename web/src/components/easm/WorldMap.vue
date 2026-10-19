@@ -10,7 +10,7 @@ import { ScatterChart, LinesChart } from 'echarts/charts'
 import { GeoComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import world from '@/assets/world.geo.json'
-import type { GraphSnapshot, MapPoint, OrgBubble, Risk } from './types'
+import type { GraphNode, GraphSnapshot, MapPoint, OrgBubble, Risk } from './types'
 
 use([CanvasRenderer, ScatterChart, LinesChart, GeoComponent, TooltipComponent])
 registerMap('world', world as any)
@@ -26,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select-org', id: string): void
   (e: 'select-point', point: MapPoint): void
+  (e: 'select-node', node: GraphNode): void
 }>()
 
 const COLORS: Record<string, string> = {
@@ -62,6 +63,15 @@ const coordMap = computed(() => {
   return m
 })
 
+const nodeData = computed(() => {
+  if (!props.graphOn || !props.graph) return []
+  return props.graph.nodes
+    .filter((n) => coordMap.value.has(n.id))
+    .map((n) => ({
+      id: n.id, name: n.label, value: coordMap.value.get(n.id), nodeType: n.type, risk: n.risk,
+    }))
+})
+
 const lines = computed(() => {
   if (!props.graphOn || !props.graph) return []
   const out: Array<{ coords: Array<[number, number]> }> = []
@@ -80,7 +90,7 @@ const option = computed(() => {
       symbolSize: (val: any) => 10 + Math.min(26, Math.sqrt(val[2] || 1) * 4),
       itemStyle: { color: (p: any) => colorOf(p.data?.risk), shadowBlur: 12, shadowColor: '#3d7bff' },
       emphasis: { scale: 1.25 },
-      tooltip: { formatter: (p: any) => `${p.data?.name}<br/>资产 ${p.data?.value?.[2] ?? 0}` },
+      tooltip: { formatter: (p: any) => `${p.data?.name}\n资产 ${p.data?.value?.[2] ?? 0}` },
     },
     {
       name: '资产', type: 'scatter', coordinateSystem: 'geo', data: pointData.value, symbolSize: 6,
@@ -89,9 +99,16 @@ const option = computed(() => {
         borderColor: (p: any) => p.data?.cdn ? '#eaf2ff' : 'transparent',
         borderWidth: (p: any) => p.data?.cdn ? 1 : 0,
       },
-      tooltip: { formatter: (p: any) => `${p.data?.name}<br/>${p.data?.cdn ? 'CDN 边缘 · ' : ''}风险 ${p.data?.risk || '无'}` },
+      tooltip: { formatter: (p: any) => `${p.data?.name}\n${p.data?.cdn ? 'CDN 边缘 · ' : ''}风险 ${p.data?.risk || '无'}` },
     },
   ]
+  if (nodeData.value.length) {
+    series.push({
+      name: '节点', type: 'scatter', coordinateSystem: 'geo', data: nodeData.value, symbolSize: 5,
+      itemStyle: { color: '#7f9fd6' },
+      tooltip: { formatter: (p: any) => `${p.data?.nodeType}\n${p.data?.name}\n风险 ${p.data?.risk || '无'}` },
+    })
+  }
   if (lines.value.length) {
     series.push({
       name: '关系', type: 'lines', coordinateSystem: 'geo', data: lines.value, silent: true,
@@ -100,7 +117,10 @@ const option = computed(() => {
   }
   return {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'item', backgroundColor: '#0b1830', borderColor: '#1d3f66', textStyle: { color: '#cfe0ff' } },
+    tooltip: {
+      trigger: 'item', renderMode: 'richText', escapeHTML: true,
+      backgroundColor: '#0b1830', borderColor: '#1d3f66', textStyle: { color: '#cfe0ff' },
+    },
     geo: {
       map: 'world', roam: true, zoom: 1.1, silent: false,
       itemStyle: { areaColor: '#0a1526', borderColor: '#1b3553', borderWidth: 0.6 },
@@ -116,6 +136,10 @@ function onClick(params: any) {
   if (params.seriesName === '资产') {
     const point = props.points.find((p) => p.assetId === params.data.assetId)
     if (point) emit('select-point', point)
+  }
+  if (params.seriesName === '节点' && props.graph) {
+    const node = props.graph.nodes.find((n) => n.id === params.data.id)
+    if (node) emit('select-node', node)
   }
 }
 </script>

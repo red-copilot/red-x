@@ -8,6 +8,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+// ErrDomainAlreadyConfirmed is returned when a root domain already has another owner.
+var ErrDomainAlreadyConfirmed = errors.New("domain already has a confirmed owner")
+
 // Confidence describes how strongly an ICP attribution is supported.
 type Confidence string
 

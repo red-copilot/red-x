@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
@@ -54,6 +55,33 @@ type Service struct {
 	Chinaz      DomainLookupProvider
 	ICPQuery    OrganizationLookupProvider
 	Log         *slog.Logger
+	healthMu    sync.Mutex
+	health      Health
+	chinazGuard providerGuard
+	icpGuard    providerGuard
+}
+
+func NewService(repo Repository, store ICPServiceStore, queue jobs.Queue, chinaz DomainLookupProvider, icpQuery OrganizationLookupProvider, log *slog.Logger) *Service {
+	return &Service{
+		Repo: repo, Store: store, Queue: queue, Chinaz: chinaz, ICPQuery: icpQuery, Log: log,
+		health:      Health{Chinaz: "unknown", ICPQuery: "unknown", GeoIP: "unavailable", Neo4j: "unavailable"},
+		chinazGuard: providerGuard{interval: time.Second},
+		icpGuard:    providerGuard{interval: time.Second},
+	}
+}
+
+func (s *Service) SetGeoResolver(r geoip.Resolver) {
+	s.Geo = r
+	if r != nil {
+		s.setHealth("geoip", "ok")
+	}
+}
+
+func (s *Service) SetGraphReader(r GraphReader) {
+	s.GraphReader = r
+	if r != nil {
+		s.setHealth("neo4j", "ok")
+	}
 }
 
 type OrgBubble struct {
@@ -117,18 +145,20 @@ type Health struct {
 }
 
 func (s *Service) Health(context.Context) Health {
-	h := Health{Chinaz: "unavailable", ICPQuery: "unavailable", GeoIP: "unavailable", Neo4j: "unavailable"}
-	if s.Chinaz != nil {
-		h.Chinaz = "ok"
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	h := s.health
+	if h.Chinaz == "" {
+		h.Chinaz = "unknown"
 	}
-	if s.ICPQuery != nil {
-		h.ICPQuery = "ok"
+	if h.ICPQuery == "" {
+		h.ICPQuery = "unknown"
 	}
-	if s.Geo != nil {
-		h.GeoIP = "ok"
+	if h.GeoIP == "" {
+		h.GeoIP = "unavailable"
 	}
-	if s.GraphReader != nil {
-		h.Neo4j = "ok"
+	if h.Neo4j == "" {
+		h.Neo4j = "unavailable"
 	}
 	return h
 }
@@ -195,9 +225,9 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 			for _, oid := range domainOrgs[asset.Key] {
 				ipOrgs[ip] = appendUnique(ipOrgs[ip], oid)
 			}
-			if asset.Data["cdn"] == true {
+			if cdn, name := cdnOf(asset.Data); cdn {
 				ipCDN[ip] = true
-				if name := stringValue(asset.Data["cdnName"]); name != "" {
+				if name != "" {
 					ipCDNName[ip] = name
 				}
 			}
@@ -209,9 +239,11 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 		return nil, err
 	}
 	for _, asset := range ipAssets {
-		if name := stringValue(asset.Data["cdnName"]); name != "" {
+		if cdn, name := cdnOf(asset.Data); cdn {
 			ipCDN[asset.Key] = true
-			ipCDNName[asset.Key] = name
+			if name != "" {
+				ipCDNName[asset.Key] = name
+			}
 		}
 	}
 	services, err := s.Repo.ListServiceAssetsByIPs(ctx, ipKeys)
@@ -435,6 +467,14 @@ func filterStrings(list []string, keep map[string]bool) []string {
 		}
 	}
 	return out
+}
+
+func cdnOf(data map[string]any) (bool, string) {
+	name := stringValue(data["cdnName"])
+	if name == "" {
+		name = stringValue(data["cdnType"])
+	}
+	return data["cdn"] == true || name != "", name
 }
 
 func sortedKeys(m map[string][]string) []string {

@@ -88,16 +88,19 @@ func (w *Neo4jWriter) MergeAsset(ctx context.Context, asset domain.Asset) error 
 			root = r
 		}
 		ips := stringSlice(asset.Data["ips"])
+		cdn, cdnName := cdnOf(asset.Data)
 		return w.exec(ctx, `
 MERGE (d:Domain {name:$key})
 SET d.root=$root, d.mongoId=$id, d.cdn=$cdn
 WITH d
 UNWIND $ips AS ipAddr
 MERGE (ip:IP {addr:ipAddr})
+SET ip.cdn = CASE WHEN ip.cdn THEN true ELSE $cdn END,
+    ip.cdnName = CASE WHEN ip.cdnName IS NULL OR ip.cdnName = '' THEN $cdnName ELSE ip.cdnName END
 MERGE (d)-[:RESOLVES_TO]->(ip)`,
 			map[string]any{
 				"key": asset.Key, "root": root, "id": asset.ID.Hex(),
-				"cdn": asset.Data["cdn"], "ips": ips,
+				"cdn": cdn, "cdnName": cdnName, "ips": ips,
 			})
 	case domain.AssetIP:
 		return w.exec(ctx, `MERGE (ip:IP {addr:$key}) SET ip.mongoId=$id, ip.cdn=$cdn, ip.cdnName=$cdnName`,
@@ -126,21 +129,23 @@ MERGE (ip)-[:EXPOSES]->(s)`,
 func (w *Neo4jWriter) MergeFinding(ctx context.Context, finding domain.Finding) error {
 	label, target := findingTargetNode(finding.Target)
 	if target == "" {
-		return w.exec(ctx, `MERGE (f:Finding {id:$id}) SET f.kind=$kind, f.severity=$severity, f.title=$title`,
+		return w.exec(ctx, `MERGE (f:Finding {id:$id}) SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt`,
 			map[string]any{
 				"id": finding.ID.Hex(), "kind": string(finding.Kind),
 				"severity": finding.Severity, "title": finding.Title,
+				"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
 			})
 	}
 	query := fmt.Sprintf(`
 MERGE (f:Finding {id:$id})
-SET f.kind=$kind, f.severity=$severity, f.title=$title
+SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt
 WITH f
 MERGE (n:%s {%s:$target})
 MERGE (f)-[:FOUND_ON]->(n)`, label, targetKey(label))
 	return w.exec(ctx, query, map[string]any{
 		"id": finding.ID.Hex(), "kind": string(finding.Kind),
 		"severity": finding.Severity, "title": finding.Title, "target": target,
+		"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
 	})
 }
 
@@ -149,7 +154,8 @@ func (w *Neo4jWriter) DeleteEntityEdges(ctx context.Context, entityType, entityI
 	case "asset":
 		return w.exec(ctx, `
 MATCH (n {mongoId:$id})
-OPTIONAL MATCH (n)-[r:RESOLVES_TO|EXPOSES]->()
+WHERE NOT n:IP
+OPTIONAL MATCH (n)-[r:RESOLVES_TO]->()
 DELETE r
 WITH n
 OPTIONAL MATCH ()-[r2:EXPOSES]->(n)
@@ -169,7 +175,7 @@ func (w *Neo4jWriter) Reset(ctx context.Context) error {
 	if !w.allowReset {
 		return errors.New("neo4j rebuild is disabled; set neo4j.allowRebuild=true")
 	}
-	return w.exec(ctx, `MATCH (n) DETACH DELETE n`, nil)
+	return w.exec(ctx, `MATCH (n) WHERE n:Organization OR n:Domain OR n:IP OR n:Service OR n:Finding DETACH DELETE n`, nil)
 }
 
 func findingTargetNode(raw string) (label, target string) {

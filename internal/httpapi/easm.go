@@ -56,6 +56,7 @@ func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "organization_create_failed", err.Error())
 		return
 	}
+	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
 	p := principalFrom(r.Context())
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{
 		Actor: p.Username, Action: "easm.organization_create", Resource: org.ID.Hex(),
@@ -265,6 +266,8 @@ func writeEASMProblem(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.WriteProblem(w, r, http.StatusNotFound, "icp_not_found", "no ICP attribution found")
 	case errors.Is(err, easm.ErrICPUnavailable):
 		httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "icp_unavailable", "ICP provider is unavailable")
+	case errors.Is(err, domain.ErrDomainAlreadyConfirmed):
+		httpx.WriteProblem(w, r, http.StatusConflict, "domain_already_confirmed", "root domain already has a confirmed owner")
 	case errors.Is(err, easm.ErrOrganizationNotFound):
 		httpx.WriteProblem(w, r, http.StatusNotFound, "organization_not_found", "organization not found")
 	case errors.Is(err, easm.ErrGraphUnavailable):

@@ -16,15 +16,16 @@ import (
 )
 
 type fakeEASM struct {
-	lookup    *easm.LookupResult
-	lookupErr error
-	mapSnap   *easm.MapSnapshot
-	graphSnap *easm.GraphSnapshot
-	graphErr  error
-	job       *domain.ICPJob
-	confirmN  int
-	confirmed []string
-	health    easm.Health
+	lookup     *easm.LookupResult
+	lookupErr  error
+	mapSnap    *easm.MapSnapshot
+	graphSnap  *easm.GraphSnapshot
+	graphErr   error
+	job        *domain.ICPJob
+	confirmN   int
+	confirmErr error
+	confirmed  []string
+	health     easm.Health
 }
 
 func (f *fakeEASM) LookupDomain(context.Context, string, string) (*easm.LookupResult, error) {
@@ -38,7 +39,7 @@ func (f *fakeEASM) GetICPJob(context.Context, bson.ObjectID) (*domain.ICPJob, er
 }
 func (f *fakeEASM) ConfirmDomains(_ context.Context, _ bson.ObjectID, domains []string, _ string) (int, error) {
 	f.confirmed = domains
-	return f.confirmN, nil
+	return f.confirmN, f.confirmErr
 }
 func (f *fakeEASM) Map(context.Context, *bson.ObjectID, string) (*easm.MapSnapshot, error) {
 	return f.mapSnap, nil
@@ -158,5 +159,22 @@ func TestEASMHealthShape(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"neo4j":"ok"`) {
 		t.Fatalf("unexpected health body: %s", rec.Body.String())
+	}
+}
+
+func TestEASMConfirmConflictMaps409(t *testing.T) {
+	id := bson.NewObjectID()
+	s := &Server{EASM: &fakeEASM{confirmErr: domain.ErrDomainAlreadyConfirmed}}
+	router := chi.NewRouter()
+	router.Post("/organizations/{id}/domains/confirm", s.requireWrite(s.handleConfirmDomains))
+	req := httptest.NewRequest(http.MethodPost, "/organizations/"+id.Hex()+"/domains/confirm", strings.NewReader(`{"domains":["guc.edu.cn"]}`))
+	req = withPrincipal(req, domain.RoleOperator)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "domain_already_confirmed") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }

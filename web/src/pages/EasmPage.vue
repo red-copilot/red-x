@@ -40,6 +40,7 @@
           :selected-org-id="selectedOrgId"
           @select-org="selectOrg"
           @select-point="selectPoint"
+          @select-node="selectNode"
         />
         <div class="map-tools">
           <button :class="{ active: graphOn }" :disabled="!selectedOrgId" @click="toggleGraph">
@@ -83,6 +84,7 @@ import type {
 
 const orgs = ref<Organization[]>([])
 const selectedOrgId = ref('')
+const railBubbles = ref<MapSnapshot['organizations']>([])
 const snapshot = ref<MapSnapshot>({
   organizations: [], points: [], unlocatedAssets: 0, unlocatedOrganizations: 0, unlinkedFindings: 0, updatedAt: '',
 })
@@ -124,6 +126,11 @@ async function loadMap() {
   snapshot.value = res.data
 }
 
+async function loadGlobalBubbles() {
+  const res = await api<{ data: MapSnapshot }>('/easm/map')
+  railBubbles.value = res.data.organizations || []
+}
+
 async function loadDomains() {
   if (!selectedOrgId.value) { domains.value = []; return }
   const res = await api<{ data: { items: OrganizationDomain[] } }>(`/organizations/${selectedOrgId.value}/domains`)
@@ -147,6 +154,11 @@ async function selectOrg(id: string) {
 function selectPoint(point: MapPoint) {
   selectedPoint.value = point
   selectedNode.value = null
+}
+
+function selectNode(node: GraphNode) {
+  selectedNode.value = node
+  selectedPoint.value = null
 }
 
 function clearSelection() {
@@ -240,7 +252,7 @@ async function confirmDomains(list: string[], createTask: boolean) {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadOrgs(), loadHealth()])
+    await Promise.all([loadOrgs(), loadHealth(), loadGlobalBubbles()])
     if (orgs.value.length) await selectOrg(orgs.value[0].id)
     else await loadMap()
   } catch (e: any) {
@@ -248,6 +260,7 @@ onMounted(async () => {
   }
   pollTimer = setInterval(() => {
     void loadMap()
+    void loadGlobalBubbles()
     if (graphOn.value) void loadGraph()
     void loadHealth()
   }, 30000)

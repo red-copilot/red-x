@@ -40,15 +40,23 @@ func (s *Store) GetOrganization(ctx context.Context, id bson.ObjectID) (*domain.
 }
 
 func (s *Store) FindOrganizationByName(ctx context.Context, name string) (*domain.Organization, error) {
+	return s.FindOrganizationByNameAndRegion(ctx, name, "")
+}
+
+func (s *Store) FindOrganizationByNameAndRegion(ctx context.Context, name, region string) (*domain.Organization, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, nil
 	}
-	var org domain.Organization
-	err := s.C(ColOrganizations).FindOne(ctx, bson.M{
+	filter := bson.M{
 		"status": domain.OrgStatusActive,
 		"$or":    bson.A{bson.M{"canonicalName": name}, bson.M{"aliases": name}},
-	}).Decode(&org)
+	}
+	if region = strings.TrimSpace(region); region != "" {
+		filter["region"] = region
+	}
+	var org domain.Organization
+	err := s.C(ColOrganizations).FindOne(ctx, filter).Decode(&org)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, nil
 	}
@@ -125,7 +133,7 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 		if res.MatchedCount > 0 {
 			return nil
 		}
-		insert := mergeMaps(meta, bson.M{"_id": od.ID, "firstSeen": now, "status": od.Status})
+		insert := mergeMaps(meta, bson.M{"_id": od.ID, "organizationId": od.OrganizationID, "rootDomain": od.RootDomain, "firstSeen": now, "status": od.Status})
 		if _, err := s.C(ColOrganizationDomains).InsertOne(ctx, insert); err != nil {
 			if mongo.IsDuplicateKeyError(err) {
 				continue
@@ -192,8 +200,24 @@ func (s *Store) ConfirmOrganizationDomains(ctx context.Context, orgID bson.Objec
 		return 0, nil
 	}
 	ids := make([]bson.ObjectID, 0, len(pending))
+	roots := make([]string, 0, len(pending))
 	for _, od := range pending {
 		ids = append(ids, od.ID)
+		roots = append(roots, od.RootDomain)
+	}
+	conflictCur, err := s.C(ColOrganizationDomains).Find(ctx, bson.M{
+		"rootDomain": bson.M{"$in": roots}, "status": domain.DomainStatusConfirmed,
+		"organizationId": bson.M{"$ne": orgID},
+	})
+	if err != nil {
+		return 0, err
+	}
+	var conflicts []domain.OrganizationDomain
+	if err := conflictCur.All(ctx, &conflicts); err != nil {
+		return 0, err
+	}
+	if len(conflicts) > 0 {
+		return 0, fmt.Errorf("%w: %s", domain.ErrDomainAlreadyConfirmed, conflicts[0].RootDomain)
 	}
 	now := time.Now().UTC()
 	if _, err := s.C(ColOrganizationDomains).UpdateMany(ctx,
@@ -413,5 +437,10 @@ func (s *Store) ListAllOrganizationDomains(ctx context.Context, status string) (
 
 func (s *Store) ClearGraphOutbox(ctx context.Context) error {
 	_, err := s.C(ColGraphOutbox).DeleteMany(ctx, bson.M{})
+	return err
+}
+
+func (s *Store) ClearGraphOutboxBefore(ctx context.Context, before time.Time) error {
+	_, err := s.C(ColGraphOutbox).DeleteMany(ctx, bson.M{"createdAt": bson.M{"$lt": before}})
 	return err
 }

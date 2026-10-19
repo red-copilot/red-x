@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import LoginPage from '@/pages/LoginPage.vue'
-import EasmPage from '@/pages/EasmPage.vue'
+const EasmPage = () => import('@/pages/EasmPage.vue')
 import TasksPage from '@/pages/TasksPage.vue'
 import TaskDetailPage from '@/pages/TaskDetailPage.vue'
 import AssetsPage from '@/pages/AssetsPage.vue'

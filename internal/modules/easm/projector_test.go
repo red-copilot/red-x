@@ -3,6 +3,7 @@ package easm
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/store"
@@ -68,7 +69,10 @@ func (f *fakeProjectionStore) ListFindings(_ context.Context, _, _, _ string, q 
 	}
 	return page(all, q)
 }
-func (f *fakeProjectionStore) ClearGraphOutbox(context.Context) error { f.cleared = true; return nil }
+func (f *fakeProjectionStore) ClearGraphOutboxBefore(context.Context, time.Time) error {
+	f.cleared = true
+	return nil
+}
 
 func page[T any](all []T, q store.PageQuery) ([]T, int64, error) {
 	q = q.Normalized()

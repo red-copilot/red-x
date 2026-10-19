@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/netip"
 	"time"
@@ -76,8 +77,13 @@ func (r *MaxMindResolver) Resolve(ctx context.Context, ip netip.Addr) (*domain.I
 	if err != nil || city == nil {
 		return nil, ErrIPUnlocated
 	}
+	lat, lon := city.Location.Latitude, city.Location.Longitude
+	if math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) ||
+		lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat == 0 && lon == 0) {
+		return nil, ErrIPUnlocated
+	}
 	loc := &domain.IPLocation{
-		IP: ip.String(), Lat: city.Location.Latitude, Lon: city.Location.Longitude,
+		IP: ip.String(), Lat: lat, Lon: lon,
 		Country: city.Country.IsoCode, City: pickName(city.City.Names),
 		Source: "maxmind", UpdatedAt: time.Now().UTC(),
 	}

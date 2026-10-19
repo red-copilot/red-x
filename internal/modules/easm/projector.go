@@ -31,7 +31,7 @@ type ProjectionStore interface {
 	ListAllOrganizationDomains(ctx context.Context, status string) ([]domain.OrganizationDomain, error)
 	ListAssets(ctx context.Context, kind, taskID, scopeID string, q store.PageQuery) ([]domain.Asset, int64, error)
 	ListFindings(ctx context.Context, kind, taskID, scopeID string, q store.PageQuery) ([]domain.Finding, int64, error)
-	ClearGraphOutbox(ctx context.Context) error
+	ClearGraphOutboxBefore(ctx context.Context, before time.Time) error
 }
 
 type Projector struct {
@@ -143,6 +143,7 @@ func (p *Projector) Rebuild(ctx context.Context) error {
 	if p.Store == nil || p.Writer == nil {
 		return errors.New("graph projector is not configured")
 	}
+	start := time.Now().UTC()
 	if err := p.Writer.Reset(ctx); err != nil {
 		return err
 	}
@@ -192,5 +193,5 @@ func (p *Projector) Rebuild(ctx context.Context) error {
 			break
 		}
 	}
-	return p.Store.ClearGraphOutbox(ctx)
+	return p.Store.ClearGraphOutboxBefore(ctx, start)
 }

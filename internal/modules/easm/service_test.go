@@ -262,3 +262,18 @@ func TestGraphCapsLimitAt500(t *testing.T) {
 		t.Fatalf("unexpected reader args: depth=%d limit=%d", reader.depth, reader.limit)
 	}
 }
+
+func TestClosureMarksCDNType(t *testing.T) {
+	repo, _, _ := baseRepo()
+	repo.domainAssets = repo.domainAssets[:1]
+	repo.domainAssets[0].Data["cdnType"] = "CNAME"
+	repo.orgs = repo.orgs[:1]
+	repo.domains = repo.domains[:1]
+	snap, err := (&Service{Repo: repo}).Map(context.Background(), nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Points) != 1 || !snap.Points[0].CDN || snap.Points[0].CDNName != "CNAME" {
+		t.Fatalf("cdnType was not propagated: %+v", snap.Points)
+	}
+}

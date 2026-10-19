@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
@@ -17,14 +19,17 @@ import (
 type ICPServiceStore interface {
 	CreateOrganization(ctx context.Context, org *domain.Organization) error
 	FindOrganizationByName(ctx context.Context, name string) (*domain.Organization, error)
+	FindOrganizationByNameAndRegion(ctx context.Context, name, region string) (*domain.Organization, error)
 	GetOrganization(ctx context.Context, id bson.ObjectID) (*domain.Organization, error)
 	UpsertOrganizationDomain(ctx context.Context, od *domain.OrganizationDomain) error
+	ListOrganizationDomains(ctx context.Context, orgID bson.ObjectID, status string) ([]domain.OrganizationDomain, error)
 	ConfirmOrganizationDomains(ctx context.Context, orgID bson.ObjectID, domains []string) (int, error)
 	AddICPEvidence(ctx context.Context, ev *domain.ICPEvidence) error
 	CreateICPJob(ctx context.Context, job *domain.ICPJob) error
 	UpdateICPJob(ctx context.Context, id bson.ObjectID, fields bson.M) error
 	GetICPJob(ctx context.Context, id bson.ObjectID) (*domain.ICPJob, error)
 	AddAudit(ctx context.Context, e domain.AuditEvent)
+	AppendGraphOutbox(ctx context.Context, entityType, entityID string, op domain.GraphOutboxOp) error
 }
 
 type LookupResult struct {
@@ -41,10 +46,17 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.Chinaz.LookupByDomain(ctx, root)
-	if err != nil {
+	if err := s.chinazGuard.acquire(ctx); err != nil {
 		return nil, err
 	}
+	res, err := s.Chinaz.LookupByDomain(ctx, root)
+	if err != nil {
+		s.chinazGuard.failure()
+		s.setHealth("chinaz", icpHealth(err))
+		return nil, err
+	}
+	s.chinazGuard.success()
+	s.setHealth("chinaz", "ok")
 	now := time.Now().UTC()
 	ev := &domain.ICPEvidence{
 		Provider: "chinaz", QueryType: "domain", QueryKey: root, Raw: res.RawHTML,
@@ -52,12 +64,13 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	}
 	_ = s.Store.AddICPEvidence(ctx, ev)
 	name := strings.TrimSpace(res.OrgName)
-	org, err := s.Store.FindOrganizationByName(ctx, NormalizeOrgName(name))
+	region := LicenseRegion(res.ICPNo)
+	org, err := s.Store.FindOrganizationByNameAndRegion(ctx, NormalizeOrgName(name), region)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
-		org, err = s.Store.FindOrganizationByName(ctx, name)
+		org, err = s.Store.FindOrganizationByNameAndRegion(ctx, name, region)
 		if err != nil {
 			return nil, err
 		}
@@ -65,13 +78,26 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	if org == nil {
 		org = &domain.Organization{
 			CanonicalName: name, Aliases: []string{NormalizeOrgName(name)},
-			Region: LicenseRegion(res.ICPNo), Status: domain.OrgStatusActive,
+			Region: region, Status: domain.OrgStatusActive,
 		}
 		if err := s.Store.CreateOrganization(ctx, org); err != nil {
 			return nil, err
 		}
+		_ = s.Store.AppendGraphOutbox(ctx, "organization", org.ID.Hex(), domain.OutboxOpUpsert)
 	}
-	conf := MatchConfidence(res.OrgName, res.ICPNo, org.CanonicalName, res.ICPNo)
+	storedLicense := ""
+	if confirmed, err := s.Store.ListOrganizationDomains(ctx, org.ID, string(domain.DomainStatusConfirmed)); err == nil {
+		for _, d := range confirmed {
+			if d.ICPNo != "" {
+				storedLicense = d.ICPNo
+				break
+			}
+		}
+	}
+	conf := MatchConfidence(res.OrgName, res.ICPNo, org.CanonicalName, storedLicense)
+	if conf == domain.ConfidenceLow && region != "" && region == org.Region {
+		conf = domain.ConfidenceMedium
+	}
 	od := &domain.OrganizationDomain{
 		OrganizationID: org.ID, RootDomain: root, ICPNo: res.ICPNo, AuditDate: res.AuditDate,
 		Source: "chinaz", Confidence: conf, Status: domain.DomainStatusCandidate, EvidenceID: &ev.ID,
@@ -83,6 +109,65 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 		"domain": root, "organization": org.CanonicalName, "confidence": conf,
 	})
 	return &LookupResult{Organization: *org, Attribution: res, Confidence: conf}, nil
+}
+
+type providerGuard struct {
+	mu        sync.Mutex
+	interval  time.Duration
+	next      time.Time
+	failures  int
+	openUntil time.Time
+}
+
+func (g *providerGuard) acquire(ctx context.Context) error {
+	g.mu.Lock()
+	now := time.Now()
+	if now.Before(g.openUntil) {
+		g.mu.Unlock()
+		return ErrICPUnavailable
+	}
+	wait := time.Until(g.next)
+	g.next = now.Add(g.interval)
+	g.mu.Unlock()
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (g *providerGuard) success() {
+	g.mu.Lock()
+	g.failures = 0
+	g.openUntil = time.Time{}
+	g.mu.Unlock()
+}
+
+func (g *providerGuard) failure() {
+	g.mu.Lock()
+	g.failures++
+	if g.failures >= 5 {
+		g.openUntil = time.Now().Add(10 * time.Minute)
+		g.failures = 0
+	}
+	g.mu.Unlock()
+}
+
+func icpHealth(err error) string {
+	switch {
+	case errors.Is(err, ErrICPCookieExpired):
+		return "cookie_expired"
+	case errors.Is(err, ErrICPNoAttribution):
+		return "ok"
+	default:
+		return "unavailable"
+	}
 }
 
 func (s *Service) EnqueueRefresh(ctx context.Context, orgID bson.ObjectID, actor string) (*domain.ICPJob, error) {
@@ -144,10 +229,17 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 	if org == nil {
 		return s.failJob(ctx, id, ErrOrganizationNotFound)
 	}
-	records, err := s.ICPQuery.SearchByOrganization(ctx, org.CanonicalName)
-	if err != nil {
+	if err := s.icpGuard.acquire(ctx); err != nil {
 		return s.failJob(ctx, id, err)
 	}
+	records, err := s.ICPQuery.SearchByOrganization(ctx, org.CanonicalName)
+	if err != nil {
+		s.icpGuard.failure()
+		s.setHealth("icpQuery", "unavailable")
+		return s.failJob(ctx, id, err)
+	}
+	s.icpGuard.success()
+	s.setHealth("icpQuery", "ok")
 	count := 0
 	for _, rec := range records {
 		conf := domain.ConfidenceLow
@@ -206,6 +298,21 @@ func (s *Service) audit(ctx context.Context, actor, action, resource string, det
 		return
 	}
 	s.Store.AddAudit(ctx, domain.AuditEvent{Actor: actor, Action: action, Resource: resource, Detail: detail})
+}
+
+func (s *Service) setHealth(field, value string) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	switch field {
+	case "chinaz":
+		s.health.Chinaz = value
+	case "icpQuery":
+		s.health.ICPQuery = value
+	case "geoip":
+		s.health.GeoIP = value
+	case "neo4j":
+		s.health.Neo4j = value
+	}
 }
 
 func payloadHash(raw string) string {

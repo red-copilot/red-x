@@ -496,19 +496,17 @@ func newEASMService(a *app.App) *easm.Service {
 	if pageSize <= 0 {
 		pageSize = 50
 	}
-	svc := &easm.Service{
-		Repo: a.Store, Store: a.Store, Queue: a.Queue, Log: a.Log,
-		Chinaz: easm.NewChinazProvider(cookie, a.Config.ICP.Chinaz.UserAgent,
-			"https://icp.chinaz.com", "https://tooldata.chinaz.com/icp/api/website/queryPermit", nil),
-		ICPQuery: easm.NewICPQueryProvider(baseURL, pageSize, 5*time.Second, &http.Client{Timeout: timeout}),
-	}
+	chinaz := easm.NewChinazProvider(cookie, a.Config.ICP.Chinaz.UserAgent,
+		"https://icp.chinaz.com", "https://tooldata.chinaz.com/icp/api/website/queryPermit", nil)
+	icpQuery := easm.NewICPQueryProvider(baseURL, pageSize, 5*time.Second, &http.Client{Timeout: timeout})
+	svc := easm.NewService(a.Store, a.Store, a.Queue, chinaz, icpQuery, a.Log)
 	if geo, err := geoip.NewMaxMind(a.Config.GeoIP.City, a.Config.GeoIP.ASN); err == nil {
-		svc.Geo = geo
+		svc.SetGeoResolver(geo)
 	} else {
 		a.Log.Warn("GeoIP disabled", "error", err)
 	}
 	if reader, err := easm.NewNeo4jReader(a.Config.Neo4j); err == nil && reader != nil {
-		svc.GraphReader = reader
+		svc.SetGraphReader(reader)
 	}
 	return svc
 }

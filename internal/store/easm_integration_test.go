@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -18,7 +20,7 @@ func newEASMTestStore(t *testing.T) (*Store, context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
-	dbName := "arl_test_easm_" + time.Now().Format("20060102150405.000000000")
+	dbName := fmt.Sprintf("arl_test_easm_%d", time.Now().UnixNano())
 	st, err := Open(ctx, uri, dbName)
 	if err != nil {
 		t.Fatal(err)
@@ -168,5 +170,32 @@ func TestUpsertDoesNotDowngradeConfirmedDomain(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Status != domain.DomainStatusConfirmed || rows[0].SiteName != "刷新名称" {
 		t.Fatalf("confirmed domain was downgraded or metadata lost: %+v", rows)
+	}
+}
+
+func TestConfirmRejectsSecondOwner(t *testing.T) {
+	st, ctx := newEASMTestStore(t)
+	orgA := &domain.Organization{CanonicalName: "单位A", Region: "蜀"}
+	orgB := &domain.Organization{CanonicalName: "单位B", Region: "蜀"}
+	if err := st.CreateOrganization(ctx, orgA); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateOrganization(ctx, orgB); err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range []*domain.Organization{orgA, orgB} {
+		od := &domain.OrganizationDomain{
+			OrganizationID: org.ID, RootDomain: "conflict.edu.cn", Source: "manual",
+			Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate,
+		}
+		if err := st.UpsertOrganizationDomain(ctx, od); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := st.ConfirmOrganizationDomains(ctx, orgA.ID, []string{"conflict.edu.cn"}); err != nil || n != 1 {
+		t.Fatalf("first confirm failed: n=%d err=%v", n, err)
+	}
+	if _, err := st.ConfirmOrganizationDomains(ctx, orgB.ID, []string{"conflict.edu.cn"}); !errors.Is(err, domain.ErrDomainAlreadyConfirmed) {
+		t.Fatalf("expected ErrDomainAlreadyConfirmed, got %v", err)
 	}
 }
