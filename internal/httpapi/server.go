@@ -14,7 +14,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/red-copilot/red-x/internal/domain"
-	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/modules/github"
 	"github.com/red-copilot/red-x/internal/modules/identity"
 	"github.com/red-copilot/red-x/internal/modules/monitoring"
@@ -38,7 +37,7 @@ type Server struct {
 	Scheduler *monitoring.Scheduler
 	GitHub    *github.Service
 	Exporter  *reporting.Exporter
-	EASM      *easm.Service
+	EASM      EASMService
 	Matcher   *webintel.FingerprintMatcher
 	WIH       *webintel.WIHScanner
 	Log       *slog.Logger
@@ -115,6 +114,19 @@ func (s *Server) Router() http.Handler {
 
 			protected.Get("/assets/{kind}", s.handleAssets)
 			protected.Get("/findings/{kind}", s.handleFindings)
+
+			protected.Get("/organizations", s.handleListOrganizations)
+			protected.Post("/organizations", s.requireWrite(s.handleCreateOrganization))
+			protected.Get("/organizations/{id}", s.handleGetOrganization)
+			protected.Post("/icp/lookup", s.requireWrite(s.handleLookupDomain))
+			protected.Post("/organizations/{id}/icp-domains/refresh", s.requireWrite(s.handleRefreshICP))
+			protected.Get("/icp/jobs/{id}", s.handleGetICPJob)
+			protected.Get("/organizations/{id}/domains", s.handleListOrgDomains)
+			protected.Post("/organizations/{id}/domains/confirm", s.requireWrite(s.handleConfirmDomains))
+			protected.Post("/organizations/{id}/domains/import", s.requireWrite(s.handleImportDomains))
+			protected.Get("/easm/map", s.handleEASMMap)
+			protected.Get("/easm/graph", s.handleEASMGraph)
+			protected.Get("/easm/health", s.handleEASMHealth)
 
 			protected.Get("/monitors", s.handleListMonitors)
 			protected.Post("/monitors", s.requireWrite(s.handleCreateMonitor))

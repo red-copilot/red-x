@@ -109,6 +109,30 @@ type GraphSnapshot struct {
 	Aggregated bool        `json:"aggregated"`
 }
 
+type Health struct {
+	Chinaz   string `json:"chinaz"`
+	ICPQuery string `json:"icpQuery"`
+	GeoIP    string `json:"geoip"`
+	Neo4j    string `json:"neo4j"`
+}
+
+func (s *Service) Health(context.Context) Health {
+	h := Health{Chinaz: "unavailable", ICPQuery: "unavailable", GeoIP: "unavailable", Neo4j: "unavailable"}
+	if s.Chinaz != nil {
+		h.Chinaz = "ok"
+	}
+	if s.ICPQuery != nil {
+		h.ICPQuery = "ok"
+	}
+	if s.Geo != nil {
+		h.GeoIP = "ok"
+	}
+	if s.GraphReader != nil {
+		h.Neo4j = "ok"
+	}
+	return h
+}
+
 func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*MapSnapshot, error) {
 	if s.Repo == nil {
 		return nil, errors.New("EASM repository is not configured")
