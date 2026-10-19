@@ -13,34 +13,40 @@ import (
 )
 
 const (
-	ColUsers          = "users"
-	ColSessions       = "sessions"
-	ColAPIKeys        = "api_keys"
-	ColAudit          = "audit_events"
-	ColPolicies       = "policies"
-	ColScopes         = "scopes"
-	ColResultSets     = "result_sets"
-	ColTasks          = "tasks"
-	ColTaskSteps      = "task_steps"
-	ColTaskEvents     = "task_events"
-	ColWorkItems      = "task_work_items"
-	ColOutbox         = "outbox"
-	ColLeases         = "leases"
-	ColAssets         = "assets"
-	ColObservations   = "asset_observations"
-	ColScopeAssets    = "scope_asset_links"
-	ColFindings       = "findings"
-	ColFingerprints   = "fingerprints"
-	ColMonitors       = "monitors"
-	ColSchedules      = "schedules"
-	ColMonitorRuns    = "monitor_runs"
-	ColGitHubTasks    = "github_tasks"
-	ColGitHubMonitors = "github_monitors"
-	ColGitHubFindings = "github_findings"
-	ColGitHubSeen     = "github_seen"
-	ColExports        = "exports"
-	ColPOCPlugins     = "poc_plugins"
-	ColStats          = "stats"
+	ColUsers               = "users"
+	ColSessions            = "sessions"
+	ColAPIKeys             = "api_keys"
+	ColAudit               = "audit_events"
+	ColPolicies            = "policies"
+	ColScopes              = "scopes"
+	ColResultSets          = "result_sets"
+	ColTasks               = "tasks"
+	ColTaskSteps           = "task_steps"
+	ColTaskEvents          = "task_events"
+	ColWorkItems           = "task_work_items"
+	ColOutbox              = "outbox"
+	ColLeases              = "leases"
+	ColAssets              = "assets"
+	ColObservations        = "asset_observations"
+	ColScopeAssets         = "scope_asset_links"
+	ColFindings            = "findings"
+	ColFingerprints        = "fingerprints"
+	ColMonitors            = "monitors"
+	ColSchedules           = "schedules"
+	ColMonitorRuns         = "monitor_runs"
+	ColGitHubTasks         = "github_tasks"
+	ColGitHubMonitors      = "github_monitors"
+	ColGitHubFindings      = "github_findings"
+	ColGitHubSeen          = "github_seen"
+	ColExports             = "exports"
+	ColPOCPlugins          = "poc_plugins"
+	ColStats               = "stats"
+	ColOrganizations       = "organizations"
+	ColOrganizationDomains = "organization_domains"
+	ColICPEvidence         = "icp_evidence"
+	ColIPLocations         = "ip_locations"
+	ColICPJobs             = "icp_jobs"
+	ColGraphOutbox         = "graph_outbox"
 )
 
 type Store struct {
@@ -140,6 +146,12 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{ColGitHubSeen, []mongo.IndexModel{unique("hashMd5")}},
 		{ColExports, []mongo.IndexModel{ttl("createdAt", 30*24*3600)}},
 		{ColPOCPlugins, []mongo.IndexModel{unique("name"), plain("type", "category")}},
+		{ColOrganizations, []mongo.IndexModel{unique("canonicalName"), plain("status")}},
+		{ColOrganizationDomains, []mongo.IndexModel{unique("organizationId", "rootDomain"), plain("rootDomain"), plain("status")}},
+		{ColICPEvidence, []mongo.IndexModel{plain("provider", "queryType", "queryKey"), ttl("expiresAt", 0)}},
+		{ColIPLocations, []mongo.IndexModel{unique("ip")}},
+		{ColICPJobs, []mongo.IndexModel{plain("status", "createdAt"), ttl("createdAt", 7*24*3600)}},
+		{ColGraphOutbox, []mongo.IndexModel{plain("processedAt", "createdAt"), plain("processingAt")}},
 	}
 	for _, sp := range specs {
 		if len(sp.indexes) == 0 {
