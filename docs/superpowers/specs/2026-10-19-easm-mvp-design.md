@@ -236,9 +236,9 @@ type ICPProvider interface {
 
 ### 10.2 站长：域名 → 主体
 
-- 请求 `https://icp.chinaz.com/{rootDomain}`，解析服务端 HTML。
-- 字段：`主办单位名称`、`主办单位性质`、`网站备案/许可证号`、`审核时间`。
-- 已验证该页面不依赖浏览器 JS。
+- 请求 `https://icp.chinaz.com/{rootDomain}`，解析服务端 HTML 中的 `主办单位名称`、`主办单位性质`、`审核时间`。
+- 页面内含本次会话的 `sk`；用它调用 `tooldata.chinaz.com/icp/api/website/queryPermit`（`rd/ts/token` 签名）取得 `网站备案/许可证号`。
+- 已验证该链路不依赖浏览器 JS；备案号接口失败时仍返回主体信息，但置信度降级。
 - Cookie 与 User-Agent 必须成对配置，UA 使用真实浏览器 UA。
 
 ### 10.3 ICP_Query：主体 → 全部域名
