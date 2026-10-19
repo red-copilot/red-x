@@ -1,0 +1,27 @@
+[Unit]
+Description=ARL worker
+After=network-online.target arl-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arl
+Group=arl
+WorkingDirectory=/opt/arl
+Environment=ARL_STORAGE_DATA_DIR=/var/lib/arl
+Environment=ARL_STORAGE_SCREENSHOTS_DIR=/var/lib/arl/screenshots
+Environment=ARL_STORAGE_EXPORTS_DIR=/var/lib/arl/exports
+Environment=ARL_STORAGE_ASSETS_DIR=/opt/arl/assets
+ExecStart=/opt/arl/arl worker --config /etc/arl/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/arl
+
+[Install]
+WantedBy=multi-user.target

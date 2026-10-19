@@ -1,0 +1,100 @@
+server:
+  listen: ":5003"
+  publicURL: "https://localhost:5003"
+  debug: false
+
+mongo:
+  uri: "mongodb://mongo:27017"
+  database: "arl"
+
+rabbitmq:
+  url: "amqp://arl:arlpassword@rabbitmq:5672/arlv2host"
+
+queue:
+  driver: "rabbitmq"
+
+auth:
+  accessSecret: "change-me-before-production-0123456789abcdef"
+  accessTTL: "15m"
+  refreshTTL: "168h"
+  cookieSecure: false
+  bootstrapPassword: "change-me-now-please"
+  apiKeyPepper: "change-me-api-key-pepper"
+
+scan:
+  blackCIDRs:
+    - "127.0.0.0/8"
+    - "0.0.0.0/8"
+    - "169.254.0.0/16"
+  dnsServers:
+    - "223.5.5.5:53"
+    - "1.1.1.1:53"
+  concurrency: 200
+  httpConcurrency: 12
+  maxHosts: 4096
+  maxPorts: 65535
+  maxRuntime: "2h"
+  allowPrivate: false
+
+storage:
+  dataDir: "/data"
+  screenshotsDir: "/data/screenshots"
+  exportsDir: "/data/exports"
+  assetsDir: "/app/assets"
+
+tools:
+  chromiumPath: ""
+
+scanners:
+  subfinder:
+    sources: ["crtsh", "rapiddns", "alienvault"]
+    threads: 10
+    timeout: 30
+    maxEnumerationTime: 5
+    providerConfig: "/data/subfinder-provider.yaml"
+  dnsx:
+    retries: 3
+    timeout: 4
+  naabu:
+    scanType: "connect"
+    rate: 1000
+    timeout: 3
+    threads: 100
+    serviceDiscovery: true
+    serviceVersion: true
+    excludeCDN: true
+  tlsx:
+    scanMode: "ctls"
+    timeout: 5
+    retries: 1
+  httpx:
+    timeout: 10
+    retries: 1
+    maxRedirects: 5
+    maxBodyRead: 2097152
+  katana:
+    maxDepth: 2
+    maxPages: 100
+    rateLimit: 50
+    timeout: 10
+    concurrency: 10
+  nuclei:
+    templatesDir: "/app/assets/nuclei"
+    protocols: ["http"]
+    timeout: 10
+    rateLimit: 100
+    bulkSize: 10
+    templateThreads: 10
+    interactshURL: ""
+
+github:
+  token: ""
+
+fofa:
+  url: "https://fofa.info"
+  key: ""
+  maxPage: 5
+  pageSize: 2000
+
+notifications: {}
+queryPlugins: {}

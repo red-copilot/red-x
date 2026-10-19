@@ -1,0 +1,21 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  background: #f3f6fb;
+  color: #1d2433;
+}
+
+body { margin: 0; min-width: 320px; background: #f3f6fb; }
+* { box-sizing: border-box; }
+
+.page-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.page-title h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+.muted { color: #6b7280; }
+.mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
+.table-toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.metric-card { border-radius: 14px; background: #fff; padding: 18px; border: 1px solid #e5eaf2; }
+.metric-card .label { color: #6b7280; font-size: 13px; }
+.metric-card .value { margin-top: 8px; font-size: 28px; font-weight: 700; }
+.json-block { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #dbeafe; padding: 14px; border-radius: 10px; font-size: 12px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }

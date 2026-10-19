@@ -1,0 +1,23 @@
+id: elasticsearch-open
+
+info:
+  name: Elasticsearch Open
+  author: arl
+  severity: high
+  description: Detects an unauthenticated Elasticsearch endpoint.
+  tags: elasticsearch,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+      - "{{BaseURL}}/_cluster/health"
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - cluster_name
+      - type: word
+        words:
+          - lucene_version
+        condition: or

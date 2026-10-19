@@ -1,0 +1,116 @@
+name: arl
+
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: arl-mongo
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [arl]
+
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["mongosh", "--host", "mongo:27017", "--quiet", "--eval", "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }"]
+    restart: "no"
+    networks: [arl]
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: arl-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: arl
+      RABBITMQ_DEFAULT_PASS: arlpassword
+      RABBITMQ_DEFAULT_VHOST: arlv2host
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [arl]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: "3.0.0"
+    image: arl:local
+    container_name: arl-web
+    restart: unless-stopped
+    command: ["web", "--config", "/etc/arl/config.yaml"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./config.docker.yaml:/etc/arl/config.yaml:ro
+      - arl-data:/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/arl", "health", "--url", "http://127.0.0.1:5003/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    networks: [arl]
+
+  worker:
+    image: arl:local
+    container_name: arl-worker
+    restart: unless-stopped
+    command: ["worker", "--config", "/etc/arl/config.yaml"]
+    depends_on:
+      web:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./config.docker.yaml:/etc/arl/config.yaml:ro
+      - arl-data:/data
+    cap_add: [NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    networks: [arl]
+
+  scheduler:
+    image: arl:local
+    container_name: arl-scheduler
+    restart: unless-stopped
+    command: ["scheduler", "--config", "/etc/arl/config.yaml"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    volumes:
+      - ./config.docker.yaml:/etc/arl/config.yaml:ro
+      - arl-data:/data
+    security_opt: ["no-new-privileges:true"]
+    networks: [arl]
+
+volumes:
+  mongo-data:
+  arl-data:
+
+networks:
+  arl:
+    driver: bridge

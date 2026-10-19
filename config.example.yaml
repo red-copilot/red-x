@@ -1,0 +1,137 @@
+server:
+  listen: ":5003"
+  publicURL: "https://localhost:5003"
+  tlsCert: ""
+  tlsKey: ""
+  debug: false
+
+mongo:
+  uri: "mongodb://127.0.0.1:27017"
+  database: "arl"
+
+rabbitmq:
+  url: "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host"
+
+queue:
+  # rabbitmq for multi-process deployments; memory is intended for `arl all` development mode.
+  driver: "rabbitmq"
+
+auth:
+  # Generate with: openssl rand -base64 48
+  accessSecret: "replace-with-a-long-random-secret"
+  accessTTL: "15m"
+  refreshTTL: "168h"
+  cookieSecure: true
+  # If empty, a one-time random password is printed to the service log.
+  bootstrapPassword: ""
+  apiKeyPepper: "replace-with-a-random-pepper"
+
+scan:
+  blackCIDRs:
+    - "127.0.0.0/8"
+    - "0.0.0.0/8"
+    - "169.254.0.0/16"
+    - "::1/128"
+    - "fe80::/10"
+  forbiddenDomains: []
+  dnsServers:
+    - "223.5.5.5:53"
+    - "1.1.1.1:53"
+  concurrency: 200
+  httpConcurrency: 12
+  maxHosts: 4096
+  maxPorts: 65535
+  maxRuntime: "2h"
+  proxyURL: ""
+  # Set true only when scanning private/internal address space is intended.
+  allowPrivate: false
+  # Set true only for local lab/testing targets.
+  allowLoopback: false
+
+storage:
+  dataDir: "./data"
+  screenshotsDir: "./data/screenshots"
+  exportsDir: "./data/exports"
+  assetsDir: "./assets"
+
+tools:
+  # Empty means auto-detect chromium/chromium-browser/google-chrome.
+  chromiumPath: ""
+
+scanners:
+  subfinder:
+    sources: ["crtsh", "rapiddns", "alienvault"]
+    threads: 10
+    timeout: 30
+    maxEnumerationTime: 5
+    providerConfig: "./data/subfinder-provider.yaml"
+  dnsx:
+    retries: 3
+    timeout: 4
+  naabu:
+    # connect works without NET_RAW; syn requires the worker capability.
+    scanType: "connect"
+    rate: 1000
+    timeout: 3
+    threads: 100
+    serviceDiscovery: true
+    serviceVersion: true
+    excludeCDN: true
+  tlsx:
+    scanMode: "ctls"
+    timeout: 5
+    retries: 1
+  httpx:
+    timeout: 10
+    retries: 1
+    maxRedirects: 5
+    maxBodyRead: 2097152
+  katana:
+    maxDepth: 2
+    maxPages: 100
+    rateLimit: 50
+    timeout: 10
+    concurrency: 10
+  nuclei:
+    templatesDir: "./assets/nuclei"
+    protocols: ["http"]
+    timeout: 10
+    rateLimit: 100
+    bulkSize: 10
+    templateThreads: 10
+    # Empty disables interactsh/OOB callbacks.
+    interactshURL: ""
+
+geoip:
+  city: ""
+  asn: ""
+
+github:
+  token: ""
+
+fofa:
+  url: "https://fofa.info"
+  key: ""
+  maxPage: 5
+  pageSize: 2000
+
+notifications:
+  dingtalk:
+    accessToken: ""
+    secret: ""
+  feishu:
+    webhookURL: ""
+    secret: ""
+  wecom:
+    webhookURL: ""
+  smtp:
+    host: ""
+    port: 465
+    username: ""
+    password: ""
+    to: ""
+  webhook:
+    url: ""
+    token: ""
+
+queryPlugins: {}

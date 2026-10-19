@@ -1,0 +1,20 @@
+id: actuator-env-exposure
+
+info:
+  name: Spring Boot Actuator Environment Exposure
+  author: arl
+  severity: high
+  description: Detects a reachable Spring Boot actuator environment endpoint.
+  tags: spring,actuator,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/actuator/env"
+      - "{{BaseURL}}/env"
+    matchers:
+      - type: word
+        words:
+          - propertySources
+          - activeProfiles
+        condition: and

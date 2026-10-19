@@ -1,0 +1,22 @@
+id: swagger-docs-exposure
+
+info:
+  name: Swagger / OpenAPI Documentation Exposure
+  author: arl
+  severity: info
+  description: Detects exposed Swagger or OpenAPI documentation.
+  tags: swagger,openapi,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/swagger-ui.html"
+      - "{{BaseURL}}/v2/api-docs"
+      - "{{BaseURL}}/openapi.json"
+    matchers:
+      - type: word
+        words:
+          - swagger
+          - openapi
+          - '"paths"'
+        condition: or
