@@ -13,6 +13,7 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/config"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Neo4jWriter struct {
@@ -250,6 +251,14 @@ func stringSlice(v any) []string {
 	case []string:
 		return vv
 	case []any:
+		out := make([]string, 0, len(vv))
+		for _, item := range vv {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case bson.A:
 		out := make([]string, 0, len(vv))
 		for _, item := range vv {
 			if s, ok := item.(string); ok {

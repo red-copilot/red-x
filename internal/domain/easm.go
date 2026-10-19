@@ -125,6 +125,10 @@ type OrganizationDomain struct {
 	Confidence     Confidence     `bson:"confidence" json:"confidence"`
 	Status         DomainStatus   `bson:"status" json:"status"`
 	EvidenceID     *bson.ObjectID `bson:"evidenceId,omitempty" json:"evidenceId,omitempty"`
+	DecisionReason string         `bson:"decisionReason,omitempty" json:"decisionReason,omitempty"`
+	DecidedBy      string         `bson:"decidedBy,omitempty" json:"decidedBy,omitempty"`
+	DecidedAt      *time.Time     `bson:"decidedAt,omitempty" json:"decidedAt,omitempty"`
+	ReassignedTo   *bson.ObjectID `bson:"reassignedTo,omitempty" json:"reassignedTo,omitempty"`
 	FirstSeen      time.Time      `bson:"firstSeen" json:"firstSeen"`
 	LastSeen       time.Time      `bson:"lastSeen" json:"lastSeen"`
 	UpdatedAt      time.Time      `bson:"updatedAt" json:"updatedAt"`

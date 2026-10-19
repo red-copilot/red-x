@@ -3,6 +3,8 @@ package easm
 import (
 	"testing"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestFindingTargetNode(t *testing.T) {
@@ -29,6 +31,9 @@ func TestFindingTargetNode(t *testing.T) {
 func TestStringSlice(t *testing.T) {
 	if got := stringSlice([]any{"1.1.1.1", "2.2.2.2"}); len(got) != 2 || got[1] != "2.2.2.2" {
 		t.Fatalf("unexpected slice: %v", got)
+	}
+	if got := stringSlice(bson.A{"1.1.1.1", "2.2.2.2"}); len(got) != 2 || got[0] != "1.1.1.1" {
+		t.Fatalf("unexpected bson.A slice: %v", got)
 	}
 	if got := stringSlice(nil); len(got) != 0 {
 		t.Fatalf("unexpected nil slice: %v", got)

@@ -20,6 +20,12 @@ type EASMService interface {
 	ConfirmDomains(ctx context.Context, orgID bson.ObjectID, domains []string, actor string) (int, error)
 	Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*easm.MapSnapshot, error)
 	Graph(ctx context.Context, orgID bson.ObjectID, depth, limit int) (*easm.GraphSnapshot, error)
+	Summary(ctx context.Context, orgID bson.ObjectID) (*easm.OrganizationSummary, error)
+	Assets(ctx context.Context, orgID *bson.ObjectID, filter easm.AssetFilter) (*easm.AssetPage, error)
+	Asset(ctx context.Context, orgID *bson.ObjectID, id bson.ObjectID) (*easm.AssetItem, error)
+	Findings(ctx context.Context, orgID *bson.ObjectID, filter easm.FindingFilter) (*easm.FindingPage, error)
+	FindingHistory(ctx context.Context, orgID bson.ObjectID, findingID bson.ObjectID) ([]domain.Finding, error)
+	CreateScans(ctx context.Context, orgID bson.ObjectID, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []easm.ScanError, error)
 	Health(ctx context.Context) easm.Health
 }
 
@@ -190,11 +196,18 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_domains", "domains are required")
 		return
 	}
+	org, err := s.Store.GetOrganization(r.Context(), id)
+	if err != nil || org == nil {
+		httpx.WriteProblem(w, r, http.StatusNotFound, "organization_not_found", "organization not found")
+		return
+	}
 	p := principalFrom(r.Context())
-	var roots []string
+	var items []domain.OrganizationDomain
+	var rejected []string
 	for _, raw := range req.Domains {
 		root, err := easm.NormalizeRootDomain(raw)
 		if err != nil {
+			rejected = append(rejected, raw)
 			continue
 		}
 		od := &domain.OrganizationDomain{
@@ -202,20 +215,16 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 			Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate,
 		}
 		if err := s.Store.UpsertOrganizationDomain(r.Context(), od); err != nil {
+			rejected = append(rejected, root)
 			continue
 		}
-		roots = append(roots, root)
-	}
-	changed, err := s.Store.ConfirmOrganizationDomains(r.Context(), id, roots)
-	if err != nil {
-		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
-		return
+		items = append(items, *od)
 	}
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{
 		Actor: p.Username, Action: "easm.domain_import", Resource: id.Hex(),
-		Detail: map[string]any{"domains": roots, "imported": len(roots), "changed": changed},
+		Detail: map[string]any{"imported": len(items), "rejected": rejected},
 	})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"imported": len(roots), "changed": changed}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "imported": len(items), "rejected": rejected}})
 }
 
 func (s *Server) handleEASMMap(w http.ResponseWriter, r *http.Request) {

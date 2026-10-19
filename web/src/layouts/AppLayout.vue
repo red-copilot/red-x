@@ -45,13 +45,24 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const collapsed = ref(false)
-const selected = computed(() => [route.path.split('/')[1] || 'easm'])
+const selected = computed(() => {
+  const p = route.path.replace(/^\//, '')
+  for (const key of ['easm/organizations', 'easm/assets', 'easm/findings', 'easm/tasks']) {
+    if (p === key || p.startsWith(`${key}/`)) return [key]
+  }
+  return [p.split('/')[0] || 'easm']
+})
 
 const menuItems = [
-  { key: 'easm', label: 'EASM 态势' },
-  { key: 'tasks', label: '任务' },
-  { key: 'assets', label: '资产' },
-  { key: 'findings', label: '发现' },
+  { key: 'easm', label: 'EASM 总览' },
+  { key: 'easm/organizations', label: '组织治理' },
+  { key: 'easm/assets', label: 'EASM 资产' },
+  { key: 'easm/findings', label: 'EASM 风险' },
+  { key: 'easm/tasks', label: 'EASM 任务' },
+  { type: 'divider' },
+  { key: 'tasks', label: '全局任务' },
+  { key: 'assets', label: '全局资产' },
+  { key: 'findings', label: '全局发现' },
   { key: 'scopes', label: '资产组' },
   { key: 'policies', label: '策略' },
   { key: 'monitors', label: '监控' },

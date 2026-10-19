@@ -1,0 +1,74 @@
+name: arl
+
+services:
+  neo4j:
+    image: neo4j:5.26.32-community-trixie@sha256:0a6e7aedf54a531f76286032d4365ead65b11cca05e4a15cdf23b8e53d6db02b
+    container_name: arl-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in deploy/.env.easm}
+    volumes:
+      - neo4j-data:/data
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_PASSWORD}\" 'RETURN 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+    networks: [arl]
+
+  icp-query:
+    image: yiminger/ymicp:v0.7.6@sha256:ba635d20d9c3421b93b0be1549624363e02a154bbe240011c01c0c16782779fe
+    container_name: arl-icp-query
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16181:16181"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.create_connection(('127.0.0.1',16181),2).close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    networks: [arl]
+
+  web:
+    environment:
+      ARL_NEO4J_URI: bolt://neo4j:7687
+      ARL_NEO4J_USER: neo4j
+      ARL_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in deploy/.env.easm}
+      ARL_NEO4J_DATABASE: neo4j
+      ARL_ICP_ICPQUERY_BASE_URL: http://icp-query:16181
+      ARL_ICP_CHINAZ_COOKIE_FILE: /run/secrets/chinaz.cookie
+      ARL_GEOIP_CITY: /data/geoip/GeoLite2-City.mmdb
+      ARL_GEOIP_ASN: /data/geoip/GeoLite2-ASN.mmdb
+    volumes:
+      - ./secrets/chinaz.cookie:/run/secrets/chinaz.cookie:ro
+      - ./geoip:/data/geoip:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      icp-query:
+        condition: service_healthy
+
+  worker:
+    environment:
+      ARL_NEO4J_URI: bolt://neo4j:7687
+      ARL_NEO4J_USER: neo4j
+      ARL_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in deploy/.env.easm}
+      ARL_NEO4J_DATABASE: neo4j
+      ARL_ICP_ICPQUERY_BASE_URL: http://icp-query:16181
+      ARL_ICP_CHINAZ_COOKIE_FILE: /run/secrets/chinaz.cookie
+      ARL_GEOIP_CITY: /data/geoip/GeoLite2-City.mmdb
+      ARL_GEOIP_ASN: /data/geoip/GeoLite2-ASN.mmdb
+    volumes:
+      - ./secrets/chinaz.cookie:/run/secrets/chinaz.cookie:ro
+      - ./geoip:/data/geoip:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      icp-query:
+        condition: service_healthy
+
+volumes:
+  neo4j-data:

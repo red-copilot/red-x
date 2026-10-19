@@ -67,8 +67,8 @@ func (s *Store) ListOrganizations(ctx context.Context, query string, limit int) 
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 5000 {
+		limit = 5000
 	}
 	filter := bson.M{"status": domain.OrgStatusActive}
 	if q := strings.TrimSpace(query); q != "" {
@@ -100,6 +100,9 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 		od.ID = bson.NewObjectID()
 	}
 	od.RootDomain = strings.TrimSpace(strings.ToLower(od.RootDomain))
+	if od.FirstSeen.IsZero() {
+		od.FirstSeen = now
+	}
 	od.LastSeen = now
 	od.UpdatedAt = now
 	od.SchemaVersion = domain.SchemaVersion
@@ -443,4 +446,155 @@ func (s *Store) ClearGraphOutbox(ctx context.Context) error {
 func (s *Store) ClearGraphOutboxBefore(ctx context.Context, before time.Time) error {
 	_, err := s.C(ColGraphOutbox).DeleteMany(ctx, bson.M{"createdAt": bson.M{"$lt": before}})
 	return err
+}
+
+func (s *Store) UpdateOrganization(ctx context.Context, org *domain.Organization) error {
+	if err := org.Validate(); err != nil {
+		return err
+	}
+	org.CanonicalName = strings.TrimSpace(org.CanonicalName)
+	org.UpdatedAt = time.Now().UTC()
+	_, err := s.C(ColOrganizations).UpdateOne(ctx, bson.M{"_id": org.ID}, bson.M{"$set": bson.M{
+		"canonicalName": org.CanonicalName, "aliases": org.Aliases, "region": org.Region,
+		"uscc": org.USCC, "status": org.Status, "mergedInto": org.MergedInto,
+		"updatedAt": org.UpdatedAt,
+	}})
+	return err
+}
+
+func (s *Store) GetICPEvidence(ctx context.Context, id bson.ObjectID) (*domain.ICPEvidence, error) {
+	var ev domain.ICPEvidence
+	err := s.C(ColICPEvidence).FindOne(ctx, bson.M{"_id": id}).Decode(&ev)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &ev, err
+}
+
+func (s *Store) RejectOrganizationDomain(ctx context.Context, domainID, orgID bson.ObjectID, actor, reason string) error {
+	now := time.Now().UTC()
+	res, err := s.C(ColOrganizationDomains).UpdateOne(ctx,
+		bson.M{"_id": domainID, "organizationId": orgID, "status": bson.M{"$in": bson.A{domain.DomainStatusCandidate, domain.DomainStatusConfirmed}}},
+		bson.M{"$set": bson.M{
+			"status": domain.DomainStatusRejected, "decisionReason": reason, "decidedBy": actor,
+			"decidedAt": now, "updatedAt": now, "lastSeen": now,
+		}},
+	)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return errors.New("organization domain not found")
+	}
+	return s.AppendGraphOutbox(ctx, "organization_domain", domainID.Hex(), domain.OutboxOpUpsert)
+}
+
+func (s *Store) ReassignOrganizationDomain(ctx context.Context, domainID, targetOrgID bson.ObjectID, actor, reason string) (*domain.OrganizationDomain, error) {
+	if domainID.IsZero() || targetOrgID.IsZero() {
+		return nil, errors.New("domain id and target organization id are required")
+	}
+	session, err := s.client.StartSession()
+	if err != nil {
+		return nil, err
+	}
+	defer session.EndSession(ctx)
+	var moved *domain.OrganizationDomain
+	_, err = session.WithTransaction(ctx, func(sc context.Context) (any, error) {
+		var old domain.OrganizationDomain
+		if err := s.C(ColOrganizationDomains).FindOne(sc, bson.M{"_id": domainID}).Decode(&old); err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, errors.New("organization domain not found")
+			}
+			return nil, err
+		}
+		if old.Status != domain.DomainStatusConfirmed {
+			return nil, errors.New("only confirmed domains can be reassigned")
+		}
+		if old.OrganizationID == targetOrgID {
+			return nil, domain.ErrDomainAlreadyConfirmed
+		}
+		var target domain.Organization
+		if err := s.C(ColOrganizations).FindOne(sc, bson.M{"_id": targetOrgID, "status": domain.OrgStatusActive}).Decode(&target); err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, errors.New("target organization not found")
+			}
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if _, err := s.C(ColOrganizationDomains).UpdateOne(sc, bson.M{"_id": old.ID}, bson.M{"$set": bson.M{
+			"status": domain.DomainStatusRejected, "reassignedTo": targetOrgID,
+			"decisionReason": reason, "decidedBy": actor, "decidedAt": now, "updatedAt": now,
+		}}); err != nil {
+			return nil, err
+		}
+		var existing domain.OrganizationDomain
+		existingErr := s.C(ColOrganizationDomains).FindOne(sc, bson.M{
+			"organizationId": targetOrgID, "rootDomain": old.RootDomain,
+		}).Decode(&existing)
+		if existingErr != nil && !errors.Is(existingErr, mongo.ErrNoDocuments) {
+			return nil, existingErr
+		}
+		newRow := old
+		newRow.OrganizationID = targetOrgID
+		newRow.Status = domain.DomainStatusConfirmed
+		newRow.DecisionReason = reason
+		newRow.DecidedBy = actor
+		newRow.DecidedAt = &now
+		newRow.ReassignedTo = nil
+		newRow.LastSeen = now
+		newRow.UpdatedAt = now
+		newRow.SchemaVersion = domain.SchemaVersion
+		if existingErr == nil {
+			if existing.Status == domain.DomainStatusConfirmed {
+				return nil, domain.ErrDomainAlreadyConfirmed
+			}
+			newRow.ID = existing.ID
+			newRow.FirstSeen = existing.FirstSeen
+			if _, err := s.C(ColOrganizationDomains).UpdateOne(sc, bson.M{"_id": existing.ID}, bson.M{"$set": bson.M{
+				"status": domain.DomainStatusConfirmed, "siteName": newRow.SiteName, "homeSite": newRow.HomeSite,
+				"icpNo": newRow.ICPNo, "auditDate": newRow.AuditDate, "source": newRow.Source,
+				"confidence": newRow.Confidence, "evidenceId": newRow.EvidenceID, "decisionReason": reason,
+				"decidedBy": actor, "decidedAt": now, "reassignedTo": nil, "lastSeen": now,
+				"updatedAt": now, "schemaVersion": domain.SchemaVersion,
+			}}); err != nil {
+				return nil, err
+			}
+		} else {
+			newRow.ID = bson.NewObjectID()
+			if _, err := s.C(ColOrganizationDomains).InsertOne(sc, newRow); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.AppendGraphOutbox(sc, "organization_domain", old.ID.Hex(), domain.OutboxOpUpsert); err != nil {
+			return nil, err
+		}
+		if err := s.AppendGraphOutbox(sc, "organization_domain", newRow.ID.Hex(), domain.OutboxOpUpsert); err != nil {
+			return nil, err
+		}
+		moved = &newRow
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return moved, nil
+}
+
+func (s *Store) SummaryTasks(ctx context.Context, organizationID string) (int, *time.Time, error) {
+	filter := bson.M{"organizationId": organizationID, "origin": domain.TaskOriginEASM}
+	n, err := s.C(ColTasks).CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, nil, err
+	}
+	var latest struct {
+		CreatedAt time.Time `bson:"createdAt"`
+	}
+	err = s.C(ColTasks).FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "createdAt", Value: -1}})).Decode(&latest)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return int(n), nil, nil
+	}
+	if err != nil {
+		return int(n), nil, err
+	}
+	return int(n), &latest.CreatedAt, nil
 }

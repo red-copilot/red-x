@@ -43,6 +43,13 @@ const (
 	StepSkipped   StepStatus = "skipped"
 )
 
+type TaskOrigin string
+
+const (
+	TaskOriginManual TaskOrigin = "manual"
+	TaskOriginEASM   TaskOrigin = "easm"
+)
+
 type TaskKind string
 
 const (
@@ -245,24 +252,27 @@ type TaskStatistics struct {
 }
 
 type Task struct {
-	ID            bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	Name          string         `bson:"name" json:"name"`
-	Kind          TaskKind       `bson:"kind" json:"kind"`
-	Target        string         `bson:"target" json:"target"`
-	Targets       []string       `bson:"targets" json:"targets"`
-	Status        TaskStatus     `bson:"status" json:"status"`
-	Progress      int            `bson:"progress" json:"progress"`
-	Options       TaskOptions    `bson:"options" json:"options"`
-	PolicyID      string         `bson:"policyId,omitempty" json:"policyId,omitempty"`
-	ScopeID       string         `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
-	Statistics    TaskStatistics `bson:"statistics" json:"statistics"`
-	Warnings      []string       `bson:"warnings,omitempty" json:"warnings,omitempty"`
-	Error         string         `bson:"error,omitempty" json:"error,omitempty"`
-	CreatedBy     string         `bson:"createdBy" json:"createdBy"`
-	CreatedAt     time.Time      `bson:"createdAt" json:"createdAt"`
-	StartedAt     *time.Time     `bson:"startedAt,omitempty" json:"startedAt,omitempty"`
-	FinishedAt    *time.Time     `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID             bson.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name           string         `bson:"name" json:"name"`
+	Kind           TaskKind       `bson:"kind" json:"kind"`
+	Target         string         `bson:"target" json:"target"`
+	Targets        []string       `bson:"targets" json:"targets"`
+	Status         TaskStatus     `bson:"status" json:"status"`
+	Progress       int            `bson:"progress" json:"progress"`
+	Options        TaskOptions    `bson:"options" json:"options"`
+	PolicyID       string         `bson:"policyId,omitempty" json:"policyId,omitempty"`
+	ScopeID        string         `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
+	OrganizationID string         `bson:"organizationId,omitempty" json:"organizationId,omitempty"`
+	RootDomain     string         `bson:"rootDomain,omitempty" json:"rootDomain,omitempty"`
+	Origin         TaskOrigin     `bson:"origin,omitempty" json:"origin,omitempty"`
+	Statistics     TaskStatistics `bson:"statistics" json:"statistics"`
+	Warnings       []string       `bson:"warnings,omitempty" json:"warnings,omitempty"`
+	Error          string         `bson:"error,omitempty" json:"error,omitempty"`
+	CreatedBy      string         `bson:"createdBy" json:"createdBy"`
+	CreatedAt      time.Time      `bson:"createdAt" json:"createdAt"`
+	StartedAt      *time.Time     `bson:"startedAt,omitempty" json:"startedAt,omitempty"`
+	FinishedAt     *time.Time     `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
+	SchemaVersion  int            `bson:"schemaVersion" json:"schemaVersion"`
 }
 
 type TaskStep struct {

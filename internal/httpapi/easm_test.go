@@ -26,6 +26,13 @@ type fakeEASM struct {
 	confirmErr error
 	confirmed  []string
 	health     easm.Health
+	summary    *easm.OrganizationSummary
+	assets     *easm.AssetPage
+	asset      *easm.AssetItem
+	findings   *easm.FindingPage
+	history    []domain.Finding
+	tasks      []domain.Task
+	scanErr    error
 }
 
 func (f *fakeEASM) LookupDomain(context.Context, string, string) (*easm.LookupResult, error) {
@@ -48,6 +55,24 @@ func (f *fakeEASM) Graph(context.Context, bson.ObjectID, int, int) (*easm.GraphS
 	return f.graphSnap, f.graphErr
 }
 func (f *fakeEASM) Health(context.Context) easm.Health { return f.health }
+func (f *fakeEASM) Summary(context.Context, bson.ObjectID) (*easm.OrganizationSummary, error) {
+	return f.summary, nil
+}
+func (f *fakeEASM) Assets(context.Context, *bson.ObjectID, easm.AssetFilter) (*easm.AssetPage, error) {
+	return f.assets, nil
+}
+func (f *fakeEASM) Asset(context.Context, *bson.ObjectID, bson.ObjectID) (*easm.AssetItem, error) {
+	return f.asset, nil
+}
+func (f *fakeEASM) Findings(context.Context, *bson.ObjectID, easm.FindingFilter) (*easm.FindingPage, error) {
+	return f.findings, nil
+}
+func (f *fakeEASM) FindingHistory(context.Context, bson.ObjectID, bson.ObjectID) ([]domain.Finding, error) {
+	return f.history, nil
+}
+func (f *fakeEASM) CreateScans(context.Context, bson.ObjectID, []string, domain.TaskOptions, string, string, string) ([]domain.Task, []easm.ScanError, error) {
+	return f.tasks, nil, f.scanErr
+}
 
 func withPrincipal(r *http.Request, role domain.Role) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), principalKey{}, &identity.Principal{
@@ -176,5 +201,78 @@ func TestEASMConfirmConflictMaps409(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "domain_already_confirmed") {
 		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
+func TestEASMOrganizationSummaryAndAssetsShape(t *testing.T) {
+	orgID := bson.NewObjectID()
+	s := &Server{EASM: &fakeEASM{
+		summary: &easm.OrganizationSummary{OrganizationID: orgID.Hex(), ConfirmedDomains: 2},
+		assets:  &easm.AssetPage{Items: []easm.AssetItem{{ID: bson.NewObjectID().Hex(), Kind: "domain", Key: "example.com"}}, Total: 1, Page: 1, PageSize: 20},
+	}}
+	for _, tc := range []struct {
+		path    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{"/api/v1/easm/organizations/" + orgID.Hex() + "/summary", s.handleEASMOrganizationSummary, `"confirmedDomains":2`},
+		{"/api/v1/easm/organizations/" + orgID.Hex() + "/assets?kind=domain", s.handleEASMOrganizationAssets, `"key":"example.com"`},
+	} {
+		rec := httptest.NewRecorder()
+		req := withChiParam(httptest.NewRequest(http.MethodGet, tc.path, nil), "id", orgID.Hex())
+		tc.handler(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("%s status=%d body=%s", tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestEASMFindingsShapeAndHistory(t *testing.T) {
+	orgID, findingID := bson.NewObjectID(), bson.NewObjectID()
+	s := &Server{EASM: &fakeEASM{
+		findings: &easm.FindingPage{Items: []easm.FindingItem{{Finding: domain.Finding{ID: findingID, Title: "漏洞", Target: "example.com"}, Occurrences: 2}}, Total: 1},
+		history:  []domain.Finding{{ID: findingID, Title: "漏洞"}},
+	}}
+	rec := httptest.NewRecorder()
+	req := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID.Hex()+"/findings", nil), "id", orgID.Hex())
+	s.handleEASMOrganizationFindings(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"occurrences":2`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID.Hex()+"/findings/"+findingID.Hex()+"/history", nil)
+	req = withChiParam(withChiParam(req, "id", orgID.Hex()), "findingId", findingID.Hex())
+	s.handleEASMFindingHistory(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"title":"漏洞"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func withChiParam(r *http.Request, name, value string) *http.Request {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		rctx = chi.NewRouteContext()
+	}
+	rctx.URLParams.Add(name, value)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+}
+
+func TestEASMCreateScansShapeAndValidation(t *testing.T) {
+	orgID := bson.NewObjectID()
+	s := &Server{EASM: &fakeEASM{tasks: []domain.Task{{ID: bson.NewObjectID(), OrganizationID: orgID.Hex(), RootDomain: "a.edu.cn", Origin: domain.TaskOriginEASM}}}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID.Hex()+"/scans", strings.NewReader(`{"rootDomains":["a.edu.cn"],"options":{"portScan":true}}`))
+	req = withPrincipal(withChiParam(req, "id", orgID.Hex()), domain.RoleOperator)
+	s.handleCreateEASMScans(rec, req)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"origin":"easm"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID.Hex()+"/scans", strings.NewReader(`{"rootDomains":["candidate.edu.cn"]}`))
+	req = withPrincipal(withChiParam(req, "id", orgID.Hex()), domain.RoleOperator)
+	s.EASM = &fakeEASM{scanErr: easm.ErrDomainNotConfirmed}
+	s.handleCreateEASMScans(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

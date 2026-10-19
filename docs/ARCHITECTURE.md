@@ -84,10 +84,12 @@ task result set and record the producing `engine`/`engineVersion`.
 - `ip_locations`: offline GeoIP cache.
 - `graph_outbox` + `icp_jobs`: graph projection and async ICP refresh.
 
-The EASM page at `/` is organization-first: the world map shows organization
-bubbles, selecting one filters the map to its assets, and the graph layer draws
-domain/IP/service/finding edges over the map. MongoDB remains the source of
-truth; Neo4j is rebuilt from the outbox and `arl graph rebuild`.
+The EASM surface is organization-first. `/easm` keeps the world map and graph
+overview; `/easm/organizations` handles organization and domain review,
+`/easm/organizations/:id` exposes assets, current findings, tasks and reports,
+and `/easm/assets`, `/easm/findings`, `/easm/tasks` provide cross-organization
+views. MongoDB remains the source of truth; Neo4j is rebuilt from the outbox
+and `arl graph rebuild`.
 
 ICP attribution uses the Chinaz domain page plus its signed permit endpoint for
 domain → organization. Organization → filed domains uses the external

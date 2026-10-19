@@ -3,6 +3,11 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import LoginPage from '@/pages/LoginPage.vue'
 const EasmPage = () => import('@/pages/EasmPage.vue')
+const EasmOrganizationsPage = () => import('@/pages/easm/EasmOrganizationsPage.vue')
+const EasmOrganizationDetailPage = () => import('@/pages/easm/EasmOrganizationDetailPage.vue')
+const EasmAssetsPage = () => import('@/pages/easm/EasmAssetsPage.vue')
+const EasmFindingsPage = () => import('@/pages/easm/EasmFindingsPage.vue')
+const EasmTasksPage = () => import('@/pages/easm/EasmTasksPage.vue')
 import TasksPage from '@/pages/TasksPage.vue'
 import TaskDetailPage from '@/pages/TaskDetailPage.vue'
 import AssetsPage from '@/pages/AssetsPage.vue'
@@ -26,6 +31,11 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/easm' },
         { path: 'easm', component: EasmPage, meta: { title: 'EASM 态势' } },
+        { path: 'easm/organizations', component: EasmOrganizationsPage, meta: { title: 'EASM 组织' } },
+        { path: 'easm/organizations/:id', component: EasmOrganizationDetailPage, meta: { title: 'EASM 组织详情' } },
+        { path: 'easm/assets', component: EasmAssetsPage, meta: { title: 'EASM 资产' } },
+        { path: 'easm/findings', component: EasmFindingsPage, meta: { title: 'EASM 风险' } },
+        { path: 'easm/tasks', component: EasmTasksPage, meta: { title: 'EASM 任务' } },
         { path: 'tasks', component: TasksPage, meta: { title: '任务' } },
         { path: 'tasks/:id', component: TaskDetailPage, meta: { title: '任务详情' } },
         { path: 'assets', component: AssetsPage, meta: { title: '资产' } },

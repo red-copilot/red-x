@@ -48,27 +48,30 @@ type OrganizationLookupProvider interface {
 }
 
 type Service struct {
-	Repo        Repository
-	Geo         geoip.Resolver
-	GraphReader GraphReader
-	Store       ICPServiceStore
-	Queue       jobs.Queue
-	Chinaz      DomainLookupProvider
-	ICPQuery    OrganizationLookupProvider
-	Log         *slog.Logger
-	healthMu    sync.Mutex
-	health      Health
-	chinazGuard providerGuard
-	icpGuard    providerGuard
-	lookupGroup singleflight.Group
+	Repo             Repository
+	Geo              geoip.Resolver
+	GraphReader      GraphReader
+	Store            ICPServiceStore
+	Queue            jobs.Queue
+	Submitter        ScanSubmitter
+	Chinaz           DomainLookupProvider
+	ICPQuery         OrganizationLookupProvider
+	Log              *slog.Logger
+	ChinazConfigured bool
+	healthMu         sync.Mutex
+	health           Health
+	chinazGuard      providerGuard
+	icpGuard         providerGuard
+	lookupGroup      singleflight.Group
 }
 
 func NewService(repo Repository, store ICPServiceStore, queue jobs.Queue, chinaz DomainLookupProvider, icpQuery OrganizationLookupProvider, log *slog.Logger) *Service {
 	return &Service{
 		Repo: repo, Store: store, Queue: queue, Chinaz: chinaz, ICPQuery: icpQuery, Log: log,
-		health:      Health{Chinaz: "unknown", ICPQuery: "unknown", GeoIP: "unavailable", Neo4j: "unavailable"},
-		chinazGuard: providerGuard{interval: time.Second},
-		icpGuard:    providerGuard{interval: time.Second},
+		health:           Health{Chinaz: "unknown", ICPQuery: "unknown", GeoIP: "unavailable", Neo4j: "unavailable"},
+		ChinazConfigured: chinaz != nil,
+		chinazGuard:      providerGuard{interval: time.Second},
+		icpGuard:         providerGuard{interval: time.Second},
 	}
 }
 
@@ -113,15 +116,17 @@ type MapSnapshot struct {
 	UnlocatedAssets        int         `json:"unlocatedAssets"`
 	UnlocatedOrganizations int         `json:"unlocatedOrganizations"`
 	UnlinkedFindings       int         `json:"unlinkedFindings"`
+	Truncated              bool        `json:"truncated"`
 	UpdatedAt              time.Time   `json:"updatedAt"`
 }
 
 type GraphNode struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Label string `json:"label"`
-	Risk  string `json:"risk,omitempty"`
-	CDN   bool   `json:"cdn,omitempty"`
+	ID       string `json:"id"`
+	EntityID string `json:"entityId,omitempty"`
+	Type     string `json:"type"`
+	Label    string `json:"label"`
+	Risk     string `json:"risk,omitempty"`
+	CDN      bool   `json:"cdn,omitempty"`
 }
 
 type GraphEdge struct {
@@ -146,21 +151,47 @@ type Health struct {
 	Neo4j    string `json:"neo4j"`
 }
 
-func (s *Service) Health(context.Context) Health {
+func (s *Service) Health(ctx context.Context) Health {
 	s.healthMu.Lock()
-	defer s.healthMu.Unlock()
 	h := s.health
-	if h.Chinaz == "" {
+	s.healthMu.Unlock()
+	if !s.ChinazConfigured {
+		h.Chinaz = "unavailable"
+	} else if h.Chinaz == "" || h.Chinaz == "unconfigured" {
 		h.Chinaz = "unknown"
 	}
-	if h.ICPQuery == "" {
+	if probe, ok := s.ICPQuery.(interface{ Probe(context.Context) error }); ok && probe != nil {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := probe.Probe(probeCtx)
+		cancel()
+		if err != nil {
+			h.ICPQuery = "unavailable"
+		} else {
+			h.ICPQuery = "ok"
+		}
+	} else if s.ICPQuery == nil {
+		h.ICPQuery = "unavailable"
+	} else if h.ICPQuery == "" {
 		h.ICPQuery = "unknown"
 	}
-	if h.GeoIP == "" {
+	if s.Geo == nil {
 		h.GeoIP = "unavailable"
+	} else if h.GeoIP == "" {
+		h.GeoIP = "ok"
 	}
-	if h.Neo4j == "" {
+	if probe, ok := s.GraphReader.(interface{ Probe(context.Context) error }); ok && probe != nil {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := probe.Probe(probeCtx)
+		cancel()
+		if err != nil {
+			h.Neo4j = "unavailable"
+		} else {
+			h.Neo4j = "ok"
+		}
+	} else if s.GraphReader == nil {
 		h.Neo4j = "unavailable"
+	} else if h.Neo4j == "" {
+		h.Neo4j = "unknown"
 	}
 	return h
 }
@@ -184,7 +215,7 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 		}
 		orgs = []domain.Organization{*org}
 	} else {
-		orgs, err = s.Repo.ListOrganizations(ctx, "", 200)
+		orgs, err = s.Repo.ListOrganizations(ctx, "", 5000)
 		if err != nil {
 			return nil, err
 		}
@@ -355,7 +386,7 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 			}
 		}
 	}
-	snapshot := &MapSnapshot{UnlinkedFindings: unlinked, UpdatedAt: time.Now().UTC()}
+	snapshot := &MapSnapshot{UnlinkedFindings: unlinked, Truncated: len(orgs) >= 5000, UpdatedAt: time.Now().UTC()}
 	for _, asset := range ipAssets {
 		orgIDs := filterStrings(ipOrgs[asset.Key], keep)
 		if len(orgIDs) == 0 {

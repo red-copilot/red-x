@@ -77,16 +77,16 @@ func (r *Neo4jReader) ReadOrganizationGraph(ctx context.Context, orgID string, d
 	structureQuery := `
 MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain,
-       null AS ip, null AS cdn, null AS service, null AS port, null AS serviceName
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
+       null AS ip, null AS ipId, null AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	if depth >= 2 {
 		structureQuery = `
 MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain,
-       ip.addr AS ip, ip.cdn AS cdn, null AS service, null AS port, null AS serviceName
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
+       ip.addr AS ip, ip.mongoId AS ipId, ip.cdn AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	}
 	if depth >= 3 {
@@ -95,8 +95,8 @@ MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
 OPTIONAL MATCH (ip)-[:EXPOSES]->(s:Service)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain,
-       ip.addr AS ip, ip.cdn AS cdn, s.key AS service, s.port AS port, s.service AS serviceName
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
+       ip.addr AS ip, ip.mongoId AS ipId, ip.cdn AS cdn, s.key AS service, s.mongoId AS serviceId, s.port AS port, s.service AS serviceName
 LIMIT $limit`
 	}
 	structure, err := r.query(ctx, structureQuery, map[string]any{"orgId": orgID, "limit": limit})
@@ -127,24 +127,24 @@ LIMIT $limit`
 			_ = domain
 		}
 		orgNodeID := oid
-		addNode(GraphNode{ID: orgNodeID, Type: "organization", Label: orgName})
+		addNode(GraphNode{ID: orgNodeID, EntityID: oid, Type: "organization", Label: orgName})
 		if domain == "" {
 			continue
 		}
 		domainID := "domain:" + domain
-		addNode(GraphNode{ID: domainID, Type: "domain", Label: domain})
+		addNode(GraphNode{ID: domainID, EntityID: recordString(rec, "domainId"), Type: "domain", Label: domain})
 		addEdge(GraphEdge{ID: "owns:" + orgNodeID + ":" + domainID, Type: "OWNS", Source: orgNodeID, Target: domainID})
 		if ip == "" {
 			continue
 		}
 		ipID := "ip:" + ip
-		addNode(GraphNode{ID: ipID, Type: "ip", Label: ip, CDN: recordBool(rec, "cdn")})
+		addNode(GraphNode{ID: ipID, EntityID: recordString(rec, "ipId"), Type: "ip", Label: ip, CDN: recordBool(rec, "cdn")})
 		addEdge(GraphEdge{ID: "res:" + domainID + ":" + ipID, Type: "RESOLVES_TO", Source: domainID, Target: ipID})
 		if service == "" {
 			continue
 		}
 		serviceID := "service:" + service
-		addNode(GraphNode{ID: serviceID, Type: "service", Label: service})
+		addNode(GraphNode{ID: serviceID, EntityID: recordString(rec, "serviceId"), Type: "service", Label: service})
 		addEdge(GraphEdge{ID: "exp:" + ipID + ":" + serviceID, Type: "EXPOSES", Source: ipID, Target: serviceID})
 	}
 
@@ -221,7 +221,7 @@ func addFindingNode(nodes map[string]GraphNode, edges map[string]GraphEdge, risk
 		return
 	}
 	nodeID := "finding:" + id
-	nodes[nodeID] = GraphNode{ID: nodeID, Type: "finding", Label: recordString(rec, "title")}
+	nodes[nodeID] = GraphNode{ID: nodeID, EntityID: id, Type: "finding", Label: recordString(rec, "title")}
 	targetID := targetType + ":" + target
 	if _, ok := nodes[targetID]; !ok {
 		nodes[targetID] = GraphNode{ID: targetID, Type: targetType, Label: target}
@@ -336,4 +336,9 @@ func recordTime(rec *neo4j.Record, key string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+func (r *Neo4jReader) Probe(ctx context.Context) error {
+	_, err := r.query(ctx, `RETURN 1`, nil)
+	return err
 }

@@ -23,10 +23,13 @@ import (
 )
 
 type SubmitInput struct {
-	Name        string             `json:"name"`
-	Kind        domain.TaskKind    `json:"kind"`
-	Target      string             `json:"target"`
-	Options     domain.TaskOptions `json:"options"`
+	Name           string             `json:"name"`
+	Kind           domain.TaskKind    `json:"kind"`
+	Target         string             `json:"target"`
+	Options        domain.TaskOptions `json:"options"`
+	OrganizationID string             `json:"organizationId,omitempty"`
+	RootDomain     string             `json:"rootDomain,omitempty"`
+	Origin         domain.TaskOrigin  `json:"origin,omitempty"`
 	PolicyID    string             `json:"policyId"`
 	ScopeID     string             `json:"scopeId"`
 	ResultSetID string             `json:"resultSetId"`
@@ -482,7 +485,8 @@ func (e *Engine) Retry(ctx context.Context, taskID bson.ObjectID, createdBy stri
 	}
 	return e.Submit(ctx, SubmitInput{
 		Name: "重新运行-" + task.Name, Kind: task.Kind, Target: task.Target,
-		Options: task.Options, PolicyID: task.PolicyID, ScopeID: task.ScopeID, CreatedBy: createdBy,
+		Options: task.Options, PolicyID: task.PolicyID, ScopeID: task.ScopeID,
+		OrganizationID: task.OrganizationID, RootDomain: task.RootDomain, Origin: task.Origin, CreatedBy: createdBy,
 	})
 }
 

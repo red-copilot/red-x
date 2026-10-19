@@ -348,6 +348,7 @@ func applyEnv(c *Config) {
 	set("ARL_NEO4J_PASSWORD", &c.Neo4j.Password)
 	set("ARL_NEO4J_DATABASE", &c.Neo4j.Database)
 	set("ARL_ICP_CHINAZ_USER_AGENT", &c.ICP.Chinaz.UserAgent)
+	set("ARL_ICP_CHINAZ_COOKIE_FILE", &c.ICP.Chinaz.CookieFile)
 	set("ARL_ICP_ICPQUERY_BASE_URL", &c.ICP.ICPQuery.BaseURL)
 	if v := os.Getenv("ARL_COOKIE_SECURE"); v != "" {
 		c.Auth.CookieSecure, _ = strconv.ParseBool(v)

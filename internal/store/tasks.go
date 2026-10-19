@@ -261,3 +261,37 @@ func (s *Store) GetResultSet(ctx context.Context, id bson.ObjectID) ([]string, e
 	}
 	return doc.Items, err
 }
+
+func (s *Store) ListEASMTasks(ctx context.Context, organizationID, status, kind string, q PageQuery) ([]domain.Task, int64, error) {
+	q = q.Normalized()
+	filter := bson.M{"origin": domain.TaskOriginEASM}
+	if organizationID != "" {
+		filter["organizationId"] = organizationID
+	}
+	if status != "" {
+		filter["status"] = status
+	}
+	if kind != "" {
+		filter["kind"] = kind
+	}
+	if q.Search != "" {
+		filter["$or"] = []bson.M{
+			{"name": bson.M{"$regex": q.Search, "$options": "i"}},
+			{"target": bson.M{"$regex": q.Search, "$options": "i"}},
+			{"rootDomain": bson.M{"$regex": q.Search, "$options": "i"}},
+		}
+	}
+	total, err := s.C(ColTasks).CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
+	cur, err := s.C(ColTasks).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(ctx)
+	var out []domain.Task
+	err = cur.All(ctx, &out)
+	return out, total, err
+}

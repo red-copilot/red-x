@@ -21,6 +21,7 @@ This document maps the legacy Flask surface to the Go implementation. Status is 
 | NPoC POC/sniffer/brute plugins | `/api/v1/poc/plugins` | 96 registered; see plugin note below |
 | nuclei scan | `webintel.NucleiSDKScanner` | Implemented (`nuclei` v3.11.1 SDK, HTTP templates) |
 | Asset groups and tags | `/api/v1/scopes` | Implemented |
+| EASM organization, domain review, assets, findings, scans and reports | `/api/v1/easm/*`, `/organizations/*` | Implemented (global organization model) |
 | Result sets / risk cruising | task options + result-set store | Partial |
 | Policies | `/api/v1/policies` | Implemented |
 | Monitors / schedules | `/api/v1/monitors`, `/schedules` | Implemented |

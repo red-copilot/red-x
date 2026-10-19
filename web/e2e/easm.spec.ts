@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 const username = process.env.E2E_USERNAME || 'admin'
 const password = process.env.E2E_PASSWORD || ''
 
-test('EASM wallboard loads, selects an organization, and toggles the graph', async ({ page }) => {
+test('EASM overview and catalog pages load', async ({ page }) => {
   test.skip(!password, 'E2E_PASSWORD is required')
   await page.goto('/login')
   await page.locator('input[autocomplete="username"]').fill(username)
@@ -19,6 +19,23 @@ test('EASM wallboard loads, selects an organization, and toggles the graph', asy
   if (await orgButton.count()) {
     await orgButton.click()
     await expect(page.locator('aside.inspector')).toBeVisible()
-    await page.getByRole('button', { name: '图谱' }).click()
+    const graph = page.getByRole('button', { name: '图谱' })
+    if (await graph.isEnabled()) await graph.click()
   }
+
+  await page.getByText('组织治理', { exact: true }).click()
+  await expect(page).toHaveURL(/\/easm\/organizations$/)
+  await expect(page.getByRole('heading', { name: 'EASM 组织' })).toBeVisible()
+
+  await page.getByText('EASM 资产', { exact: true }).click()
+  await expect(page).toHaveURL(/\/easm\/assets$/)
+  await expect(page.getByRole('heading', { name: 'EASM 资产' })).toBeVisible()
+
+  await page.getByText('EASM 风险', { exact: true }).click()
+  await expect(page).toHaveURL(/\/easm\/findings$/)
+  await expect(page.getByRole('heading', { name: 'EASM 风险' })).toBeVisible()
+
+  await page.getByText('EASM 任务', { exact: true }).click()
+  await expect(page).toHaveURL(/\/easm\/tasks$/)
+  await expect(page.getByRole('heading', { name: 'EASM 任务' })).toBeVisible()
 })

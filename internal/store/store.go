@@ -126,7 +126,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{ColAudit, []mongo.IndexModel{plain("actorId"), ttl("createdAt", 180*24*3600)}},
 		{ColPolicies, []mongo.IndexModel{unique("name")}},
 		{ColScopes, []mongo.IndexModel{plain("name"), plain("type")}},
-		{ColTasks, []mongo.IndexModel{plain("status"), desc("createdAt"), plain("kind"), plain("scopeId")}},
+		{ColTasks, []mongo.IndexModel{plain("status"), desc("createdAt"), plain("kind"), plain("scopeId"), plain("organizationId", "createdAt"), plain("rootDomain", "createdAt"), plain("origin")}},
 		{ColTaskSteps, []mongo.IndexModel{unique("taskId", "sequence"), plain("taskId", "status")}},
 		{ColTaskEvents, []mongo.IndexModel{plain("taskId", "sequence"), ttl("createdAt", 90*24*3600)}},
 		{ColWorkItems, []mongo.IndexModel{plain("taskId", "status"), plain("leaseUntil")}},
@@ -135,7 +135,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{ColAssets, []mongo.IndexModel{unique("kind", "key"), plain("kind", "lastSeen"), plain("scopeIds")}},
 		{ColObservations, []mongo.IndexModel{plain("taskId", "kind"), plain("taskId", "observedAt"), plain("assetId")}},
 		{ColScopeAssets, []mongo.IndexModel{unique("scopeId", "assetId"), plain("scopeId", "kind", "lastSeen")}},
-		{ColFindings, []mongo.IndexModel{unique("taskId", "kind", "dedupeKey"), plain("taskId", "kind"), plain("scopeId", "kind")}},
+		{ColFindings, []mongo.IndexModel{unique("taskId", "kind", "dedupeKey"), plain("taskId", "kind"), plain("scopeId", "kind"), plain("target", "dedupeKey", "createdAt")}},
 		{ColFingerprints, []mongo.IndexModel{unique("rule")}},
 		{ColMonitors, []mongo.IndexModel{plain("status", "nextRunAt"), plain("scopeId", "kind")}},
 		{ColSchedules, []mongo.IndexModel{plain("status", "nextRunAt")}},
@@ -150,7 +150,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{ColOrganizationDomains, []mongo.IndexModel{
 			unique("organizationId", "rootDomain"),
 			{Keys: bson.D{{Key: "rootDomain", Value: 1}}, Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"status": "confirmed"}).SetName("uniq_confirmed_root_domain")},
-			plain("status"),
+			plain("status"), plain("organizationId", "status"), plain("rootDomain", "status"),
 		}},
 		{ColICPEvidence, []mongo.IndexModel{plain("provider", "queryType", "queryKey"), ttl("expiresAt", 0)}},
 		{ColIPLocations, []mongo.IndexModel{unique("ip")}},
@@ -215,7 +215,11 @@ func SortDocument(sort string) bson.D {
 	if order == "asc" {
 		v = 1
 	}
-	return bson.D{{Key: field, Value: v}, {Key: "_id", Value: -1}}
+	out := bson.D{{Key: field, Value: v}}
+	if field != "_id" {
+		out = append(out, bson.E{Key: "_id", Value: -1})
+	}
+	return out
 }
 
 func ObjectID(id string) (bson.ObjectID, error) {

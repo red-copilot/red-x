@@ -34,8 +34,17 @@ func (f *fakeRepo) GetOrganization(_ context.Context, id bson.ObjectID) (*domain
 func (f *fakeRepo) ListAllOrganizationDomains(context.Context, string) ([]domain.OrganizationDomain, error) {
 	return f.domains, nil
 }
-func (f *fakeRepo) ListDomainAssetsUnderRoots(context.Context, []string) ([]domain.Asset, error) {
-	return f.domainAssets, nil
+func (f *fakeRepo) ListDomainAssetsUnderRoots(_ context.Context, roots []string) ([]domain.Asset, error) {
+	var out []domain.Asset
+	for _, asset := range f.domainAssets {
+		for _, root := range roots {
+			if assetBelongsToRoot(asset.Key, root) {
+				out = append(out, asset)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 func (f *fakeRepo) ListAssetsByKindKeys(_ context.Context, kind domain.AssetKind, keys []string) ([]domain.Asset, error) {
 	set := make(map[string]bool, len(keys))

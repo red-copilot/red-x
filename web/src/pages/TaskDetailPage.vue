@@ -24,6 +24,11 @@
         <a-card title="任务信息" :bordered="false" style="border-radius:14px">
           <a-descriptions :column="1" size="small">
             <a-descriptions-item label="状态">{{ task.status }}</a-descriptions-item>
+            <a-descriptions-item v-if="task.origin" label="任务来源">{{ task.origin }}</a-descriptions-item>
+            <a-descriptions-item v-if="task.rootDomain" label="EASM 主域">{{ task.rootDomain }}</a-descriptions-item>
+            <a-descriptions-item v-if="task.organizationId" label="所属组织">
+              <a @click="$router.push(`/easm/organizations/${task.organizationId}`)">{{ task.organizationId }}</a>
+            </a-descriptions-item>
             <a-descriptions-item label="进度">{{ task.progress }}%</a-descriptions-item>
             <a-descriptions-item label="创建时间">{{ formatTime(task.createdAt) }}</a-descriptions-item>
             <a-descriptions-item label="完成时间">{{ formatTime(task.finishedAt) }}</a-descriptions-item>

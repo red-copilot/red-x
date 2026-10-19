@@ -136,3 +136,9 @@ web/e2e/.auth/
 
 # Superpowers brainstorm sessions
 .superpowers/
+
+# EASM live secrets and GeoIP data
+deploy/secrets/*
+!deploy/secrets/README.md
+deploy/geoip/*.mmdb
+deploy/.env.easm

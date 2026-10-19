@@ -43,14 +43,16 @@
           @select-node="selectNode"
         />
         <div class="map-tools">
-          <button :class="{ active: graphOn }" :disabled="!selectedOrgId" @click="toggleGraph">
+          <button :class="{ active: graphOn }" :disabled="!selectedOrgId || health.neo4j !== 'ok'" :title="health.neo4j !== 'ok' ? '关系图暂不可用' : ''" @click="toggleGraph">
             图谱
           </button>
+          <button v-if="selectedNode && selectedNode.entityId && ['domain','ip','service'].includes(selectedNode.type)" class="ghost" @click="openNodeAsset">打开资产</button>
+          <button v-if="selectedOrgId" class="ghost" @click="openOrganization">组织详情</button>
           <button v-if="selectedOrgId" class="ghost" @click="clearSelection">全局视图</button>
         </div>
         <Legend class="legend" />
         <div class="stats">
-          未定位资产 {{ snapshot.unlocatedAssets }} · 未定位组织 {{ snapshot.unlocatedOrganizations }} · 未关联漏洞 {{ snapshot.unlinkedFindings }}
+          未定位资产 {{ snapshot.unlocatedAssets }} · 未定位组织 {{ snapshot.unlocatedOrganizations }} · 未关联漏洞 {{ snapshot.unlinkedFindings }}<span v-if="snapshot.truncated"> · 数据已截断</span>
         </div>
       </main>
       <Inspector
@@ -71,6 +73,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { api, qs } from '@/api'
 import HealthPill from '@/components/easm/HealthPill.vue'
 import Inspector from '@/components/easm/Inspector.vue'
@@ -82,6 +85,7 @@ import type {
   Organization, OrganizationDomain,
 } from '@/components/easm/types'
 
+const router = useRouter()
 const orgs = ref<Organization[]>([])
 const selectedOrgId = ref('')
 const railBubbles = ref<MapSnapshot['organizations']>([])
@@ -161,6 +165,16 @@ function selectNode(node: GraphNode) {
   selectedPoint.value = null
 }
 
+function openOrganization() {
+  if (!selectedOrgId.value) return
+  router.push(`/easm/organizations/${selectedOrgId.value}`)
+}
+
+function openNodeAsset() {
+  if (!selectedNode.value?.entityId) return
+  router.push({ path: '/easm/assets', query: { focus: selectedNode.value.entityId, organizationId: selectedOrgId.value } })
+}
+
 function clearSelection() {
   selectedOrgId.value = ''
   selectedPoint.value = null
@@ -172,6 +186,11 @@ function clearSelection() {
 }
 
 async function toggleGraph() {
+  if (!selectedOrgId.value) return
+  if (health.value.neo4j !== 'ok') {
+    banner.value = '关系图暂不可用，请检查 Neo4j 连接'
+    return
+  }
   graphOn.value = !graphOn.value
   await loadGraph()
 }

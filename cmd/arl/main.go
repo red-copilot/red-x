@@ -297,6 +297,59 @@ func runDoctor(args []string) {
 			fmt.Printf("external CLI %s: WARN: found at %s (not used)\n", name, path)
 		}
 	}
+
+	if cfg.GeoIP.City == "" || cfg.GeoIP.ASN == "" {
+		fmt.Println("geoip: WARN: city or ASN database is not configured")
+	} else if resolver, err := geoip.NewMaxMind(cfg.GeoIP.City, cfg.GeoIP.ASN); err != nil {
+		fmt.Println("geoip: FAIL:", err)
+		problems++
+	} else {
+		_ = resolver.Close()
+		fmt.Println("geoip: OK")
+	}
+	if cfg.Neo4j.URI == "" {
+		fmt.Println("neo4j: WARN: uri is not configured")
+	} else if reader, err := easm.NewNeo4jReader(cfg.Neo4j); err != nil {
+		fmt.Println("neo4j: FAIL:", err)
+		problems++
+	} else {
+		probeCtx, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+		err := reader.Probe(probeCtx)
+		probeCancel()
+		_ = reader.Close(context.Background())
+		if err != nil {
+			fmt.Println("neo4j: FAIL:", err)
+			problems++
+		} else {
+			fmt.Println("neo4j: OK")
+		}
+	}
+	baseURL := cfg.ICP.ICPQuery.BaseURL
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:16181"
+	}
+	if provider := easm.NewICPQueryProvider(baseURL, cfg.ICP.ICPQuery.PageSize, 0, &http.Client{Timeout: 3 * time.Second}); provider != nil {
+		if err := provider.Probe(ctx); err != nil {
+			fmt.Println("icp-query: WARN:", err)
+		} else {
+			fmt.Println("icp-query: OK")
+		}
+	}
+	cookieConfigured := strings.TrimSpace(os.Getenv("ARL_ICP_CHINAZ_COOKIE")) != ""
+	if cfg.ICP.Chinaz.CookieFile != "" {
+		if st, err := os.Stat(cfg.ICP.Chinaz.CookieFile); err != nil || st.Size() == 0 {
+			fmt.Println("chinaz cookie: FAIL: configured file is missing or empty")
+			problems++
+		} else {
+			cookieConfigured = true
+		}
+	}
+	if cookieConfigured {
+		fmt.Println("chinaz cookie: OK")
+	} else {
+		fmt.Println("chinaz cookie: WARN: not configured")
+	}
+
 	if a, err := app.New(ctx, cfg, logx.New("", cfg.Server.Debug), version); err != nil {
 		fmt.Println("mongo/queue/assets: FAIL:", err)
 		problems++
@@ -500,6 +553,8 @@ func newEASMService(a *app.App) *easm.Service {
 		"https://icp.chinaz.com", "https://tooldata.chinaz.com/icp/api/website/queryPermit", nil)
 	icpQuery := easm.NewICPQueryProvider(baseURL, pageSize, 5*time.Second, &http.Client{Timeout: timeout})
 	svc := easm.NewService(a.Store, a.Store, a.Queue, chinaz, icpQuery, a.Log)
+	svc.Submitter = a.Engine
+	svc.ChinazConfigured = strings.TrimSpace(cookie) != ""
 	if geo, err := geoip.NewMaxMind(a.Config.GeoIP.City, a.Config.GeoIP.ASN); err == nil {
 		svc.SetGeoResolver(geo)
 	} else {

@@ -133,3 +133,20 @@ func (p *ICPQueryProvider) fetch(ctx context.Context, name string, page int) (*i
 	}
 	return &out, nil
 }
+
+func (p *ICPQueryProvider) Probe(ctx context.Context) error {
+	if p == nil || strings.TrimSpace(p.BaseURL) == "" {
+		return ErrICPUnavailable
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.BaseURL, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrICPUnavailable, err)
+	}
+	client := *p.Client
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrICPUnavailable, err)
+	}
+	_ = resp.Body.Close()
+	return nil
+}

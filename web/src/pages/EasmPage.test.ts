@@ -3,6 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import EasmPage from './EasmPage.vue'
 
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 const apiMock = vi.fn()
 vi.mock('@/api', () => ({
   api: (path: string, init?: unknown) => apiMock(path, init),

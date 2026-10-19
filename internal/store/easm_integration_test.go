@@ -206,3 +206,73 @@ func TestConfirmRejectsSecondOwner(t *testing.T) {
 		t.Fatalf("expected ErrDomainAlreadyConfirmed, got %v", err)
 	}
 }
+
+func TestReassignOrganizationDomainPreservesEvidence(t *testing.T) {
+	st, ctx := newEASMTestStore(t)
+	orgA := &domain.Organization{CanonicalName: "单位A", Region: "蜀"}
+	orgB := &domain.Organization{CanonicalName: "单位B", Region: "蜀"}
+	if err := st.CreateOrganization(ctx, orgA); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateOrganization(ctx, orgB); err != nil {
+		t.Fatal(err)
+	}
+	ev := &domain.ICPEvidence{Provider: "chinaz", QueryType: "domain", QueryKey: "reassign.edu.cn", Raw: "evidence", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := st.AddICPEvidence(ctx, ev); err != nil {
+		t.Fatal(err)
+	}
+	original := &domain.OrganizationDomain{
+		OrganizationID: orgA.ID, RootDomain: "reassign.edu.cn", Source: "chinaz",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+		ICPNo: "蜀ICP备123号", EvidenceID: &ev.ID,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.ListOrganizationDomains(ctx, orgA.ID, "")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list original: rows=%+v err=%v", rows, err)
+	}
+	moved, err := st.ReassignOrganizationDomain(ctx, rows[0].ID, orgB.ID, "alice", "归属修正")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.OrganizationID != orgB.ID || moved.Status != domain.DomainStatusConfirmed || moved.EvidenceID == nil || *moved.EvidenceID != ev.ID {
+		t.Fatalf("unexpected moved row: %+v", moved)
+	}
+	oldRows, err := st.ListOrganizationDomains(ctx, orgA.ID, "")
+	if err != nil || len(oldRows) != 1 {
+		t.Fatalf("list old: rows=%+v err=%v", oldRows, err)
+	}
+	if oldRows[0].Status != domain.DomainStatusRejected || oldRows[0].ReassignedTo == nil || *oldRows[0].ReassignedTo != orgB.ID || oldRows[0].DecisionReason != "归属修正" {
+		t.Fatalf("old row not retained with reassignment metadata: %+v", oldRows[0])
+	}
+	newRows, err := st.ListOrganizationDomains(ctx, orgB.ID, string(domain.DomainStatusConfirmed))
+	if err != nil || len(newRows) != 1 || newRows[0].RootDomain != "reassign.edu.cn" {
+		t.Fatalf("list new: rows=%+v err=%v", newRows, err)
+	}
+	count, err := st.C(ColGraphOutbox).CountDocuments(ctx, bson.M{"entityType": "organization_domain"})
+	if err != nil || count < 2 {
+		t.Fatalf("expected outbox events for old and new rows, count=%d err=%v", count, err)
+	}
+}
+
+func TestRejectOrganizationDomainKeepsRow(t *testing.T) {
+	st, ctx := newEASMTestStore(t)
+	org := &domain.Organization{CanonicalName: "单位R"}
+	if err := st.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	row := &domain.OrganizationDomain{OrganizationID: org.ID, RootDomain: "reject.edu.cn", Source: "manual", Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate}
+	if err := st.UpsertOrganizationDomain(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.ListOrganizationDomains(ctx, org.ID, "")
+	if err := st.RejectOrganizationDomain(ctx, rows[0].ID, org.ID, "alice", "无归属证据"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = st.ListOrganizationDomains(ctx, org.ID, "")
+	if len(rows) != 1 || rows[0].Status != domain.DomainStatusRejected || rows[0].DecisionReason != "无归属证据" {
+		t.Fatalf("unexpected rejected row: %+v", rows)
+	}
+}
