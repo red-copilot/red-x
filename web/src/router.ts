@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import LoginPage from '@/pages/LoginPage.vue'
-import DashboardPage from '@/pages/DashboardPage.vue'
+import EasmPage from '@/pages/EasmPage.vue'
 import TasksPage from '@/pages/TasksPage.vue'
 import TaskDetailPage from '@/pages/TaskDetailPage.vue'
 import AssetsPage from '@/pages/AssetsPage.vue'
@@ -24,8 +24,8 @@ const router = createRouter({
       path: '/',
       component: AppLayout,
       children: [
-        { path: '', redirect: '/dashboard' },
-        { path: 'dashboard', component: DashboardPage, meta: { title: '总览' } },
+        { path: '', redirect: '/easm' },
+        { path: 'easm', component: EasmPage, meta: { title: 'EASM 态势' } },
         { path: 'tasks', component: TasksPage, meta: { title: '任务' } },
         { path: 'tasks/:id', component: TaskDetailPage, meta: { title: '任务详情' } },
         { path: 'assets', component: AssetsPage, meta: { title: '资产' } },

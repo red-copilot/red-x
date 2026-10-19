@@ -35,7 +35,7 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(username.value, password.value)
-    router.push((route.query.next as string) || '/dashboard')
+    router.push((route.query.next as string) || '/')
   } catch (e: any) {
     error.value = e.message || '登录失败'
   } finally {

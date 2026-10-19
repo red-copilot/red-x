@@ -45,10 +45,10 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const collapsed = ref(false)
-const selected = computed(() => [route.path.split('/')[1] || 'dashboard'])
+const selected = computed(() => [route.path.split('/')[1] || 'easm'])
 
 const menuItems = [
-  { key: 'dashboard', label: '总览' },
+  { key: 'easm', label: 'EASM 态势' },
   { key: 'tasks', label: '任务' },
   { key: 'assets', label: '资产' },
   { key: 'findings', label: '发现' },
