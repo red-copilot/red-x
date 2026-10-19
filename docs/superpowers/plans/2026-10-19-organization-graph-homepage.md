@@ -1,831 +1,340 @@
-# Organization Graph Homepage Implementation Plan
+# 项目级资产图谱首页 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the generic dashboard with a project-scoped EASM workspace that combines organization/domain ownership, project-isolated asset inventory, GeoIP map data, and a Neo4j-backed relationship graph.
+**Goal:** 把 ARL 首页改造成项目级 EASM 工作台，支持项目与单位批量管理、域名归属查询、Neo4j 资产关系图和 GeoIP 地图联动。
 
-**Architecture:** Add Project, Organization, membership, domain-attribution, project-asset, GeoIP, project-event, background-job, and graph-outbox models in MongoDB. Keep MongoDB as the source of truth, project Neo4j into an isolated per-project subgraph, enqueue graph and GeoIP work through the existing queue/outbox system, and serve a Vue workspace whose graph and map share one selection/filter store. Explicit project membership gates every project-scoped endpoint; shared physical assets never imply shared project visibility.
+**Architecture:** MongoDB 保存项目、单位、域名、归属证据、任务、观测和发现；Neo4j 通过 graph outbox 幂等投影资产关系。前端使用 Vue 3 加 ECharts，在浅色工作台中共享项目、单位、风险和时间筛选。
 
-**Tech Stack:** Go 1.27, MongoDB 8, Neo4j 5.x, MaxMind GeoIP2 City/ASN, Vue 3, TypeScript, Pinia, Ant Design Vue, ECharts, Playwright, Vitest.
+**Tech Stack:** Go 1.27, MongoDB 8, Neo4j 5.x, RabbitMQ, Vue 3, TypeScript, Pinia, ECharts, Vue ECharts, Vitest, Playwright.
 
 **Spec:** `docs/superpowers/specs/2026-10-19-organization-graph-homepage-design.md`
 
 ## Global Constraints
 
-- Every project-scoped read or write must resolve the project from the URL and authorize it server-side; a client-supplied project id is never evidence of access.
-- Global `admin` is the platform super-admin and may access every project. Every other interactive user must have a `project_members` record. API keys inherit the membership and write capability of their creating user.
-- Asset membership in a project is the union of assets discovered by tasks carrying that `projectId` and assets reachable from confirmed root domains owned in that project. A shared Mongo asset is visible only through a project-asset link.
-- Domain ownership, attribution, findings, and risk are project-scoped. Confirming the same domain for different organizations in two projects must not alter either project's facts.
-- Attribution auto-confirm is disabled by default. The feature flag is `attribution.enabled=false`; when enabled, auto-confirm still requires an existing project organization and an explicitly configured policy. Unsupported provider calls must fail closed and leave attribution pending.
-- Organization aliases are project-local, reversible records. Do not merge or rewrite global `organizations` records in v1.
-- Organization coverage means the project has at least one confirmed root domain for that organization.
-- Risk is the highest severity among open findings whose `createdAt` is within the selected window. `open` means not closed and not marked false-positive; scanner-produced findings are treated as confirmed unless an operator changes that lifecycle state. Default window is 90 days; supported values are `30d`, `90d`, and `all`. Severity order is `critical > high > medium > low > info`.
-- External ICP lookup is disabled for the MVP. Do not implement live Chinaz API/Cookie calls; return a typed disabled response until credentials and fallback behavior are separately approved.
-- GeoIP uses licensed MaxMind GeoIP2 City/ASN files mounted at runtime. A city point is emitted only when city confidence is at least 80; otherwise the IP is counted as unlocated. Private and reserved IPs never get map points.
-- Raw attribution responses live in a separate collection and expire after 90 days. Project viewers receive redacted attribution DTOs; project operators/admins and super-admins may fetch raw data, and every raw fetch writes an audit event.
-- Legacy `Scope` records remain unchanged. The opt-in `arl legacy-import-scope` command copies data; it never deletes or rewrites the legacy scope.
-- Neo4j failure must not block task creation, scanning, findings, audit, or Mongo-backed list views. The graph API returns `graph.unavailable` and the UI falls back to the project asset list.
-- Do not return raw JSON blocks as the primary asset presentation. Do not add 3D/decorative visualization libraries, scanner CLI wrappers, Python, or new runtime shell dependencies.
-- Never commit API keys, cookies, Neo4j passwords, GeoIP license files, generated `internal/webui/dist`, test results, or secrets.
+- 所有新增 JSON/BSON 字段使用 camelCase。
+- `context.Context` 必须是所有新 service、provider、repository 方法的第一个参数。
+- MongoDB 是项目、单位、归属证据、任务、观测和发现的真相源。
+- Neo4j 只能作为可重建投影，不得成为扫描写入的阻塞依赖。
+- 所有 graph/map/search 查询必须携带 projectId，并在服务端校验项目存在。
+- Chinaz Cookie/APIKey 只能从环境变量或只读文件读取，不能进入前端、数据库、审计详情或普通日志。
+- 外部供应商请求只允许固定 URL 和固定路径，不允许用户控制目标 URL。
+- 不实现验证码绕过、签名伪造或高频抓取。
+- 地图显示 IP 地理位置；CDN 边缘 IP、回源候选、直接资产 IP、未定位资产必须分开。
+- 首页采用方案 A：浅色、克制、单一强调色、细边框，不使用渐变发光和装饰性动画。
+- 不新增独立 wallboard 页面。
+- 现有 Scope 保留为 Legacy 资产组，不自动转换成 Project。
+- v1 使用现有全局 RBAC，不新增项目级成员权限；projectId 只用于查询隔离和 UI 上下文。
+- 组织归属不得自动确认；候选结果必须保持 pending，等待 operator 确认或拒绝。
+- 每个任务完成后只提交本任务文件，不提交无关的既有修改。
 
 ## Review Focus
 
-- **Project id tampering:** A non-member supplies another project's id; every project, graph, map, search, inspector, asset, event, member, import, and task endpoint must return the same not-found/forbidden behavior without leaking names or counts.
-- **API-key membership:** An API key whose creator belongs to project A must not access project B, and an admin-scoped API key created by a non-member must not inherit super-admin project access.
-- **Shared asset leakage:** The same IP discovered in project A must not appear in project B unless project B's own task or confirmed-root-domain traversal produced a `project_assets` link.
-- **Invalid status transitions:** Confirming a rejected attribution or rejecting a confirmed attribution must fail rather than silently changing ownership; alias deletion must not mutate organizations.
-- **Map honesty:** Low-confidence city data, private IPs, missing GeoIP files, and Neo4j outages must produce explicit unlocated/fallback states rather than approximate or fabricated points.
-- **Time window boundaries:** A finding at the exact 90-day cutoff and one second outside it must sort deterministically; timezone input must be converted to UTC before querying.
+- 供应商 Cookie/APIKey 过期或限流时，CSV 导入和资产发现仍能完成入库，归属进入可重试 pending 状态。
+- 同一资产被多个项目发现时，项目 A 的图谱和地图不能泄露项目 B 的边、finding、域名或单位。
+- 私有 IP、CDN 边缘 IP、回源候选和普通资产 IP 不能在数据模型或 UI 中混淆。
+- 大规模项目（100 单位、300 主域名、数千资产）不能一次返回完整图；必须聚合、截断并可展开。
+- Neo4j、GeoIP 或供应商不可用时，首页仍有可用的单位列表和错误状态，不能白屏。
 
----
-
-### Task 1: Domain Models, Indexes, and State Machines
+## Task 1: 项目与单位领域模型和 MongoDB 存储
 
 **Files:**
-- Create: `internal/domain/project.go`
-- Create: `internal/domain/project_test.go`
-- Modify: `internal/domain/models.go:188-300`
-- Create: `internal/store/projects.go`
-- Create: `internal/store/project_integration_test.go`
-- Modify: `internal/store/store.go:10-170`
-
-**Interfaces:**
-- Consumes: existing `domain.NewModel[T]`, Mongo store conventions.
-- Produces:
-  - `domain.Project`, `domain.ProjectMember`, `domain.Organization`, `domain.ProjectOrganization`, `domain.ProjectDomain`, `domain.OrganizationAttribution`, `domain.AttributionRaw`, `domain.ProjectAlias`, `domain.ProjectAssetLink`, `domain.IPLocation`, `domain.BackgroundJob`, `domain.ProjectEvent`
-  - `OrganizationAttribution.Transition(next AttributionStatus) error`
-  - `domain.ProjectAssetLink.Sources []ProjectAssetSource`
-  - `domain.ProjectAssetLink.LocationKind string` with values `asset`, `edge`, `origin`, `unlocated`
-  - `domain.IPLocation` containing `ip, country, province, city, latitude, longitude, asn, cityConfidence, source, databaseVersion, dataUpdatedAt, updatedAt`
-  - `store.ErrProjectNotFound`
-  - `store.(*Store).CreateProject`, `GetProject`, `ListProjectsForUser`, `IsProjectMember`, `AddProjectMember`, `RemoveProjectMember`, `CreateOrganization`, `UpsertOrganization`, `AddProjectOrganization`, `AddProjectDomain`, `CreateAttribution`, `TransitionAttribution`, `UpsertIPLocation`, `CreateBackgroundJob`, `UpdateBackgroundJob`, `AppendProjectEvent`
-  - `domain.Task.ProjectID/OrganizationID/RootDomainID`
-  - `domain.Finding.ProjectID/Status`
-  - `domain.FindingStatusOpen`, `FindingStatusClosed`, `FindingStatusFalsePositive`
-
-- [ ] **Step 1: Write failing domain tests**
-
-Create `internal/domain/project_test.go` with table tests named `TestAttributionTransition`, `TestRiskRank`, and `TestProjectAssetSourcesAreDeduplicated`. Assertions:
-
-```go
-func TestAttributionTransition(t *testing.T) {
-	pending := OrganizationAttribution{Status: AttributionPending}
-	if err := pending.Transition(AttributionConfirmed); err != nil { t.Fatal(err) }
-	if err := pending.Transition(AttributionRejected); err == nil { t.Fatal("confirmed must not become rejected") }
-}
-
-func TestRiskRank(t *testing.T) {
-	if RiskRank("critical") <= RiskRank("high") { t.Fatal("critical must outrank high") }
-	if RiskRank("unknown") != 0 { t.Fatal("unknown severity must rank zero") }
-}
-```
-
-The source test must merge duplicate `{Type:"task", RefID:"a"}` and `{Type:"root_domain", RefID:"b"}` entries while preserving both distinct refs.
-
-- [ ] **Step 2: Run the tests and verify they fail**
-
-Run: `go test ./internal/domain -run 'TestAttributionTransition|TestRiskRank|TestProjectAssetSourcesAreDeduplicated' -v`
-Expected: FAIL because the project types and functions do not exist.
-
-- [ ] **Step 3: Implement the domain types and state machine**
-
-Use camelCase JSON/BSON names. Add these exact model fields and enums in `project.go`:
-
-```go
-type AttributionStatus string
-const (
-	AttributionPending AttributionStatus = "pending"
-	AttributionConfirmed AttributionStatus = "confirmed"
-	AttributionRejected AttributionStatus = "rejected"
-)
-
-type ProjectAssetSource struct {
-	Type string `bson:"type" json:"type"` // task or root_domain
-	RefID string `bson:"refId" json:"refId"`
-}
-
-type ProjectAssetLink struct {
-	ID bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	ProjectID bson.ObjectID `bson:"projectId" json:"projectId"`
-	AssetID bson.ObjectID `bson:"assetId" json:"assetId"`
-	Kind string `bson:"kind" json:"kind"`
-	Sources []ProjectAssetSource `bson:"sources" json:"sources"`
-	FirstSeen time.Time `bson:"firstSeen" json:"firstSeen"`
-	LastSeen time.Time `bson:"lastSeen" json:"lastSeen"`
-	SchemaVersion int `bson:"schemaVersion" json:"schemaVersion"`
-}
-```
-
-`Transition` permits `pending -> confirmed`, `pending -> rejected`, and same-to-same only. It rejects transitions out of confirmed/rejected. `RiskRank` returns 4,3,2,1 for critical/high/medium/low and zero otherwise. Add `ProjectID`, `OrganizationID`, `RootDomainID` as optional strings to `Task`; add `ProjectID string` and `Status FindingStatus` to `Finding`, defaulting new findings to `open`. Add internal `Project.NextEventSequence int64` for event ordering; it is never trusted from client JSON.
-
-- [ ] **Step 4: Implement store methods and indexes**
-
-Add collections `projects`, `project_members`, `organizations`, `project_organizations`, `project_domains`, `organization_attributions`, `attribution_raw`, `project_aliases`, `project_assets`, `ip_locations`, `background_jobs`, `project_events`. Add these unique indexes:
-
-```text
-projects: (normalizedName)
-project_members: (projectId,userId)
-organizations: (normalizedName)
-project_organizations: (projectId,organizationId)
-project_domains: (projectId,domain)
-organization_attributions: (projectId,organizationId,domain,source,queryTime)
-attribution_raw: (expiresAt) TTL
-project_aliases: (projectId,aliasOrganizationId)
-project_assets: (projectId,assetId)
-ip_locations: (ip)
-project_events: (projectId,sequence)
-```
-
-Add indexes for project task/finding scans: `tasks.(projectId,createdAt)`, `findings.(projectId,status,createdAt)`, and `observations.(taskId,assetId)`. Store methods must set timestamps/schema version through `NewModel`, normalize project/organization names with lowercase whitespace collapse, and always scope lookups by both project and child id. Add an integration test that inserts one project, member, organization, domain, attribution, and project event, then proves a lookup for project B does not return project A's rows. Add an integration assertion that `project_domains` defaults to `status="pending"`, has an optional `ownerOrganizationId`, and that only an explicitly confirmed record is counted by coverage.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/domain ./internal/store`
-Expected: PASS. If `ARL_TEST_MONGO_URI` is unset, the integration test reports `SKIP`; run `ARL_TEST_MONGO_URI=mongodb://127.0.0.1:27017 go test ./internal/store` when Mongo is available and expect PASS.
-
-```bash
-git add internal/domain/project.go internal/domain/project_test.go internal/domain/models.go internal/store/projects.go internal/store/project_integration_test.go internal/store/store.go
-git commit -m "feat: add project and organization domain model"
-```
-
-### Task 2: Project Membership Authorization and Project API
-
-**Files:**
-- Create: `internal/httpapi/project_access.go`
-- Create: `internal/httpapi/project_access_test.go`
-- Create: `internal/httpapi/projects.go`
-- Create: `internal/httpapi/projects_test.go`
-- Modify: `internal/httpapi/server.go:35-150`
-- Modify: `internal/modules/identity/service.go:20-235`
-- Modify: `internal/httpapi/openapi.go`
-
-**Interfaces:**
-- Consumes: Task 1 store methods; `identity.Principal`.
-- Produces:
-  - `identity.Principal.OwnerID bson.ObjectID`
-  - `type ProjectAccess struct { Project domain.Project; Member bool; CanWrite bool; CanViewRaw bool; SuperAdmin bool }`
-  - `func (s *Server) resolveProjectAccess(ctx context.Context, projectID bson.ObjectID, p *identity.Principal) (*ProjectAccess, error)`
-  - `func (s *Server) projectMiddleware(next http.Handler) http.Handler`
-  - `func (s *Server) requireProjectWrite(next http.HandlerFunc) http.HandlerFunc`
-  - `GET/POST /api/v1/projects`
-  - `GET/PATCH /api/v1/projects/{id}`
-  - `GET/POST/DELETE /api/v1/projects/{id}/members`
-  - `GET /api/v1/projects/{id}/summary`
-
-- [ ] **Step 1: Write failing access tests**
-
-Create `project_access_test.go` with pure table tests for this decision matrix: super-admin non-member reads/writes; member viewer reads but cannot write/raw; member operator reads/writes; non-member denied; API key `OwnerID` member follows owner's role. Assert `CanViewRaw` is true only for super-admin or an operator/admin member.
-
-- [ ] **Step 2: Run the tests and verify they fail**
-
-Run: `go test ./internal/httpapi -run 'TestProjectAccessDecision|TestProjectRouteRequiresMembership|TestAPIKeyUsesOwnerRole' -v`
-Expected: FAIL because `ProjectAccess` and the middleware do not exist.
-
-- [ ] **Step 3: Implement API-key ownership and project authorization**
-
-In `identity.Authenticate`, set `OwnerID: key.CreatedBy` for API keys. Use `OwnerID` as the membership subject. `resolveProjectAccess` loads the owner user and uses that user's current role for super-admin decisions; API-key scopes never elevate project visibility. Return `store.ErrProjectNotFound` for non-members to prevent project enumeration. Add this router shape; chi may register `/projects` and `/projects/{projectId}` directly instead of a slash-only group if route tests expose a 301:
-
-```go
-protected.Get("/projects", s.handleListProjects)
-protected.Post("/projects", s.requireWrite(s.handleCreateProject))
-protected.Route("/projects/{projectId}", func(one chi.Router) {
-	one.Use(s.projectMiddleware)
-	one.Get("/", s.handleGetProject)
-	one.Patch("/", s.requireProjectWrite(s.handlePatchProject))
-	one.Get("/members", s.handleListProjectMembers)
-	one.Post("/members", s.requireAdmin(s.handleAddProjectMember))
-	one.Delete("/members/{userId}", s.requireAdmin(s.handleRemoveProjectMember))
-	one.Get("/summary", s.handleProjectSummary)
-})
-```
-
-`GET /projects` returns only accessible projects for members and all active projects for a super-admin. Project creation makes the creator a member. Reject empty names and end dates before start dates. `PATCH` permits name, customer, description, start/end dates, and status. Add RFC3339 date pointers to the API DTOs; do not expose normalized names or internal ids not already needed by the client.
-
-- [ ] **Step 4: Add handler tests and OpenAPI paths**
-
-Test 200 access for member, 404 for non-member using a non-existent-looking project id, 403 for a viewer POST, and 201 for project creation. Test that a key with role `admin` created by a non-admin owner still cannot access an unrelated project, and that response JSON never includes another project's name. Extend the embedded OpenAPI JSON with project, member, and summary paths; keep `TestOpenAPISpecIsJSON` passing.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/httpapi ./internal/modules/identity`
-Expected: PASS.
-
-```bash
-git add internal/httpapi/project_access.go internal/httpapi/project_access_test.go internal/httpapi/projects.go internal/httpapi/projects_test.go internal/httpapi/server.go internal/httpapi/openapi.go internal/modules/identity/service.go
-git commit -m "feat: add project membership authorization"
-```
-
-### Task 3: Asynchronous Organization CSV Import
-
-**Files:**
-- Create: `internal/modules/projects/importer.go`
-- Create: `internal/modules/projects/importer_test.go`
-- Create: `internal/httpapi/project_imports.go`
-- Create: `internal/httpapi/project_imports_test.go`
-- Modify: `internal/store/projects.go`
-- Modify: `internal/platform/jobs/jobs.go:14-27`
-- Modify: `internal/app/app.go`
-- Modify: `cmd/arl/main.go:120-150`
-
-**Interfaces:**
-- Consumes: Tasks 1-2 project access and store.
-- Produces:
-  - `projects.Parser.ParseCSV(io.Reader) ([]ImportRow, ParseReport, error)`
-  - `projects.Importer.Run(ctx context.Context, projectID bson.ObjectID, jobID bson.ObjectID) error`
-  - `store.(*Store).CreateBackgroundJob`, `GetBackgroundJob`, `UpdateBackgroundJob`
-  - `POST /api/v1/projects/{id}/organizations/import`
-  - `GET /api/v1/projects/{id}/organizations`
-  - `GET /api/v1/projects/{id}/jobs/{jobId}`
-  - queue `q.project`
-
-- [ ] **Step 1: Write failing parser tests**
-
-Test `organizationName,domains` with `四川吉利学院;"guc.edu.cn;example.edu.cn"`, Chinese aliases `单位名称,主域名`, blank organization, malformed quoted CSV, duplicate rows, URL-like domains, and uppercase/trailing-dot domains. Expected: trim/lowercase domains, strip schemes/paths, reject non-domain values, accept at least one domain per row, and report row numbers for every rejection.
-
-- [ ] **Step 2: Run parser tests and verify they fail**
-
-Run: `go test ./internal/modules/projects -run TestParseCSV -v`
-Expected: FAIL because package `projects` does not exist.
-
-- [ ] **Step 3: Implement the parser and async job**
-
-`ImportRow` is `{OrganizationName string; Domains []string}`. `ParseReport` contains `AcceptedRows`, `RejectedRows`, `Warnings`. Make import idempotent through the unique project-organization and project-domain indexes. A parsed row creates or reuses a global organization, adds a project organization, adds project domains, and creates one pending `source="csv_import"` attribution per domain. It does not confirm ownership. Upload endpoint accepts multipart field `file`, max 10 MiB, creates a `BackgroundJob{Kind:"organization_import", Status:"queued"}`, stores rows in the job payload, publishes to `q.project`, and returns `202` with the job id.
-
-Update the worker callback to dispatch `q.project` to the importer. Update job progress after each organization and preserve partial success; a duplicate is counted as `skipped`, not an error. Add an importer test using a fake job/store interface that proves a failed domain lookup leaves previously imported organizations and job progress intact. Add `GET /projects/{id}/organizations` returning each project organization, its domains, alias ids, pending/confirmed counts, and coverage flag; it must never return organizations from another project.
-
-- [ ] **Step 4: Add handler and integration tests**
-
-Test non-member upload/list returns 404, viewer upload returns 403, multipart over 10 MiB returns 413, valid upload returns 202, and job polling is project-scoped. With `ARL_TEST_MONGO_URI`, import the same CSV twice and assert one organization, two domains, and two pending attributions per domain at the end of the first run and unchanged counts after the second.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/modules/projects ./internal/httpapi ./internal/platform/jobs`
-Expected: PASS.
-
-```bash
-git add internal/modules/projects internal/httpapi/project_imports.go internal/httpapi/project_imports_test.go internal/store/projects.go internal/platform/jobs/jobs.go internal/app/app.go cmd/arl/main.go
-git commit -m "feat: add asynchronous organization imports"
-```
-
-### Task 4: Manual Attribution, Aliases, and Raw-Response Access
-
-**Files:**
-- Create: `internal/modules/attribution/service.go`
-- Create: `internal/modules/attribution/service_test.go`
-- Create: `internal/store/attribution.go`
-- Create: `internal/httpapi/attribution.go`
-- Create: `internal/httpapi/attribution_test.go`
-- Modify: `internal/domain/project.go`
+- Create: `internal/domain/projects.go`
+- Modify: `internal/domain/models.go`
 - Modify: `internal/store/store.go`
-- Modify: `internal/httpapi/server.go`
-- Modify: `internal/platform/config/config.go`
-- Modify: `config.example.yaml`
+- Create: `internal/store/projects.go`
+- Create: `internal/domain/projects_test.go`
+- Create: `internal/store/projects_integration_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 1-3.
-- Produces:
-  - `attribution.Service.Confirm(ctx, projectID, orgID, attributionID, actor) error`
-  - `attribution.Service.Reject(...)`
-  - `attribution.Service.AddAlias(ctx, projectID, canonicalID, aliasID, actor) error`
-  - `attribution.Service.RemoveAlias(...)`
-  - `store.(*Store).CreateAlias`, `ListAliases`, `DeleteAlias`, `GetAttribution`, `GetRawAttribution`
-  - `POST /api/v1/projects/{id}/organizations/{orgId}/attributions/{attributionId}/confirm`
-  - `POST /api/v1/projects/{id}/organizations/{orgId}/attributions/{attributionId}/reject`
-  - `GET /api/v1/projects/{id}/attributions/{attributionId}/raw`
-  - `POST/DELETE /api/v1/projects/{id}/organizations/{orgId}/aliases`
-  - `POST /api/v1/organizations/lookup` returning `503 attribution.disabled` while the feature flag is off
+- Produces `domain.Project`, `Organization`, `ProjectOrganization`, `ProjectDomain`, `OrganizationAttribution`, `IPLocation`.
+- Produces store methods: `CreateProject`, `GetProject`, `ListProjects`, `UpsertOrganization`, `GetOrganizationByLegalName`, `AddOrganizationToProject`, `ListProjectOrganizations`, `AddProjectDomain`, `ListProjectDomains`, `AddAttribution`, `ListAttributions`, `ConfirmAttribution`, `RejectAttribution`, `UpsertIPLocation`, `GetIPLocation`.
 
-- [ ] **Step 1: Write failing state and alias tests**
+- [ ] **Step 1: Write failing tests** in `internal/domain/projects_test.go`: `TestProjectValidateRejectsEmptyName`, `TestProjectDomainValidateRejectsInvalidDomain`, `TestAttributionStatusTransitions`.
+- [ ] **Step 2: Run tests** `go test ./internal/domain -run 'TestProject|TestAttribution' -v`; expect FAIL.
+- [ ] **Step 3: Add domain types** with the fields in the spec, all IDs as `bson.ObjectID`, timestamps as `time.Time` or `*time.Time`, plus validation methods.
+- [ ] **Step 4: Add collections and indexes** in `internal/store/store.go`: `projects`, `organizations`, `project_organizations`, `project_domains`, `organization_attributions`, `ip_locations`; unique legal name, unique project/org, unique project/domain, unique IP.
+- [ ] **Step 5: Implement repositories** in `internal/store/projects.go`; every create/upsert sets timestamps and `SchemaVersion`. `ConfirmAttribution` must be idempotent and only accept `pending`.
+- [ ] **Step 6: Write and run Mongo integration tests** in `internal/store/projects_integration_test.go`; use `ARL_TEST_MONGO_URI`, skip when absent.
+- [ ] **Step 7: Run** `ARL_TEST_MONGO_URI=mongodb://127.0.0.1:27017 go test ./internal/store -run 'TestProject|TestOrganization|TestAttribution' -v`; expect PASS or SKIP.
+- [ ] **Step 8: Commit** `feat: add project and organization storage`.
 
-Test confirm creates exactly one project-scoped owner fact and sets `confirmedAt/confirmedBy`; reject retains the attribution row and creates no owner fact; repeat confirm is idempotent; confirmed-to-rejected fails; alias add/delete is reversible and does not modify the global organization. Test raw access rejects viewers and records `attribution.raw_view` on success.
-
-- [ ] **Step 2: Run the tests and verify they fail**
-
-Run: `go test ./internal/modules/attribution ./internal/httpapi -run 'TestConfirmAttribution|TestAlias|TestRawAttribution' -v`
-Expected: FAIL because the attribution service and handlers do not exist.
-
-- [ ] **Step 3: Implement attribution state and local aliases**
-
-Add `attribution.enabled: false`, `attribution.autoConfirm: false`, and provider credential fields to config but do not call the provider. `lookup` returns 503 with problem code `attribution.disabled`. Manual confirm/reject always works. Confirmation updates only the current project's `project_domains.ownerOrganizationId` and `organization_attributions.status`; no global organization ownership field exists.
-
-Store raw evidence separately in `attribution_raw` with `{attributionId, projectId, contentType, body, expiresAt}` and a TTL index on `expiresAt`. The list/detail DTO omits `body` unless `CanViewRaw`; raw fetch writes an audit event containing ids and actor only, never the body. Aliases use `project_aliases{projectId, canonicalOrganizationId, aliasOrganizationId, createdBy, createdAt}` with a unique project-scoped pair.
-
-- [ ] **Step 4: Add handler tests**
-
-Test a member operator confirm/reject, viewer confirm returns 403, cross-project attribution id returns 404, raw fetch for viewer returns redacted DTO without `body`, and operator raw fetch writes one audit event. Test duplicate alias returns 409 and self-alias returns 400.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/modules/attribution ./internal/httpapi ./internal/platform/config`
-Expected: PASS.
-
-```bash
-git add internal/modules/attribution internal/store/attribution.go internal/httpapi/attribution.go internal/httpapi/attribution_test.go internal/domain/project.go internal/store/store.go internal/httpapi/server.go internal/platform/config/config.go config.example.yaml
-git commit -m "feat: add project attribution workflow"
-```
-
-### Task 5: Project Asset Projection and Task Tagging
+## Task 2: CSV 项目导入服务
 
 **Files:**
-- Create: `internal/store/project_assets.go`
-- Create: `internal/store/project_assets_integration_test.go`
-- Create: `internal/modules/tasking/project_assets.go`
-- Create: `internal/modules/tasking/project_assets_test.go`
-- Modify: `internal/modules/tasking/engine.go:35-180`
-- Modify: `internal/modules/tasking/steps.go:180-440`
-- Modify: `internal/store/inventory.go:15-75`
-- Modify: `internal/httpapi/tasks.go:15-60`
-- Modify: `internal/domain/models.go:188-355`
+- Create: `internal/modules/projects/service.go`
+- Create: `internal/modules/projects/import.go`
+- Create: `internal/modules/projects/service_test.go`
+- Modify: `internal/platform/netsafe/netsafe.go` only if a reusable domain validator is needed.
 
 **Interfaces:**
-- Consumes: Tasks 1-4.
-- Produces:
-  - `store.(*Store).LinkProjectAsset(ctx, projectID, asset, source) error`
-  - `store.(*Store).ListProjectAssets(ctx, projectID, kind string, q PageQuery)`
-  - `store.(*Store).RebuildProjectAssets(ctx, projectID bson.ObjectID) error`
-  - `tasks.SubmitInput.ProjectID/OrganizationID/RootDomainID`
-  - `POST /api/v1/tasks` accepts and validates the three optional context fields
-  - `GET /api/v1/projects/{id}/assets`
+- Produces `projects.ImportRow`, `projects.ImportResult`, `projects.Repository`, `projects.LookupScheduler`, and `projects.Service.ImportCSV(ctx, projectID, io.Reader) (ImportResult, error)`.
+- `LookupScheduler.EnqueueLookup(ctx, projectID, domain) error` lets import enqueue attribution work without calling a supplier inline.
+- `ImportResult` has `Organizations`, `Domains`, `QueuedLookups`, `Warnings`.
 
-- [ ] **Step 1: Write failing projection tests**
+- [ ] **Step 1: Write failing tests** for multiple root domains, invalid domain rejection, idempotent import, and missing legal name producing a pending lookup.
+- [ ] **Step 2: Run** `go test ./internal/modules/projects -run TestImportCSV -v`; expect FAIL.
+- [ ] **Step 3: Implement CSV parsing** with `encoding/csv`, UTF-8 BOM handling, empty-line skipping, semicolon-separated domains, and `netsafe.ValidateDomain`.
+- [ ] **Step 4: Implement repository-backed import** that upserts organizations, project membership, project domains, and pending attributions. If `LookupScheduler` is configured, enqueue pending lookups; do not call a supplier inline and do not start scan tasks during import.
+- [ ] **Step 5: Run** `go test ./internal/modules/projects -v`; expect PASS.
+- [ ] **Step 6: Commit** `feat: add CSV project import`.
 
-Add `TestProjectAssetIsolation`, `TestProjectAssetSourceUnion`, `TestTaskProjectContextValidation`, and `TestProjectScale`. The isolation test creates the same global IP asset with observation/task A and task B, then asserts `ListProjectAssets(projectA)` returns one row and project B's service/finding ids are absent. The union test creates a link sourced by both task and root domain and asserts one row with two sources. Validation test rejects an unconfirmed root domain, a root domain from another project, and a task target outside that root domain. The scale test inserts 100 organizations, 300 confirmed root domains, and 5,000 linked assets, then requires the first project list page and summary query to return in under 5 seconds.
-
-- [ ] **Step 2: Run the tests and verify they fail**
-
-Run: `go test ./internal/modules/tasking ./internal/store -run 'TestProjectAsset|TestTaskProjectContext' -v`
-Expected: FAIL because project asset linking does not exist.
-
-- [ ] **Step 3: Implement project asset links**
-
-Change `UpsertAsset` to accept `projectID string` as its final argument and call `LinkProjectAsset` after the global asset upsert. When `projectID` is empty, preserve legacy behavior. `LinkProjectAsset` upserts by `(projectId,assetId)`, adds a deduplicated source, updates `lastSeen`, and creates a `ProjectEvent{Type:"asset.discovered"}` only when the link is newly inserted.
-
-For project tasks, derive `projectID`, `organizationID`, and `rootDomainID` from the validated request. A task with `rootDomainID` must target that root domain or one of its subdomains. Propagate these fields through every `UpsertAsset` call in `steps.go`; findings inherit `ProjectID`. After a task succeeds, call `RebuildProjectAssets(projectID)` so a task replay reconstructs the same links. `RebuildProjectAssets` deletes only that project's links, scans project tasks and observations, then traverses confirmed project domains and adds root-domain sources.
-
-Add `GET /projects/{id}/assets?kind=&q=&page=&pageSize=` using the project link collection joined to global assets. Never expose an asset not linked to the authorized project.
-
-- [ ] **Step 4: Run Mongo and task tests**
-
-Run: `go test ./internal/modules/tasking ./internal/store ./internal/httpapi`
-Expected: PASS. Then run `ARL_TEST_MONGO_URI=mongodb://127.0.0.1:27017 go test ./internal/store -run 'TestProjectAsset|TestProjectScale' -v` and expect PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/store/project_assets.go internal/store/project_assets_integration_test.go internal/modules/tasking/project_assets.go internal/modules/tasking/project_assets_test.go internal/modules/tasking/engine.go internal/modules/tasking/steps.go internal/store/inventory.go internal/httpapi/tasks.go internal/domain/models.go
-git commit -m "feat: project-scope discovered assets"
-```
-
-### Task 6: Project Risk Summary, Events, and SSE
+## Task 3: Chinaz 组织归属 provider
 
 **Files:**
-- Create: `internal/store/project_queries.go`
-- Create: `internal/store/project_queries_integration_test.go`
-- Create: `internal/httpapi/project_events.go`
-- Create: `internal/httpapi/project_events_test.go`
-- Modify: `internal/httpapi/projects.go`
-- Modify: `internal/httpapi/server.go`
-- Modify: `internal/modules/tasking/steps.go`
-- Modify: `internal/store/inventory.go`
-- Modify: `internal/modules/attribution/service.go`
+- Create: `internal/modules/orgintel/provider.go`
+- Create: `internal/modules/orgintel/chinaz_api.go`
+- Create: `internal/modules/orgintel/chinaz_page.go`
+- Create: `internal/modules/orgintel/service.go`
+- Create: `internal/modules/orgintel/chinaz_api_test.go`
+- Create: `internal/modules/orgintel/chinaz_page_test.go`
+- Create: `internal/modules/orgintel/testdata/guc.edu.cn.html`
 
 **Interfaces:**
-- Consumes: Tasks 1-5.
-- Produces:
-  - `store.(*Store).ProjectSummary(ctx, projectID, since time.Time) (domain.ProjectSummary, error)`
-  - `store.(*Store).ListProjectEvents(ctx, projectID, after int64, limit int)`
-  - `store.(*Store).AppendProjectEvent(ctx, *domain.ProjectEvent)`
-  - `GET /api/v1/projects/{id}/summary?window=30d|90d|all`
-  - `GET /api/v1/projects/{id}/events?after=`
+- `orgintel.Candidate` has `Name`, `Type`, `SiteLicense`, `ServiceLicense`, `VerifyTime`, `Source`, `Confidence`, `Raw`.
+- `orgintel.Provider` has `Name() string` and `Lookup(ctx, domain string) ([]Candidate, error)`.
+- `orgintel.Service.EnqueueLookup(ctx, projectID, domain string) (*domain.OrganizationAttribution, error)` creates a pending attribution and publishes a lookup job.
+- `orgintel.Service.Process(ctx, attributionID bson.ObjectID) error` calls the provider chain and updates the attribution.
+- `orgintel.Service.Lookup(ctx, domain string) ([]Candidate, error)` is the provider-facing method used by tests and `Process`.
 
-- [ ] **Step 1: Write failing summary tests**
+- [ ] **Step 1: Write failing tests** for JSON mapping, upstream failure, GUC page fixture parsing, and pending attribution persistence.
+- [ ] **Step 2: Run** `go test ./internal/modules/orgintel -v`; expect FAIL.
+- [ ] **Step 3: Implement official JSON provider** using fixed `https://openapi.chinaz.net/v1/1001/newicp` with `domain`, `APIKey`, `ChinazVer=1.0`; map `CompanyName`, `CompanyType`, `SiteLicense`, `ServiceLicence`, `VerifyTime`; confidence `1.0`.
+- [ ] **Step 4: Implement page fallback** using fixed `https://icp.chinaz.com/{domain}` and a configured Cookie; parse `#companyName`, `主办单位性质`, `审核时间`; confidence `0.8`; never log the Cookie.
+- [ ] **Step 5: Implement provider chain** API first, page fallback second; apply a per-domain cache TTL of 7 days and a per-provider minimum interval. `Process` updates pending attributions; on failure return a typed error and leave the attribution retryable. Add `q.orgintel` to `jobs.QueueNames` and enqueue lookup jobs.
+- [ ] **Step 6: Run** `go test ./internal/modules/orgintel -v`; expect PASS.
+- [ ] **Step 7: Commit** `feat: add chinaz organization attribution provider`.
 
-Test coverage with one confirmed and one pending domain; risk with open critical, open high, closed critical, and a finding 91 days old; and project isolates identical finding titles. Assert severity ranking, `window=all`, and exact 90-day boundary behavior in UTC.
-
-Test project event sequence with two concurrent appends produces unique increasing sequences. Test SSE starts after `Last-Event-ID`, emits `asset.discovered` and `finding.created`, and sends heartbeats without terminating the stream.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `go test ./internal/store ./internal/httpapi -run 'TestProjectSummary|TestProjectEvents|TestProjectSSE' -v`
-Expected: FAIL because summary and event functions do not exist.
-
-- [ ] **Step 3: Implement summary and event persistence**
-
-`ProjectSummary` includes `organizationCount`, `coveredOrganizationCount`, `confirmedRootDomainCount`, `pendingAttributionCount`, `assetCount`, `unlocatedAssetCount`, `riskCounts`, and `highestRisk`. Compute coverage only from `project_domains.status="confirmed"` joined to project organizations. Use a Mongo aggregation over `findings` filtered by `projectId`, `status="open"`, and `createdAt>=since`, grouping by severity and taking the max.
-
-Append a project event after a newly linked asset and after a newly inserted finding. Use `findOneAndUpdate` on `projects` with `$inc:{nextEventSequence:1}` to allocate the sequence, then insert `project_events`. Emit `task.status`, `asset.discovered`, `finding.created`, `attribution.pending`, and `attribution.confirmed`. Implement the SSE endpoint using a 2-second poll and a 15-second heartbeat, matching the existing task SSE behavior.
-
-- [ ] **Step 4: Add authorization and invalid-window tests**
-
-Test non-member summary/events return 404, viewer can read, unsupported window returns 400, and `after` replay does not duplicate events. Update the project OpenAPI paths.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/store ./internal/httpapi ./internal/modules/tasking`
-Expected: PASS.
-
-```bash
-git add internal/store/project_queries.go internal/store/project_queries_integration_test.go internal/httpapi/project_events.go internal/httpapi/project_events_test.go internal/httpapi/projects.go internal/httpapi/server.go internal/modules/tasking/steps.go internal/store/inventory.go
-git commit -m "feat: add project summary and event stream"
-```
-
-### Task 7: GeoIP Resolution and Map API
+## Task 4: 项目、单位、归属查询 HTTP API
 
 **Files:**
-- Create: `internal/modules/geoip/resolver.go`
-- Create: `internal/modules/geoip/resolver_test.go`
-- Create: `internal/store/geo.go`
-- Create: `internal/httpapi/project_map.go`
-- Create: `internal/httpapi/project_map_test.go`
-- Modify: `internal/platform/config/config.go:20-65`
-- Modify: `internal/platform/config/config.go:200-360`
-- Modify: `internal/app/app.go`
-- Modify: `internal/modules/tasking/steps.go`
-- Modify: `internal/store/inventory.go`
-- Modify: `internal/platform/jobs/jobs.go`
-- Modify: `cmd/arl/main.go`
-- Modify: `config.example.yaml`
-
-**Interfaces:**
-- Consumes: Tasks 5-6 project assets and events.
-- Produces:
-  - `geoip.Resolver.Lookup(ctx context.Context, ip netip.Addr) (*domain.IPLocation, error)`
-  - `geoip.Resolver.LookupPublic(ip string) (*domain.IPLocation, error)`
-  - `store.(*Store).UpsertIPLocation`
-  - queue `q.geo`
-  - `GET /api/v1/projects/{id}/map?bbox=&kind=&risk=&window=&types=`
-  - `MapDTO` with `points`, `clusters`, `unlocatedCount`, `degraded`
-
-- [ ] **Step 1: Write failing resolver tests**
-
-Test private, loopback, link-local, public with city confidence 79, public with confidence 80, missing country, ASN-only, and invalid IP. Expected: private/reserved error; confidence below 80 returns an unlocated result with no lat/lon; confidence 80 keeps country/province/city and coordinates; ASN-only still stores ASN but no map point. Use a fake `LookupFunc`; do not require a licensed database in unit tests.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `go test ./internal/modules/geoip -run TestResolver -v`
-Expected: FAIL because the geoip package does not exist.
-
-- [ ] **Step 3: Implement MaxMind resolver and asynchronous enrichment**
-
-Add `github.com/oschwald/maxminddb-golang/v2`. Add config:
-
-```yaml
-geoip:
-  city: "/data/geoip/GeoLite2-City.mmdb"
-  asn: "/data/geoip/GeoLite2-ASN.mmdb"
-  cityConfidenceThreshold: 80
-```
-
-When enabled, open both files at startup; if either is missing, log a warning and set the resolver to `Unavailable`, not fail app startup. On an IP asset upsert with a project context, append an outbox message for `q.geo` containing project id and asset id. The worker looks up the public IP once, upserts `ip_locations` by IP, emits `asset.located`, and ignores duplicate queue deliveries idempotently. Add startup diagnostics for DB version and file modification time without logging license contents.
-
-- [ ] **Step 4: Implement and test the map endpoint**
-
-The map endpoint must authorize project membership, load only linked project IP assets, join `ip_locations`, filter to non-empty lat/lon, and return `unlocatedCount` for linked IPs without valid points. `kind=asset|edge|origin` comes from `ProjectAssetLink.Kind`; v1 may emit `edge` from existing CDN observations and `origin` only when a future relation exists. Group by country/province/city into deterministic clusters above 200 points; each point has `id,label,kind,lat,lon,country,province,city,risk,assetCount,confidence`. If GeoIP is unavailable, return 200 with `degraded:"geoip_unavailable"`, empty points, and the true unlocated count.
-
-Test that a private IP increments `unlocatedCount`, a low-confidence city is omitted, and a project B asset cannot appear in project A's map.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `go test ./internal/modules/geoip ./internal/httpapi ./internal/platform/config ./internal/store`
-Expected: PASS.
-
-```bash
-git add go.mod go.sum internal/modules/geoip internal/store/geo.go internal/httpapi/project_map.go internal/httpapi/project_map_test.go internal/platform/config/config.go internal/app/app.go internal/modules/tasking/steps.go internal/store/inventory.go internal/platform/jobs/jobs.go cmd/arl/main.go config.example.yaml
-git commit -m "feat: add GeoIP enrichment and project map API"
-```
-
-### Task 8: Neo4j Projection, Outbox, Rebuild, and Verification
-
-**Files:**
-- Create: `internal/modules/graph/derive.go`
-- Create: `internal/modules/graph/derive_test.go`
-- Create: `internal/modules/graph/repository.go`
-- Create: `internal/modules/graph/projector.go`
-- Create: `internal/modules/graph/projector_test.go`
-- Create: `internal/modules/graph/neo4j.go`
-- Create: `internal/modules/graph/neo4j_integration_test.go`
-- Create: `internal/modules/graph/rebuild.go`
-- Modify: `internal/platform/config/config.go`
-- Modify: `internal/platform/jobs/jobs.go`
-- Modify: `internal/app/app.go`
-- Modify: `internal/modules/tasking/engine.go`
-- Modify: `cmd/arl/main.go`
-- Modify: `deploy/compose.yaml`
-- Modify: `deploy/config.docker.yaml`
-- Modify: `config.example.yaml`
-
-**Interfaces:**
-- Consumes: Tasks 5-7; Mongo project links, assets, findings, attributions.
-- Produces:
-  - `graph.RelationDeriver.Derive(asset domain.Asset, related []domain.Asset) (nodes []Node, edges []Edge)`
-  - `graph.Repository.UpsertProjectNode`, `UpsertEdge`, `ReplaceProject`, `Graph`, `Reconcile`
-  - `graph.Projector.Handle(ctx, delivery jobs.Delivery) error`
-  - `graph.Rebuilder.RebuildProject(ctx, projectID) error`
-  - queue `q.graph`
-  - `arl graph rebuild --config PATH [--project-id ID]`
-  - `arl graph verify --config PATH --project-id ID`
-
-- [ ] **Step 1: Write failing pure derivation tests**
-
-Cover domain with direct IPs, CDN domain with edge IPs and CDN provider, domain-to-IP, IP-to-service, IP-to-site, site-to-URL, cert-to-domain, finding-to-asset, and task-to-asset. Assert every node/edge has project id, stable deterministic ids, and source/confidence fields. Add a case where two projects reference the same IP and assert their derived node ids differ by project namespace.
-
-- [ ] **Step 2: Run derivation tests and verify they fail**
-
-Run: `go test ./internal/modules/graph -run TestDerive -v`
-Expected: FAIL because the graph package does not exist.
-
-- [ ] **Step 3: Implement Neo4j repository and config**
-
-Add `github.com/neo4j/neo4j-go-driver/v5`. Config fields:
-
-```yaml
-graph:
-  enabled: true
-  uri: "bolt://neo4j:7687"
-  username: "neo4j"
-  password: ""
-```
-
-Create constraints for `Project`, `Organization`, `Domain`, `IP`, `Service`, `Site`, `URL`, `Certificate`, `CDNProvider`, `Finding`, and `Task` on `(projectId,entityId)`. Create indexes on node id/type and relationship projectId. Use `MERGE` with stable ids and `SET` properties so duplicate delivery is idempotent. If Neo4j is unreachable at startup, log `graph disabled` and continue; never fail `app.New`. Add a Neo4j service with health check and persistent volume to `deploy/compose.yaml`; read its password from an environment override and do not put a production secret in git.
-
-- [ ] **Step 4: Wire asset/finding/attribution events to the projector**
-
-Add `q.graph` and include it in worker consumption. On a successful project asset link, finding insert, or attribution confirmation, append an outbox message for `q.graph`. Projector loads only the project and entity from Mongo, derives the bounded neighborhood, and upserts it. On failure return the error so the existing queue retry/DLQ logic applies. Do not publish a graph event before the Mongo write commits.
-
-Implement `ReplaceProject` as: verify project exists; delete all nodes/edges with `projectId`; rebuild organization/domain/attribution nodes; stream assets and findings in batches; derive edges; then write. `RebuildProject` must be safe to rerun. `verify` runs Mongo count and Neo4j count queries for project assets, findings, organizations, and edges, returning nonzero if counts differ.
-
-- [ ] **Step 5: Add integration tests and commit**
-
-Run: `go test ./internal/modules/graph ./internal/app ./cmd/arl`
-Expected: PASS. With a live Neo4j, run `ARL_TEST_NEO4J_URI=bolt://127.0.0.1:7687 ARL_TEST_NEO4J_USER=neo4j ARL_TEST_NEO4J_PASSWORD=test go test ./internal/modules/graph -run Neo4j -v` and expect idempotent duplicate writes and matching rebuild/verify counts.
-
-```bash
-git add go.mod go.sum internal/modules/graph internal/platform/config/config.go internal/platform/jobs/jobs.go internal/app/app.go internal/modules/tasking/engine.go cmd/arl/main.go deploy/compose.yaml deploy/config.docker.yaml config.example.yaml
-git commit -m "feat: project Mongo graph into Neo4j"
-```
-
-### Task 9: Project Graph and Degraded List API
-
-**Files:**
-- Create: `internal/httpapi/project_graph.go`
-- Create: `internal/httpapi/project_graph_test.go`
-- Create: `internal/store/project_graph_fallback.go`
+- Create: `internal/httpapi/projects.go`
+- Create: `internal/httpapi/organization_lookup.go`
+- Create: `internal/httpapi/projects_test.go`
 - Modify: `internal/httpapi/server.go`
 - Modify: `internal/httpapi/openapi.go`
-- Modify: `internal/modules/graph/repository.go`
+- Modify: `internal/app/app.go`
 
 **Interfaces:**
-- Consumes: Tasks 5-8.
-- Produces:
-  - `GET /api/v1/projects/{id}/graph?focus=&organizationId=&city=&depth=&types=&risk=&window=&limit=`
-  - `GET /api/v1/projects/{id}/list?kind=&risk=&window=&q=&organizationId=&city=&page=`
-  - `GET /api/v1/projects/{id}/inspector?entityType=&entityId=`
-  - `GraphDTO{Nodes []GraphNode; Edges []GraphEdge; Truncated bool; Aggregated bool; Limit int}`
-  - `ListDTO` for the degraded homepage and global project search.
-  - `InspectorDTO` with entity summary, attribution, evidence references, linked tasks, and linked assets.
+- Routes: `GET/POST /projects`, `GET/PATCH /projects/{id}`, `POST /projects/{id}/organizations/import`, `GET /projects/{id}/organizations`, `POST /organizations/lookup`, `GET /organizations/{id}/attributions/{attributionId}`, `POST .../confirm`, `POST .../reject`.
+- `POST /organizations/lookup` returns HTTP 202 with `{attributionId, status: "pending"}` unless a cached confirmed result exists.
+- Uses `projects.Service` and `orgintel.Service`.
 
-- [ ] **Step 1: Write failing graph handler tests**
+- [ ] **Step 1: Write failing handler tests** for write permission, pagination, lookup source, confirm authorization, and invalid CSV.
+- [ ] **Step 2: Run** `go test ./internal/httpapi -run 'TestProject|TestLookup|TestConfirm|TestImport' -v`; expect FAIL.
+- [ ] **Step 3: Implement handlers and DTOs**; all responses use `{ "data": ... }`, errors use `httpx.WriteProblem`.
+- [ ] **Step 4: Wire services** into `httpapi.Server` and `app.New`; register routes before the SPA fallback.
+- [ ] **Step 5: Update OpenAPI** path summaries; do not expose raw attribution in list DTOs.
+- [ ] **Step 6: Run** `go test ./internal/httpapi -v`; expect PASS.
+- [ ] **Step 7: Commit** `feat: expose project and organization lookup APIs`.
 
-Test default depth 2 and limit 300; depth above 3 clamps to 3; limit above 500 clamps to 500; unknown type returns 400; risk `critical` returns only critical-or-higher nodes; city and organization filters apply to both graph and map; non-member returns 404; Neo4j disabled returns 503 with code `graph.unavailable`; project B nodes never appear in project A. Test list fallback returns project-linked assets and honors kind/risk/window/search. Test inspector rejects an entity id from project B and redacts raw attribution from viewers.
+## Task 5: GeoIP 位置解析
 
-- [ ] **Step 2: Run tests and verify they fail**
+**Files:**
+- Create: `internal/platform/geoip/resolver.go`
+- Create: `internal/platform/geoip/maxmind.go`
+- Create: `internal/platform/geoip/resolver_test.go`
+- Modify: `internal/platform/config/config.go`
+- Modify: `internal/app/app.go`
 
-Run: `go test ./internal/httpapi -run 'TestProjectGraph|TestProjectListFallback' -v`
-Expected: FAIL because graph routes do not exist.
+**Interfaces:**
+- `geoip.Location` has country, province, city, latitude, longitude, ASN, ASN org, source, confidence.
+- `geoip.Resolver` has `Lookup(ctx, netip.Addr) (*Location, error)` and `Health(ctx) error`.
+- `geoip.NewMaxMindResolver(cityPath, asnPath string) (*MaxMindResolver, error)`.
 
-- [ ] **Step 3: Implement bounded project graph queries**
+- [ ] **Step 1: Write failing tests** for invalid IP, private IP returning nil, normalization, and missing database health.
+- [ ] **Step 2: Run** `go test ./internal/platform/geoip -v`; expect FAIL.
+- [ ] **Step 3: Add `geoip.enabled` config** and initialize the resolver in `app.New`; a missing database is a warning, not startup failure.
+- [ ] **Step 4: Implement resolver** with injectable readers; private, loopback, link-local, and reserved addresses return `nil, nil`.
+- [ ] **Step 5: Persist through `store.UpsertIPLocation`**; keep the IP as the unique key.
+- [ ] **Step 6: Run** `go test ./internal/platform/geoip ./internal/platform/config -v`; expect PASS.
+- [ ] **Step 7: Commit** `feat: add offline geoip resolver`.
 
-Always start Cypher from the authorized project node matched by `(projectId:{id})`; do not accept arbitrary node ids without also matching `projectId`. Apply organization, city, type, and risk filters before `LIMIT`. With no risk filter, first return high-risk organizations/root domains and their immediately connected nodes; include lower-risk direct neighbors without labeling them high risk. If the requested focus node is not in the project, return 404. Emit `truncated=true` when the raw count exceeds the limit and aggregate high-degree nodes by organization/domain before returning. Populate `geo` only from the project's `ip_locations`; never use organization registration addresses.
+## Task 6: Neo4j 客户端、graph outbox 和 projector
 
-Map the repository result to the DTO with no Mongo asset ids that are not visible in that project. Include an opaque project-scoped `entityId` for inspector lookup. Add `GET /projects/{id}/list` using only `project_assets`, including asset kind/key, risk, first/last seen, and location/unlocated state; the same endpoint powers the project search box and fallback. Add `GET /projects/{id}/inspector`; it verifies the entity belongs to the project before returning organization/domain/IP/service/site/URL/cert/finding/task evidence. Update OpenAPI.
+**Files:**
+- Create: `internal/platform/graphdb/client.go`
+- Create: `internal/platform/graphdb/schema.go`
+- Create: `internal/modules/graph/projector.go`
+- Create: `internal/modules/graph/events.go`
+- Create: `internal/modules/graph/projector_test.go`
+- Modify: `internal/platform/config/config.go`
+- Modify: `internal/platform/jobs/jobs.go`
+- Modify: `internal/store/inventory.go`
+- Modify: `internal/app/app.go`
+- Modify: `cmd/arl/main.go`
 
-- [ ] **Step 4: Run tests and commit**
+**Interfaces:**
+- Adds `neo4j` config block and `q.graph` queue.
+- `graph.Event` has `Type`, `AssetID`, `TaskID`, `ProjectID`, `OrganizationID`, `Domain`, `OccurredAt`.
+- `graph.Projector.HandleDelivery`, `Rebuild`, `Health`.
 
-Run: `go test ./internal/httpapi ./internal/modules/graph ./internal/store`
-Expected: PASS.
+- [ ] **Step 1: Write failing tests** for idempotent upsert, unknown task, event payload shape, and schema constraints; fake the graph store.
+- [ ] **Step 2: Run** `go test ./internal/modules/graph ./internal/platform/graphdb -v`; expect FAIL.
+- [ ] **Step 3: Add config and queue** with `ARL_NEO4J_*` environment overrides and `q.graph` in `jobs.QueueNames`.
+- [ ] **Step 4: Emit outbox events** from asset/finding/attribution writes; payload contains IDs and stable keys only, never raw evidence.
+- [ ] **Step 5: Implement projector** using `MERGE` on stable IDs and project membership; read task/project context from Mongo. Neo4j failure is non-blocking and retryable.
+- [ ] **Step 6: Wire worker and all-in-one mode** so `q.graph` goes to the projector and `q.orgintel` goes to the attribution processor; add `arl graph rebuild` reading from Mongo.
+- [ ] **Step 7: Run** `go test ./internal/modules/graph ./internal/platform/graphdb ./internal/store -v`; expect PASS or SKIP.
+- [ ] **Step 8: Commit** `feat: project graph events into neo4j`.
 
-```bash
-git add internal/httpapi/project_graph.go internal/httpapi/project_graph_test.go internal/store/project_graph_fallback.go internal/httpapi/server.go internal/httpapi/openapi.go internal/modules/graph/repository.go
-git commit -m "feat: add bounded project graph and fallback API"
-```
+## Task 7: 图谱、地图和项目事件 API
 
-### Task 10: Vue Project Shell, Selection, Members, and Import
+**Files:**
+- Create: `internal/httpapi/graph.go`
+- Create: `internal/httpapi/graph_test.go`
+- Modify: `internal/httpapi/server.go`
+- Modify: `internal/httpapi/openapi.go`
+- Create: `internal/modules/graph/query.go`
+
+**Interfaces:**
+- Routes: `GET /projects/{id}/graph`, `GET /projects/{id}/map`, `GET /projects/{id}/events`.
+- Graph DTO: `nodes`, `edges`, `truncated`, `aggregated`, `limit`.
+- Map DTO: `points`, `clusters`, `unlocatedCount`.
+
+- [ ] **Step 1: Write failing tests** for unknown project, limit truncation, private IP exclusion, project isolation, and project event payload.
+- [ ] **Step 2: Run** `go test ./internal/httpapi -run 'TestGraph|TestMap|TestProjectIsolation' -v`; expect FAIL.
+- [ ] **Step 3: Implement query options** `focus`, `depth`, `types`, `risk`, `limit`; default 300, max 500.
+- [ ] **Step 4: Implement Cypher** starting from the requested Project; never start from a global asset. Aggregate map by city/country.
+- [ ] **Step 5: Implement project SSE** with no raw evidence or credentials.
+- [ ] **Step 6: Run** `go test ./internal/httpapi -v`; expect PASS.
+- [ ] **Step 7: Commit** `feat: expose project graph and map APIs`.
+
+## Task 8: 任务项目上下文
+
+**Files:**
+- Modify: `internal/domain/models.go`
+- Modify: `internal/modules/tasking/engine.go`
+- Modify: `internal/httpapi/tasks.go`
+- Modify: `internal/store/tasks.go`
+- Create/modify: `internal/modules/tasking/engine_test.go`
+
+**Interfaces:**
+- Adds optional `ProjectID`, `OrganizationID`, `RootDomainID` to Task.
+- `POST /tasks` accepts these fields; `ListTasks` filters by projectId.
+
+- [ ] **Step 1: Write failing tests** for project persistence, project filtering, unknown project rejection, and legacy scope compatibility.
+- [ ] **Step 2: Run** `go test ./internal/modules/tasking ./internal/store ./internal/httpapi -run 'TestTask.*Project|TestTask.*Legacy' -v`; expect FAIL.
+- [ ] **Step 3: Add fields and store filters**; old tasks remain readable.
+- [ ] **Step 4: Update task API** and validate project existence before submit.
+- [ ] **Step 5: Run** `go test ./internal/modules/tasking ./internal/store ./internal/httpapi -v`; expect PASS.
+- [ ] **Step 6: Commit** `feat: add project context to tasks`.
+
+## Task 9: 前端设计 token 和认证外壳
+
+**Files:**
+- Modify: `web/src/styles.css`
+- Modify: `web/src/layouts/AppLayout.vue`
+- Modify: `web/src/router.ts`
+- Modify: `web/src/pages/LoginPage.vue`
+- Create: `web/src/pages/ProjectHomePage.vue`
+- Create: `web/src/layouts/AppLayout.test.ts`
+
+**Interfaces:**
+- Adds route `/projects/:projectId`; `/` redirects to last project or projects list; `/dashboard` redirects to `/`.
+- Adds light design tokens: `--arl-bg`, `--arl-surface`, `--arl-text`, `--arl-muted`, `--arl-border`, `--arl-accent`, risk colors.
+
+- [ ] **Step 1: Write failing tests** for project context rendering, navigation, and root redirect.
+- [ ] **Step 2: Run** `cd web && npx vitest run src/layouts/AppLayout.test.ts`; expect FAIL.
+- [ ] **Step 3: Add design tokens** and convert the shell to a light, narrow, collapsible layout.
+- [ ] **Step 4: Add project route** and redirect legacy dashboard.
+- [ ] **Step 5: Run** `cd web && npx vitest run src/layouts/AppLayout.test.ts && npm run typecheck`; expect PASS.
+- [ ] **Step 6: Commit** `feat: add light console shell and project route`.
+
+## Task 10: 前端项目状态和类型化 API
+
+**Files:**
+- Create: `web/src/api/projects.ts`
+- Create: `web/src/types/graph.ts`
+- Create: `web/src/stores/project.ts`
+- Create: `web/src/stores/project.test.ts`
+- Create: `web/vitest.config.ts`
+
+**Interfaces:**
+- Types: `Project`, `Organization`, `GraphNode`, `GraphEdge`, `MapPoint`, `MapCluster`.
+- API: `fetchProjects`, `createProject`, `importOrganizations`, `lookupDomain`, `fetchAttribution`, `fetchProjectGraph`, `fetchProjectMap`.
+- Store: `currentProjectId`, `selectedNodeId`, `filters`, `setFilter`, `selectNode`; default filters `{ risk: "high", kind: "all", timeRange: "30d", mapScope: "china" }`.
+
+- [ ] **Step 1: Write failing tests** for default filters, graph/map filter sync, project reset, and problem code preservation.
+- [ ] **Step 2: Run** `cd web && npx vitest run src/stores/project.test.ts`; expect FAIL.
+- [ ] **Step 3: Implement typed API and store** using existing `api<T>()`; never include provider credentials.
+- [ ] **Step 4: Run** `cd web && npx vitest run src/stores/project.test.ts && npm run typecheck`; expect PASS.
+- [ ] **Step 5: Commit** `feat: add typed project store and api`.
+
+## Task 11: 图谱和地图组件
 
 **Files:**
 - Modify: `web/package.json`
 - Modify: `web/package-lock.json`
-- Create: `web/src/types/project.ts`
-- Create: `web/src/stores/project.ts`
-- Create: `web/src/layouts/ProjectLayout.vue`
-- Create: `web/src/pages/ProjectPickerPage.vue`
-- Create: `web/src/pages/ProjectHomePage.vue`
-- Create: `web/src/components/project/OrganizationRail.vue`
-- Create: `web/src/components/project/ProjectMembersModal.vue`
-- Create: `web/src/components/project/ImportOrganizationsModal.vue`
-- Create: `web/src/components/project/ProjectEmptyState.vue`
-- Create: `web/src/components/project/ProjectErrorState.vue`
-- Create: `web/src/components/project/ProjectGraphFallback.vue`
-- Create: `web/src/components/project/BatchScanDrawer.vue`
-- Modify: `web/src/router.ts`
-- Modify: `web/src/api.ts`
-- Modify: `web/src/layouts/AppLayout.vue`
+- Create: `web/src/components/graph/AssetGraph.vue`
+- Create: `web/src/components/graph/AssetGraph.test.ts`
+- Create: `web/src/components/map/AssetMap.vue`
+- Create: `web/src/components/map/AssetMap.test.ts`
+- Create: `web/src/assets/maps/china.json`
+- Create: `web/src/assets/maps/world.json`
 
 **Interfaces:**
-- Consumes: Tasks 2-6 and 9 API DTOs.
-- Produces:
-  - routes `/projects`, `/projects/:projectId`, `/projects/:projectId/organizations`
-  - Pinia `useProjectStore()` with `projects`, `current`, `filters`, `selection`, `summary`, `assets`, `loading`, `degraded`
-  - shared filter keys `organizationIds`, `risk`, `window`, `types`, `mapCity`, `selectionId`
-  - `api` methods for project list/create/get/update/members/summary/assets/import/job/events
+- `AssetGraph` props `nodes`, `edges`, `selectedId`, `loading`; emits `select`, `expand`, `filter`.
+- `AssetMap` props `points`, `clusters`, `scope`, `selectedId`; emits `select`, `region`, `scopeChange`.
 
-- [ ] **Step 1: Write failing frontend tests**
+- [ ] **Step 1: Install** `cd web && npm install echarts vue-echarts`.
+- [ ] **Step 2: Write failing tests** for node selection, legend, China/world switch, region selection, and unlocated count. Mock ECharts.
+- [ ] **Step 3: Implement graph** with labels only for selected/unit/domain nodes; risk colors only for risk; empty state.
+- [ ] **Step 4: Implement map** with geo series; point kinds `asset`, `edge`, `origin`; no point for private IP; missing GeoIP adds to unlocated count.
+- [ ] **Step 5: Document GeoJSON source/license** in `docs/ARCHITECTURE.md`; commit only licensed map data.
+- [ ] **Step 6: Run** `cd web && npx vitest run src/components/graph src/components/map && npm run typecheck`; expect PASS.
+- [ ] **Step 7: Commit** `feat: add asset graph and map components`.
 
-Add Vitest tests for project-store filter invariants, last-project persistence, role-based member controls, import validation, and empty/error rendering. Assert that a viewer cannot see confirm/import/member/scan mutation controls, that a batch scan refuses unconfirmed domains, and that selecting a map city sets `mapCity` without clearing the risk/window filters.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `cd web && npm test -- --run`
-Expected: FAIL because the project store and components do not exist.
-
-- [ ] **Step 3: Implement the project workspace shell**
-
-Add `echarts` and `@types/echarts` only if required by the installed ECharts version. Use `ProjectLayout` with a top project bar, 236px organization rail, central workspace, 340px right rail, and bottom event ribbon; use the provided design tokens exactly. `ProjectPickerPage` lists accessible projects and has a create action. On login, route to `/projects`; redirect to the last accessible project from `localStorage` only after verifying it is returned by `GET /projects`. If no project is accessible, show the picker, not an empty dashboard.
-
-Use `GET /projects/{id}/summary` for coverage/risk. Build an SSE connection to `/projects/{id}/events` with replay via `Last-Event-ID`; fall back to polling every 5 seconds if EventSource errors. The import modal accepts `.csv`, displays accepted/rejected row counts from the job, and polls the job endpoint. The members modal is visible to super-admin and permits add/remove only; viewer/operator membership does not grant member-management rights.
-
-`BatchScanDrawer` lets an operator select confirmed project domains or organizations and posts one `/tasks` request per domain with `projectId`, `organizationId`, and `rootDomainId`. It reports per-domain success/failure and never submits an unconfirmed domain. The top search box queries `/projects/{id}/list?q=` and opens the inspector for a selected result.
-
-- [ ] **Step 4: Run typecheck and commit**
-
-Run: `cd web && npm test -- --run && npm run typecheck`
-Expected: PASS.
-
-```bash
-git add web/package.json web/package-lock.json web/src/types/project.ts web/src/stores/project.ts web/src/layouts/ProjectLayout.vue web/src/pages/ProjectPickerPage.vue web/src/pages/ProjectHomePage.vue web/src/components/project/OrganizationRail.vue web/src/components/project/ProjectMembersModal.vue web/src/components/project/ImportOrganizationsModal.vue web/src/components/project/BatchScanDrawer.vue web/src/components/project/ProjectEmptyState.vue web/src/components/project/ProjectErrorState.vue web/src/components/project/ProjectGraphFallback.vue web/src/router.ts web/src/api.ts web/src/layouts/AppLayout.vue
-git commit -m "feat: add project workspace frontend shell"
-```
-
-### Task 11: ECharts Graph, Map, Inspector, and Shared Filters
+## Task 12: 首页组合、项目导入和域名反查
 
 **Files:**
-- Create: `web/src/components/project/GraphCanvas.vue`
-- Create: `web/src/components/project/MapPanel.vue`
-- Create: `web/src/components/project/InspectorPanel.vue`
-- Create: `web/src/components/project/EventRibbon.vue`
-- Create: `web/src/components/project/RiskFilter.vue`
-- Create: `web/src/components/project/GraphLegend.vue`
-- Create: `web/src/components/project/GraphCanvas.test.ts`
-- Create: `web/src/components/project/MapPanel.test.ts`
-- Create: `web/src/assets/geo/china.json`
-- Create: `web/src/assets/geo/world.json`
 - Modify: `web/src/pages/ProjectHomePage.vue`
-- Modify: `web/src/stores/project.ts`
-- Modify: `web/src/styles.css`
+- Create: `web/src/components/project/ProjectSwitcher.vue`
+- Create: `web/src/components/project/ProjectImportDialog.vue`
+- Create: `web/src/components/project/DomainLookupDialog.vue`
+- Create: `web/src/components/project/AssetInspector.vue`
+- Create: `web/src/pages/ProjectHomePage.test.ts`
+- Modify: `web/src/pages/DashboardPage.vue` to redirect or remove.
 
 **Interfaces:**
-- Consumes: Task 10 shell/store and Task 9 DTOs.
-- Produces:
-  - `GraphCanvas` emits `nodeSelected` and `backgroundSelected`
-  - `MapPanel` emits `citySelected`, `pointSelected`, and `mapReady`
-  - `InspectorPanel` tabs `overview`, `evidence`, `tasks`, `attribution`, `assets`
-  - filter/selection behavior shared only through `useProjectStore()`
+- Project homepage consumes Task 10/11. No separate wallboard.
+- Layout: top project/search/actions, left units, center graph, right map/inspector/events, bottom event strip.
 
-- [ ] **Step 1: Write failing interaction tests**
+- [ ] **Step 1: Write failing tests** for project context, lookup candidate, import refresh, graph inspector, map filter, and Neo4j unavailable banner.
+- [ ] **Step 2: Run** `cd web && npx vitest run src/pages/ProjectHomePage.test.ts`; expect FAIL.
+- [ ] **Step 3: Build the layout** with small text summaries, not metric-card grids.
+- [ ] **Step 4: Implement import/lookup** with CSV warnings, source/confidence, confirm/reject, and list refresh. Lookup returns pending, then polls `fetchAttribution` every 2 seconds for up to 60 seconds; show timeout and retry state.
+- [ ] **Step 5: Implement degraded states** for no project, no GeoIP, and Neo4j down.
+- [ ] **Step 6: Run** `cd web && npx vitest run src/pages/ProjectHomePage.test.ts && npm run typecheck && npm run build`; expect PASS.
+- [ ] **Step 7: Commit** `feat: build project asset graph homepage`.
 
-Mount `GraphCanvas` and `MapPanel` with mocked ECharts instances. Assert initial graph call uses `limit=300`, map click writes `mapCity` into the store, graph click writes `selectionId` and calls map focus, changing risk/window refetches both graph and map, and Neo4j unavailable switches the center panel to `ProjectGraphFallback` while retaining the map and inspector.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `cd web && npm test -- --run GraphCanvas MapPanel`
-Expected: FAIL because the components do not exist.
-
-- [ ] **Step 3: Implement graph/map/inspector**
-
-Use ECharts `graph` with category colors only for unit/domain/IP/service/risk and labels only for high-risk or selected nodes. Default request is `window=90d`, depth 2, limit 300. Map defaults to China, switches to world, uses `china.json`/`world.json`, clusters above 200 visible points, and renders asset/edge/origin with distinct but restrained symbols. Never place private or unlocated IPs at a fake coordinate; show the unlocated count in the map header.
-
-Clicking a city sets the shared `mapCity` filter and refetches the graph; clicking a graph node sets `selectionId` and the map focuses that node if it has a valid location. The inspector fetches the selected entity only from a project-scoped endpoint, displays source/confidence/evidence, and links to tasks/assets. The event ribbon consumes the shared SSE stream and never becomes the primary visual. Update the design tokens in `styles.css`: light background, white panels, low-contrast borders, one dark blue-gray accent, red/orange/blue reserved for risk. Remove gradients from the project layout.
-
-- [ ] **Step 4: Run frontend tests and typecheck**
-
-Run: `cd web && npm test -- --run && npm run typecheck && npm run build`
-Expected: PASS. Verify the ECharts map assets are loaded locally and no network map fetch occurs.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add web/src/components/project/GraphCanvas.vue web/src/components/project/MapPanel.vue web/src/components/project/InspectorPanel.vue web/src/components/project/EventRibbon.vue web/src/components/project/RiskFilter.vue web/src/components/project/GraphLegend.vue web/src/components/project/GraphCanvas.test.ts web/src/components/project/MapPanel.test.ts web/src/assets/geo/china.json web/src/assets/geo/world.json web/src/pages/ProjectHomePage.vue web/src/stores/project.ts web/src/styles.css
-git commit -m "feat: add project graph and map workspace"
-```
-
-### Task 12: Project Batch Export and Evidence Download
+## Task 13: 部署、迁移、诊断和 E2E
 
 **Files:**
-- Create: `internal/modules/reporting/project_exporter.go`
-- Create: `internal/modules/reporting/project_exporter_test.go`
-- Create: `internal/httpapi/project_exports.go`
-- Create: `internal/httpapi/project_exports_test.go`
-- Modify: `internal/modules/reporting/exporter.go`
-- Modify: `internal/domain/models.go`
-- Modify: `internal/store/project_queries.go`
-- Modify: `internal/httpapi/server.go`
-- Modify: `web/src/components/project/OrganizationRail.vue`
-- Modify: `web/src/pages/ProjectHomePage.vue`
-- Modify: `web/src/api.ts`
-
-**Interfaces:**
-- Consumes: Tasks 5-11 project links, filtering, and UI selection.
-- Produces:
-  - `reporting.ProjectExporter.Export(ctx, projectID, filters, format) (exportID, error)`
-  - `POST /api/v1/projects/{id}/exports` with `{format:"csv"|"xlsx", organizationIds, domainIds, kind, risk, window}`
-  - `GET /api/v1/projects/{id}/exports/{exportId}` for status and download readiness
-  - `ExportJob.ProjectID`, `OrganizationIDs`, `DomainIDs`, `Kind`, `Risk`, `Window`
-
-- [ ] **Step 1: Write failing export tests**
-
-Test CSV and XLSX exports containing only project-linked assets and findings; test an empty selection returns 400, a viewer returns 403, a non-member returns 404, and project B asset keys never appear. Verify `organizationIds` and `domainIds` are intersected with the project rather than trusted directly.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `go test ./internal/modules/reporting ./internal/httpapi -run 'TestProjectExport' -v`
-Expected: FAIL because project export does not exist.
-
-- [ ] **Step 3: Implement project-scoped export**
-
-Add project filters to `ExportJob` with `bson`/`json` tags. The endpoint creates a queued export record and the worker exports from `project_assets` plus project findings only. CSV headers are `organization,rootDomain,kind,key,title,severity,status,firstSeen,lastSeen,source,confidence`; XLSX adds separate `Assets`, `Findings`, and `Attributions` sheets. A user can download only an export whose `projectId` matches the authorized project and whose `createdBy` matches the caller unless the caller is super-admin.
-
-Add an export action to the organization rail for selected units/domains. Poll status and expose download only when the export is finished.
-
-- [ ] **Step 4: Run tests and commit**
-
-Run: `go test ./internal/modules/reporting ./internal/httpapi`
-Expected: PASS.
-
-```bash
-git add internal/modules/reporting/project_exporter.go internal/modules/reporting/project_exporter_test.go internal/httpapi/project_exports.go internal/httpapi/project_exports_test.go internal/modules/reporting/exporter.go internal/domain/models.go internal/store/project_queries.go internal/httpapi/server.go web/src/components/project/OrganizationRail.vue web/src/pages/ProjectHomePage.vue web/src/api.ts
-git commit -m "feat: add project-scoped exports"
-```
-
-### Task 13: Deployment, Legacy Migration, E2E, and Documentation
-
-**Files:**
-- Create: `internal/store/legacy_migrate.go`
-- Create: `internal/store/legacy_migrate_test.go`
-- Modify: `cmd/arl/main.go`
 - Modify: `deploy/compose.yaml`
 - Modify: `deploy/config.docker.yaml`
-- Modify: `deploy/Dockerfile`
 - Modify: `config.example.yaml`
-- Create: `web/e2e/project-home.spec.ts`
-- Create: `web/e2e/project-fallback.spec.ts`
-- Modify: `web/e2e/support.ts`
+- Modify: `internal/platform/config/config.go`
+- Modify: `cmd/arl/main.go`
+- Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/PARITY.md`
-- Modify: `docs/SCANNER-DIFFERENCES.md`
+- Create: `web/e2e/home.spec.ts`
+- Modify: `web/e2e/support.ts`
+- Modify: `web/e2e/console.spec.ts`
 
-**Interfaces:**
-- Consumes: all preceding tasks.
-- Produces:
-  - `arl legacy-import-scope --config PATH --scope-id ID --project-id ID --organization-id ID`
-  - compose services `neo4j` and optional `geoip` volume mount
-  - E2E coverage for project selection, empty state, import validation, graph/map linking, Neo4j fallback, GeoIP unavailable, and responsive widths
+- [ ] **Step 1: Add Neo4j compose service** with pinned 5.x image, volume, auth, ports 7474/7687, and healthcheck.
+- [ ] **Step 2: Add config and doctor checks** for Neo4j, GeoIP files, and Chinaz configured/missing status; never print secret values.
+- [ ] **Step 3: Add E2E** for login, project creation, CSV import, `guc.edu.cn -> 四川吉利学院`, confirm, graph selection, map filter, and degraded banner; use API fixtures and no real Chinaz network.
+- [ ] **Step 4: Update existing E2E expectations** from `/dashboard` to project home.
+- [ ] **Step 5: Run backend verification** `go test ./...`, `go test -race ./...`, `go vet ./...`.
+- [ ] **Step 6: Run frontend verification** `cd web && npm run typecheck && npm run build && npx vitest run`.
+- [ ] **Step 7: Run integration** with `ARL_TEST_MONGO_URI` and `ARL_TEST_NEO4J_URI`.
+- [ ] **Step 8: Run E2E** with `E2E_PASSWORD`; do not output secrets.
+- [ ] **Step 9: Commit** `feat: deploy project graph homepage`.
 
-- [ ] **Step 1: Write failing legacy and E2E tests**
+## Self-Review
 
-Test that `legacy-import-scope` copies targets without deleting the source scope and is idempotent. Test missing project/organization ids return a clear error. Add E2E tests that login lands on `/projects`, a last accessible project is restored after reload, no-project state shows create/import controls, viewer controls are absent, a mocked graph/map link updates the shared selection, batch scan refuses unconfirmed domains, export download is project-scoped, Neo4j-unavailable shows the list fallback, GeoIP-unavailable shows the map notice, and 1920x1080, 1440px, and 1280px layouts have no overlapping panels or horizontal overflow.
-
-- [ ] **Step 2: Run tests and verify they fail**
-
-Run: `go test ./internal/store -run TestLegacyScopeImport -v && cd web && npm run test:e2e -- project-home.spec.ts`
-Expected: FAIL because the command, fixtures, and E2E routes do not exist.
-
-- [ ] **Step 3: Implement legacy copy, deployment wiring, and docs**
-
-`legacy-import-scope` requires explicit `--project-id` and `--organization-id`; it copies scope target domains into that project as pending `source="legacy_scope"` attributions, copies scope-asset links into `project_assets` with a `legacy_scope` source, and never calls `DeleteScope`. It prints copied/skipped/error counts and returns nonzero on any error. It never auto-confirms ownership.
-
-Add Neo4j and GeoIP mount examples to compose. Do not COPY MaxMind files into the image; mount a deployment-owned directory read-only. Add `ARL_NEO4J_*`, `ARL_GEOIP_*`, and attribution flags to the example config. Update `docs/PARITY.md` and `docs/SCANNER-DIFFERENCES.md` with the new project model, graph projection, external lookup disabled state, and GeoIP behavior. Generate screenshots at all three widths and store them under `docs/screenshots/project-home/` only if the repository convention permits checked-in screenshots; otherwise attach them to the change request and do not commit generated images.
-
-- [ ] **Step 4: Run the full verification suite**
-
-Run:
-
-```bash
-go test ./...
-cd web && npm run typecheck
-cd web && npm test -- --run
-cd web && npm run build
-cd ..
-make verify
-```
-
-Expected: PASS. With Mongo and Neo4j available, additionally run:
-
-```bash
-ARL_TEST_MONGO_URI=mongodb://127.0.0.1:27017 go test ./internal/store ./internal/modules/tasking -run TestProject
-ARL_TEST_NEO4J_URI=bolt://127.0.0.1:7687 go test ./internal/modules/graph
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/store/legacy_migrate.go internal/store/legacy_migrate_test.go cmd/arl/main.go deploy/compose.yaml deploy/config.docker.yaml deploy/Dockerfile config.example.yaml web/e2e/project-home.spec.ts web/e2e/project-fallback.spec.ts web/e2e/support.ts docs/PARITY.md docs/SCANNER-DIFFERENCES.md
-git commit -m "feat: ship project graph homepage"
-```
+- Spec coverage: project/organization model, CSV import, Chinaz provider, graph/map API, GeoIP, Neo4j projection, homepage A, legacy Scope, security, fallback, tests all have tasks.
+- Type consistency: projectId is a string at API/JS boundaries and bson.ObjectID in Mongo domain; graph/map DTOs use string IDs.
+- Review Focus tests are assigned to Tasks 3, 7, 11, and 12.
+- Plan scope: individual legacy pages are not restyled beyond the shared shell; they follow after homepage parity.
