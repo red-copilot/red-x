@@ -192,13 +192,17 @@ func (s *Store) UpsertIPLocation(ctx context.Context, loc *domain.IPLocation) er
 	}
 	loc.UpdatedAt = time.Now().UTC()
 	loc.SchemaVersion = domain.SchemaVersion
+	insert := bson.M{}
+	if !loc.ID.IsZero() {
+		insert["_id"] = loc.ID
+	}
 	_, err := s.C(ColIPLocations).UpdateOne(ctx, bson.M{"ip": loc.IP}, bson.M{
 		"$set": bson.M{
 			"lat": loc.Lat, "lon": loc.Lon, "country": loc.Country, "province": loc.Province,
 			"city": loc.City, "asn": loc.ASN, "asnOrg": loc.ASNOrg, "source": loc.Source,
 			"updatedAt": loc.UpdatedAt, "schemaVersion": loc.SchemaVersion,
 		},
-		"$setOnInsert": bson.M{"_id": loc.ID},
+		"$setOnInsert": insert,
 	}, options.UpdateOne().SetUpsert(true))
 	return err
 }
