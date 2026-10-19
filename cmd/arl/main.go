@@ -19,6 +19,7 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/geoip"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/platform/logx"
 	"github.com/red-copilot/red-x/internal/platform/pdtools"
@@ -110,6 +111,7 @@ func runWeb(args []string) {
 	if err := a.Identity.BootstrapAdmin(ctx); err != nil {
 		a.Log.Error("bootstrap admin failed", "error", err)
 	}
+	a.Server.EASM = newEASMService(a)
 	srv := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           a.Server.Router(),
@@ -160,11 +162,15 @@ func runWorker(args []string) {
 	if stopProjector != nil {
 		defer stopProjector()
 	}
+	icpSvc := newEASMService(a)
 	queues := splitCSV(*queuesFlag)
 	log.Info("worker started", "queues", queues, "driver", cfg.Queue.Driver)
 	err = a.Queue.Consume(ctx, queues, 2, func(ctx context.Context, d jobs.Delivery) error {
 		if d.Queue == "q.github" {
 			return fmt.Errorf("github queue jobs are handled by the API-triggered GitHub worker")
+		}
+		if d.Queue == "q.icp" {
+			return icpSvc.HandleICPJob(ctx, d)
 		}
 		return a.Engine.HandleDelivery(ctx, d)
 	})
@@ -197,11 +203,16 @@ func runAll(args []string) {
 	if stopProjector != nil {
 		defer stopProjector()
 	}
+	icpSvc := newEASMService(a)
+	a.Server.EASM = icpSvc
 	go a.Scheduler.Run(ctx)
 	go func() {
 		err := a.Queue.Consume(ctx, jobs.QueueNames, 2, func(ctx context.Context, d jobs.Delivery) error {
 			if d.Queue == "q.github" {
 				return nil
+			}
+			if d.Queue == "q.icp" {
+				return icpSvc.HandleICPJob(ctx, d)
 			}
 			return a.Engine.HandleDelivery(ctx, d)
 		})
@@ -462,4 +473,42 @@ func runGraph(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("graph rebuilt")
+}
+
+func newEASMService(a *app.App) *easm.Service {
+	cookie := os.Getenv("ARL_ICP_CHINAZ_COOKIE")
+	if path := a.Config.ICP.Chinaz.CookieFile; path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			cookie = strings.TrimSpace(string(b))
+		} else {
+			a.Log.Warn("ICP cookie file not readable", "path", path, "error", err)
+		}
+	}
+	baseURL := a.Config.ICP.ICPQuery.BaseURL
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:16181"
+	}
+	timeout := time.Duration(a.Config.ICP.ICPQuery.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	pageSize := a.Config.ICP.ICPQuery.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	svc := &easm.Service{
+		Repo: a.Store, Store: a.Store, Queue: a.Queue, Log: a.Log,
+		Chinaz: easm.NewChinazProvider(cookie, a.Config.ICP.Chinaz.UserAgent,
+			"https://icp.chinaz.com", "https://tooldata.chinaz.com/icp/api/website/queryPermit", nil),
+		ICPQuery: easm.NewICPQueryProvider(baseURL, pageSize, 5*time.Second, &http.Client{Timeout: timeout}),
+	}
+	if geo, err := geoip.NewMaxMind(a.Config.GeoIP.City, a.Config.GeoIP.ASN); err == nil {
+		svc.Geo = geo
+	} else {
+		a.Log.Warn("GeoIP disabled", "error", err)
+	}
+	if reader, err := easm.NewNeo4jReader(a.Config.Neo4j); err == nil && reader != nil {
+		svc.GraphReader = reader
+	}
+	return svc
 }

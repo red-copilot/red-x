@@ -3,6 +3,7 @@ package easm
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/netip"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/geoip"
+	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -35,10 +37,23 @@ type GraphReader interface {
 	ReadOrganizationGraph(ctx context.Context, orgID string, depth, limit int) ([]GraphNode, []GraphEdge, bool, error)
 }
 
+type DomainLookupProvider interface {
+	LookupByDomain(ctx context.Context, rootDomain string) (DomainICPResult, error)
+}
+
+type OrganizationLookupProvider interface {
+	SearchByOrganization(ctx context.Context, name string) ([]OrgDomainRecord, error)
+}
+
 type Service struct {
 	Repo        Repository
 	Geo         geoip.Resolver
 	GraphReader GraphReader
+	Store       ICPServiceStore
+	Queue       jobs.Queue
+	Chinaz      DomainLookupProvider
+	ICPQuery    OrganizationLookupProvider
+	Log         *slog.Logger
 }
 
 type OrgBubble struct {

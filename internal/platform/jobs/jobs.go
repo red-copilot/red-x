@@ -23,6 +23,7 @@ var QueueNames = []string{
 	"q.monitor",
 	"q.github",
 	"q.maintenance",
+	"q.icp",
 }
 
 type Envelope struct {

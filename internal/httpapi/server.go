@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/modules/github"
 	"github.com/red-copilot/red-x/internal/modules/identity"
 	"github.com/red-copilot/red-x/internal/modules/monitoring"
@@ -23,8 +26,6 @@ import (
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/store"
 	"github.com/red-copilot/red-x/internal/webui"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -37,6 +38,7 @@ type Server struct {
 	Scheduler *monitoring.Scheduler
 	GitHub    *github.Service
 	Exporter  *reporting.Exporter
+	EASM      *easm.Service
 	Matcher   *webintel.FingerprintMatcher
 	WIH       *webintel.WIHScanner
 	Log       *slog.Logger

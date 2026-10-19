@@ -28,6 +28,7 @@ type Config struct {
 	GitHub      GitHubConfig       `yaml:"github"`
 	Fofa        FofaConfig         `yaml:"fofa"`
 	Neo4j       Neo4jConfig        `yaml:"neo4j"`
+	ICP         ICPConfig          `yaml:"icp"`
 }
 
 type ServerConfig struct {
@@ -153,6 +154,19 @@ type NucleiScannerConfig struct {
 type GeoIPConfig struct {
 	City string `yaml:"city"`
 	ASN  string `yaml:"asn"`
+}
+
+type ICPConfig struct {
+	CacheTTL string `yaml:"cacheTTL"`
+	Chinaz   struct {
+		CookieFile string `yaml:"cookieFile"`
+		UserAgent  string `yaml:"userAgent"`
+	} `yaml:"chinaz"`
+	ICPQuery struct {
+		BaseURL  string `yaml:"baseURL"`
+		Timeout  int    `yaml:"timeout"`
+		PageSize int    `yaml:"pageSize"`
+	} `yaml:"icpQuery"`
 }
 
 type Neo4jConfig struct {
@@ -334,6 +348,8 @@ func applyEnv(c *Config) {
 	set("ARL_NEO4J_USER", &c.Neo4j.User)
 	set("ARL_NEO4J_PASSWORD", &c.Neo4j.Password)
 	set("ARL_NEO4J_DATABASE", &c.Neo4j.Database)
+	set("ARL_ICP_CHINAZ_USER_AGENT", &c.ICP.Chinaz.UserAgent)
+	set("ARL_ICP_ICPQUERY_BASE_URL", &c.ICP.ICPQuery.BaseURL)
 	if v := os.Getenv("ARL_COOKIE_SECURE"); v != "" {
 		c.Auth.CookieSecure, _ = strconv.ParseBool(v)
 	}

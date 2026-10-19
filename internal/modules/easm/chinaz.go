@@ -29,11 +29,11 @@ var (
 )
 
 type DomainICPResult struct {
-	RawHTML   string
-	OrgName   string
-	OrgType   string
-	ICPNo     string
-	AuditDate string
+	RawHTML   string `json:"-"`
+	OrgName   string `json:"orgName"`
+	OrgType   string `json:"orgType"`
+	ICPNo     string `json:"icpNo"`
+	AuditDate string `json:"auditDate"`
 }
 
 type ChinazProvider struct {
