@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/red-copilot/red-x/internal/app"
 	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/platform/config"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/platform/logx"
@@ -50,6 +52,8 @@ func main() {
 		runAdmin(args)
 	case "poc":
 		runPOC(args)
+	case "graph":
+		runGraph(args)
 	case "version", "--version", "-v":
 		fmt.Println("arl", version)
 	default:
@@ -70,7 +74,8 @@ Usage:
   arl health    [--url http://127.0.0.1:5003/readyz]
   arl admin create-user --username NAME --password PASS [--role admin]
   arl admin reset-password --username NAME --password PASS
-  arl poc sync  [--config config.yaml]`)
+  arl poc sync  [--config config.yaml]
+  arl graph rebuild [--config config.yaml]`)
 }
 
 func configFlag(args []string) (config.Config, string) {
@@ -151,6 +156,10 @@ func runWorker(args []string) {
 	}
 	defer a.Close(context.Background())
 	go a.Engine.OutboxRelay(ctx)
+	stopProjector := startProjector(ctx, a, log)
+	if stopProjector != nil {
+		defer stopProjector()
+	}
 	queues := splitCSV(*queuesFlag)
 	log.Info("worker started", "queues", queues, "driver", cfg.Queue.Driver)
 	err = a.Queue.Consume(ctx, queues, 2, func(ctx context.Context, d jobs.Delivery) error {
@@ -184,6 +193,10 @@ func runAll(args []string) {
 		a.Log.Error("bootstrap admin failed", "error", err)
 	}
 	go a.Engine.OutboxRelay(ctx)
+	stopProjector := startProjector(ctx, a, a.Log)
+	if stopProjector != nil {
+		defer stopProjector()
+	}
 	go a.Scheduler.Run(ctx)
 	go func() {
 		err := a.Queue.Consume(ctx, jobs.QueueNames, 2, func(ctx context.Context, d jobs.Delivery) error {
@@ -409,4 +422,44 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+func startProjector(ctx context.Context, a *app.App, log *slog.Logger) func() {
+	writer, err := easm.NewNeo4jWriter(a.Config.Neo4j)
+	if err != nil {
+		log.Warn("graph projector disabled", "error", err)
+		return nil
+	}
+	if writer == nil {
+		return nil
+	}
+	projector := easm.NewProjector(a.Store, writer, log)
+	go projector.Run(ctx)
+	return func() { _ = writer.Close(context.Background()) }
+}
+
+func runGraph(args []string) {
+	if len(args) == 0 || args[0] != "rebuild" {
+		usage()
+		os.Exit(2)
+	}
+	a, cfg, ctx, cancel := build(args[1:])
+	defer cancel()
+	defer a.Close(context.Background())
+	writer, err := easm.NewNeo4jWriter(cfg.Neo4j)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "neo4j error:", err)
+		os.Exit(1)
+	}
+	if writer == nil {
+		fmt.Fprintln(os.Stderr, "neo4j is not configured")
+		os.Exit(1)
+	}
+	defer func() { _ = writer.Close(context.Background()) }()
+	projector := easm.NewProjector(a.Store, writer, a.Log)
+	if err := projector.Rebuild(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "graph rebuild failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("graph rebuilt")
 }

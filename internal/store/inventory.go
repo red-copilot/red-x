@@ -36,6 +36,7 @@ func (s *Store) UpsertAsset(ctx context.Context, kind domain.AssetKind, key stri
 	if err != nil {
 		return nil, err
 	}
+	_ = s.AppendGraphOutbox(ctx, "asset", asset.ID.Hex(), domain.OutboxOpUpsert)
 	return &asset, nil
 }
 
@@ -57,6 +58,9 @@ func (s *Store) AddFinding(ctx context.Context, f *domain.Finding) (bool, error)
 	_, err := s.C(ColFindings).InsertOne(ctx, f)
 	if mongo.IsDuplicateKeyError(err) {
 		return false, nil
+	}
+	if err == nil {
+		_ = s.AppendGraphOutbox(ctx, "finding", f.ID.Hex(), domain.OutboxOpUpsert)
 	}
 	return err == nil, err
 }

@@ -274,6 +274,7 @@ func (s *Store) ClaimGraphOutbox(ctx context.Context, limit int) ([]domain.Graph
 	for i := 0; i < limit; i++ {
 		filter := bson.M{
 			"processedAt": nil,
+			"attempts":    bson.M{"$lt": 5},
 			"$or": bson.A{
 				bson.M{"processingAt": nil},
 				bson.M{"processingAt": bson.M{"$lt": stale}},
@@ -307,5 +308,67 @@ func (s *Store) MarkGraphOutboxProcessed(ctx context.Context, ids []bson.ObjectI
 		"$set":   bson.M{"processedAt": now},
 		"$unset": bson.M{"processingAt": ""},
 	})
+	return err
+}
+
+func (s *Store) GetAssetByID(ctx context.Context, id bson.ObjectID) (*domain.Asset, error) {
+	var a domain.Asset
+	err := s.C(ColAssets).FindOne(ctx, bson.M{"_id": id}).Decode(&a)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &a, err
+}
+
+func (s *Store) GetFindingByID(ctx context.Context, id bson.ObjectID) (*domain.Finding, error) {
+	var f domain.Finding
+	err := s.C(ColFindings).FindOne(ctx, bson.M{"_id": id}).Decode(&f)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &f, err
+}
+
+func (s *Store) GetOrganizationDomainByID(ctx context.Context, id bson.ObjectID) (*domain.OrganizationDomain, error) {
+	var od domain.OrganizationDomain
+	err := s.C(ColOrganizationDomains).FindOne(ctx, bson.M{"_id": id}).Decode(&od)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &od, err
+}
+
+func (s *Store) ListAllOrganizations(ctx context.Context) ([]domain.Organization, error) {
+	cur, err := s.C(ColOrganizations).Find(ctx, bson.M{"status": domain.OrgStatusActive})
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []domain.Organization
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListAllOrganizationDomains(ctx context.Context, status string) ([]domain.OrganizationDomain, error) {
+	filter := bson.M{}
+	if status != "" {
+		filter["status"] = status
+	}
+	cur, err := s.C(ColOrganizationDomains).Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []domain.OrganizationDomain
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ClearGraphOutbox(ctx context.Context) error {
+	_, err := s.C(ColGraphOutbox).DeleteMany(ctx, bson.M{})
 	return err
 }

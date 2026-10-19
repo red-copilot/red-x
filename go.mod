@@ -287,6 +287,7 @@ require (
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
+	github.com/neo4j/neo4j-go-driver/v5 v5.28.5 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.2 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect

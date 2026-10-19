@@ -27,6 +27,7 @@ type Config struct {
 	Notify      NotificationConfig `yaml:"notifications"`
 	GitHub      GitHubConfig       `yaml:"github"`
 	Fofa        FofaConfig         `yaml:"fofa"`
+	Neo4j       Neo4jConfig        `yaml:"neo4j"`
 }
 
 type ServerConfig struct {
@@ -152,6 +153,14 @@ type NucleiScannerConfig struct {
 type GeoIPConfig struct {
 	City string `yaml:"city"`
 	ASN  string `yaml:"asn"`
+}
+
+type Neo4jConfig struct {
+	URI          string `yaml:"uri"`
+	User         string `yaml:"user"`
+	Password     string `yaml:"password"`
+	Database     string `yaml:"database"`
+	AllowRebuild bool   `yaml:"allowRebuild"`
 }
 
 type NotificationConfig struct {
@@ -321,6 +330,10 @@ func applyEnv(c *Config) {
 	set("ARL_FOFA_KEY", &c.Fofa.Key)
 	set("ARL_FOFA_URL", &c.Fofa.URL)
 	set("ARL_PROXY_URL", &c.Scan.ProxyURL)
+	set("ARL_NEO4J_URI", &c.Neo4j.URI)
+	set("ARL_NEO4J_USER", &c.Neo4j.User)
+	set("ARL_NEO4J_PASSWORD", &c.Neo4j.Password)
+	set("ARL_NEO4J_DATABASE", &c.Neo4j.Database)
 	if v := os.Getenv("ARL_COOKIE_SECURE"); v != "" {
 		c.Auth.CookieSecure, _ = strconv.ParseBool(v)
 	}
@@ -332,6 +345,9 @@ func applyEnv(c *Config) {
 	}
 	if v := os.Getenv("ARL_DEBUG"); v != "" {
 		c.Server.Debug, _ = strconv.ParseBool(v)
+	}
+	if v := os.Getenv("ARL_NEO4J_ALLOW_REBUILD"); v != "" {
+		c.Neo4j.AllowRebuild, _ = strconv.ParseBool(v)
 	}
 }
 
