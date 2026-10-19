@@ -157,8 +157,7 @@ type GeoIPConfig struct {
 }
 
 type ICPConfig struct {
-	CacheTTL string `yaml:"cacheTTL"`
-	Chinaz   struct {
+	Chinaz struct {
 		CookieFile string `yaml:"cookieFile"`
 		UserAgent  string `yaml:"userAgent"`
 	} `yaml:"chinaz"`

@@ -28,6 +28,7 @@ This document maps the legacy Flask surface to the Go implementation. Status is 
 | CSV / Excel export | `/api/v1/exports` | Implemented |
 | DingTalk/Feishu/WeCom/email/webhook | `platform/notify` | Implemented |
 | Console/device metrics | `/api/v1/system/info`, `/metrics` | Implemented |
+| EASM organization map and asset graph | `/` + `/api/v1/easm/*` | Implemented (organization-first world map, ICP attribution, Neo4j graph) |
 
 ## Plugin note
 
@@ -35,6 +36,7 @@ The registry contains the legacy counts: 40 POC, 28 sniffer and 28 brute plugins
 
 ## Deliberate differences
 
+- The legacy 资产态势 dashboard is replaced by the EASM wallboard at `/`.
 - No legacy MongoDB migration and no old `/api` compatibility.
 - OS detection is limited to the OS metadata returned by naabu service probes.
 - Screenshots require a browser runtime.

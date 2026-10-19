@@ -76,6 +76,24 @@ statistics) fail the task.
 Canonical assets keep global search fast; observations preserve the exact
 task result set and record the producing `engine`/`engineVersion`.
 
+## EASM
+
+- `organizations`: canonical identity, aliases, region and external IDs.
+- `organization_domains`: confirmed/candidate ICP ownership with source and confidence.
+- `icp_evidence`: raw provider evidence; never contains cookies.
+- `ip_locations`: offline GeoIP cache.
+- `graph_outbox` + `icp_jobs`: graph projection and async ICP refresh.
+
+The EASM page at `/` is organization-first: the world map shows organization
+bubbles, selecting one filters the map to its assets, and the graph layer draws
+domain/IP/service/finding edges over the map. MongoDB remains the source of
+truth; Neo4j is rebuilt from the outbox and `arl graph rebuild`.
+
+ICP attribution uses the Chinaz domain page plus its signed permit endpoint for
+domain → organization. Organization → filed domains uses the external
+ICP_Query sidecar (`icp.icpQuery.baseURL`). Provider credentials come from
+environment variables or read-only files and are never persisted.
+
 ## Queue topology
 
 | Queue | Work |
@@ -88,6 +106,7 @@ task result set and record the producing `engine`/`engineVersion`.
 | `q.poc.service` | Protocol sniffing |
 | `q.monitor` | Monitoring work |
 | `q.github` | GitHub jobs |
+| `q.icp` | ICP organization refresh |
 | `q.maintenance` | Statistics/export/maintenance |
 
 Messages are persistent and consumers use manual ack. The outbox collection is

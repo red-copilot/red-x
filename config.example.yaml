@@ -106,6 +106,22 @@ geoip:
   city: ""
   asn: ""
 
+neo4j:
+  uri: ""
+  user: "neo4j"
+  password: ""
+  database: "neo4j"
+  allowRebuild: false
+
+icp:
+  chinaz:
+    cookieFile: ""
+    userAgent: ""
+  icpQuery:
+    baseURL: "http://127.0.0.1:16181"
+    timeout: 30
+    pageSize: 50
+
 github:
   token: ""
 
