@@ -69,6 +69,16 @@ docker compose -f deploy/compose.yaml up -d
 
 默认镜像不安装 Chromium；需要截图时构建 `deploy/Dockerfile.chromium`，或在运行镜像中安装 Chromium。未安装浏览器时截图步骤会失败并被标记为可选步骤，不影响其他扫描。
 
+### 部署预检
+
+切换或升级前可运行 Redis 预检脚本。脚本不会打印包含密码的 Redis URL：
+
+```bash
+./scripts/redis-preflight.sh --config config.yaml
+```
+
+脚本会检查 Redis 连通性、版本、AOF/`maxmemory-policy`、写权限、`arl:jobs:*` 队列深度，并运行 `arl doctor`。迁移切换时可加 `--require-empty`；如仍保留旧 RabbitMQ，可用 `--rabbitmq-vhost arlv2host` 检查旧队列是否已排空。
+
 ## 命令
 
 | 命令 | 说明 |
