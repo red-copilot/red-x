@@ -190,7 +190,7 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := principalFrom(r.Context())
-	imported := 0
+	var roots []string
 	for _, raw := range req.Domains {
 		root, err := easm.NormalizeRootDomain(raw)
 		if err != nil {
@@ -198,18 +198,23 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 		}
 		od := &domain.OrganizationDomain{
 			OrganizationID: id, RootDomain: root, Source: "manual",
-			Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+			Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate,
 		}
 		if err := s.Store.UpsertOrganizationDomain(r.Context(), od); err != nil {
 			continue
 		}
-		imported++
+		roots = append(roots, root)
+	}
+	changed, err := s.Store.ConfirmOrganizationDomains(r.Context(), id, roots)
+	if err != nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		return
 	}
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{
 		Actor: p.Username, Action: "easm.domain_import", Resource: id.Hex(),
-		Detail: map[string]any{"domains": req.Domains, "imported": imported},
+		Detail: map[string]any{"domains": roots, "imported": len(roots), "changed": changed},
 	})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"imported": imported}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"imported": len(roots), "changed": changed}})
 }
 
 func (s *Server) handleEASMMap(w http.ResponseWriter, r *http.Request) {

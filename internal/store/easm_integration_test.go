@@ -141,3 +141,32 @@ func TestOutboxClaimIsExclusive(t *testing.T) {
 		t.Fatalf("expected no processed events, got %d", len(third))
 	}
 }
+
+func TestUpsertDoesNotDowngradeConfirmedDomain(t *testing.T) {
+	st, ctx := newEASMTestStore(t)
+	org := &domain.Organization{CanonicalName: "某单位"}
+	if err := st.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	confirmed := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "example.com", Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, confirmed); err != nil {
+		t.Fatal(err)
+	}
+	incoming := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "example.com", Source: "icp_query",
+		Confidence: domain.ConfidenceMedium, Status: domain.DomainStatusCandidate, SiteName: "刷新名称",
+	}
+	if err := st.UpsertOrganizationDomain(ctx, incoming); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.ListOrganizationDomains(ctx, org.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != domain.DomainStatusConfirmed || rows[0].SiteName != "刷新名称" {
+		t.Fatalf("confirmed domain was downgraded or metadata lost: %+v", rows)
+	}
+}

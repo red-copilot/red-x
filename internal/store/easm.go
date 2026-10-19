@@ -95,18 +95,57 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 	od.LastSeen = now
 	od.UpdatedAt = now
 	od.SchemaVersion = domain.SchemaVersion
-	filter := bson.M{"organizationId": od.OrganizationID, "rootDomain": od.RootDomain}
-	update := bson.M{
-		"$setOnInsert": bson.M{"_id": od.ID, "firstSeen": now},
-		"$set": bson.M{
-			"siteName": od.SiteName, "homeSite": od.HomeSite, "icpNo": od.ICPNo,
-			"auditDate": od.AuditDate, "source": od.Source, "confidence": od.Confidence,
-			"status": od.Status, "evidenceId": od.EvidenceID, "lastSeen": od.LastSeen,
-			"updatedAt": od.UpdatedAt, "schemaVersion": od.SchemaVersion,
-		},
+	meta := bson.M{
+		"siteName": od.SiteName, "homeSite": od.HomeSite, "icpNo": od.ICPNo,
+		"auditDate": od.AuditDate, "source": od.Source, "confidence": od.Confidence,
+		"evidenceId": od.EvidenceID, "lastSeen": od.LastSeen,
+		"updatedAt": od.UpdatedAt, "schemaVersion": od.SchemaVersion,
 	}
-	_, err := s.C(ColOrganizationDomains).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
-	return err
+	for attempt := 0; attempt < 2; attempt++ {
+		// Candidate rows may be promoted or refreshed.
+		res, err := s.C(ColOrganizationDomains).UpdateOne(ctx,
+			bson.M{"organizationId": od.OrganizationID, "rootDomain": od.RootDomain, "status": domain.DomainStatusCandidate},
+			bson.M{"$set": mergeMaps(meta, bson.M{"status": od.Status})},
+		)
+		if err != nil {
+			return err
+		}
+		if res.MatchedCount > 0 {
+			return nil
+		}
+		// Confirmed and rejected rows keep their review state; refresh metadata only.
+		res, err = s.C(ColOrganizationDomains).UpdateOne(ctx,
+			bson.M{"organizationId": od.OrganizationID, "rootDomain": od.RootDomain,
+				"status": bson.M{"$in": bson.A{domain.DomainStatusConfirmed, domain.DomainStatusRejected}}},
+			bson.M{"$set": meta},
+		)
+		if err != nil {
+			return err
+		}
+		if res.MatchedCount > 0 {
+			return nil
+		}
+		insert := mergeMaps(meta, bson.M{"_id": od.ID, "firstSeen": now, "status": od.Status})
+		if _, err := s.C(ColOrganizationDomains).InsertOne(ctx, insert); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				continue
+			}
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("upsert organization domain %s: concurrent update conflict", od.RootDomain)
+}
+
+func mergeMaps(a, b bson.M) bson.M {
+	out := bson.M{}
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *Store) ListOrganizationDomains(ctx context.Context, orgID bson.ObjectID, status string) ([]domain.OrganizationDomain, error) {
