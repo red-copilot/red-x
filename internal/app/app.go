@@ -57,8 +57,8 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, version strin
 	_ = st.SeedDefaultPolicy(ctx)
 
 	var queue jobs.Queue
-	if cfg.Queue.Driver == "rabbitmq" {
-		queue, err = jobs.NewRabbit(ctx, cfg.RabbitMQ.URL, log)
+	if cfg.Queue.Driver == "redis" {
+		queue, err = jobs.NewRedis(ctx, cfg.Redis.URL, log)
 	} else {
 		queue = jobs.NewMemory(log)
 	}

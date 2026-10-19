@@ -8,7 +8,7 @@ ARL 是一个面向授权安全测试的资产侦察平台。当前代码库已�
 
 - 同一个 Go 二进制提供 `web`、`worker`、`scheduler` 三个角色。
 - MongoDB 保存任务、资产、发现、监控和审计数据。
-- RabbitMQ 承载异步任务；开发模式可使用内存队列。
+- Redis Streams 承载异步任务；开发模式可使用内存队列。
 - DNS、端口、HTTP、TLS、指纹、WIH、文件泄漏和 PoC 引擎均在 Go 进程内实现。
 - 前端为 Vue 3 + TypeScript + Ant Design Vue，构建后嵌入 Go 二进制。
 
@@ -21,7 +21,7 @@ ARL 是一个面向授权安全测试的资产侦察平台。当前代码库已�
 - Go 1.27+
 - Node.js 22+（仅构建前端）
 - MongoDB 8.0
-- RabbitMQ 4.1（生产/多进程模式）
+- Redis 7.0+（生产/多进程模式；Ubuntu 可 `apt install redis-server`）
 - Chromium（可选，站点截图）
 
 ### 构建
@@ -39,7 +39,7 @@ export ARL_AUTH_ACCESS_SECRET="$(openssl rand -base64 48)"
 export ARL_ADMIN_PASSWORD="change-this-immediately"
 ```
 
-生产环境请修改 `mongo.uri`、`rabbitmq.url`、`auth.accessSecret`、`auth.apiKeyPepper` 和 TLS 配置。不要把真实密钥提交到仓库。
+生产环境请修改 `mongo.uri`、`redis.url`、`auth.accessSecret`、`auth.apiKeyPepper` 和 TLS 配置。不要把真实密钥提交到仓库。
 
 ### 初始化与运行
 
@@ -65,7 +65,7 @@ docker compose -f deploy/compose.yaml build
 docker compose -f deploy/compose.yaml up -d
 ```
 
-默认 Web 端口为 `5003`。`deploy/config.docker.yaml` 是本地示例配置，部署前必须替换其中的密钥和默认密码。生产 TLS 请为 `server.tlsCert` / `server.tlsKey` 配置证书，或在前面放置反向代理。
+默认 Web 端口为 `5003`。`deploy/config.docker.yaml` 是本地示例配置，部署前必须替换其中的密钥和默认密码；如修改 Compose 的 `REDIS_PASSWORD`，需同步修改 `redis.url`。生产 TLS 请为 `server.tlsCert` / `server.tlsKey` 配置证书，或在前面放置反向代理。
 
 默认镜像不安装 Chromium；需要截图时构建 `deploy/Dockerfile.chromium`，或在运行镜像中安装 Chromium。未安装浏览器时截图步骤会失败并被标记为可选步骤，不影响其他扫描。
 
@@ -74,7 +74,7 @@ docker compose -f deploy/compose.yaml up -d
 | 命令 | 说明 |
 |---|---|
 | `arl web` | API、SSE、OpenAPI、嵌入式前端 |
-| `arl worker` | 消费 RabbitMQ 任务 |
+| `arl worker` | 消费 Redis Streams 任务 |
 | `arl scheduler` | 监控和计划任务调度（Mongo 租约选主） |
 | `arl migrate` | 创建索引、默认策略、管理员和 PoC 元数据 |
 | `arl doctor` | 检查配置、Mongo、队列、资源与 DNS |
@@ -110,7 +110,7 @@ go vet ./...
 cd web && npm run typecheck && npm run build
 ```
 
-当前自动化覆盖认证密码/JWT、目标解析、端口列表、CIDR 展开、指纹 DSL、WIH 规则加载、96 个插件注册表和 Redis 协议识别。靶场集成测试需要本机 MongoDB/RabbitMQ；参见 `docs/ARCHITECTURE.md`。
+当前自动化覆盖认证密码/JWT、目标解析、端口列表、CIDR 展开、指纹 DSL、WIH 规则加载、96 个插件注册表和 Redis 协议识别。靶场集成测试需要本机 MongoDB/Redis；参见 `docs/ARCHITECTURE.md`。
 
 ## 目录
 

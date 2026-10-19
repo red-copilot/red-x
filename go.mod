@@ -25,7 +25,7 @@ require (
 	github.com/projectdiscovery/retryabledns v1.0.116
 	github.com/projectdiscovery/subfinder/v2 v2.17.0
 	github.com/projectdiscovery/tlsx v1.4.1
-	github.com/rabbitmq/amqp091-go v1.15.0
+	github.com/redis/go-redis/v9 v9.11.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/xuri/excelize/v2 v2.11.0
 	go.mongodb.org/mongo-driver/v2 v2.9.2
@@ -350,7 +350,6 @@ require (
 	github.com/projectdiscovery/utils v0.11.6 // indirect
 	github.com/projectdiscovery/wappalyzergo v0.3.3 // indirect
 	github.com/projectdiscovery/yamldoc-go v1.0.6 // indirect
-	github.com/redis/go-redis/v9 v9.11.0 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remeh/sizedwaitgroup v1.0.0 // indirect
 	github.com/richardlehane/mscfb v1.0.7 // indirect

@@ -5,7 +5,7 @@
 The `arl` binary has three production roles:
 
 1. `web`: serves the embedded SPA, `/api/v1`, OpenAPI, SSE and metrics. It is stateless apart from MongoDB.
-2. `worker`: consumes RabbitMQ queues and executes task steps. Multiple workers can run concurrently.
+2. `worker`: consumes Redis Streams and executes task steps. Multiple workers can run concurrently.
 3. `scheduler`: wins a MongoDB lease and enqueues due monitors/schedules. Only one scheduler is active at a time.
 
 `arl all` is a development convenience that runs all three roles with the in-memory queue.
@@ -22,7 +22,7 @@ The `arl` binary has three production roles:
 | `internal/modules/github` | GitHub search and monitoring |
 | `internal/modules/reporting` | CSV/XLSX reports |
 | `internal/store` | MongoDB repositories and indexes |
-| `internal/platform` | Config, logging, RabbitMQ, auth primitives, network safety, notifications and ProjectDiscovery SDK helpers |
+| `internal/platform` | Config, logging, Redis Streams, auth primitives, network safety, notifications and ProjectDiscovery SDK helpers |
 
 Modules share the domain model but do not reach into another module's private
 helpers. Repository access is centralized in `internal/store`.
@@ -56,7 +56,7 @@ POST /tasks
   -> tasks(status=queued)
   -> task_steps
   -> outbox
-  -> RabbitMQ queue
+  -> Redis Streams
   -> worker executes one step
   -> task_events + observations/findings
   -> enqueue next step
@@ -111,9 +111,16 @@ environment variables or read-only files and are never persisted.
 | `q.icp` | ICP organization refresh |
 | `q.maintenance` | Statistics/export/maintenance |
 
-Messages are persistent and consumers use manual ack. The outbox collection is
-the durable handoff; the relay republishes pending messages. Retry queues and
-`.dlq` queues are declared for every main queue.
+Each queue is a Redis Stream named `arl:jobs:<queue>` with consumer group
+`arl-workers`. Consumers use manual acknowledgement and remove acknowledged
+entries. Failed jobs are delayed in `arl:jobs:<queue>:retry` and published again
+after 10 seconds; after three retries they move to
+`arl:jobs:<queue>:dlq`. Unacknowledged entries are reclaimed after two minutes
+of inactivity, while active handlers refresh their lease every 30 seconds.
+
+The outbox collection is the durable handoff; the relay republishes pending
+messages. Redis must run with AOF persistence and `maxmemory-policy noeviction`
+so queued jobs are not evicted.
 
 ## Security boundaries
 

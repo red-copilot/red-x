@@ -7,11 +7,11 @@ mongo:
   uri: "mongodb://mongo:27017"
   database: "arl"
 
-rabbitmq:
-  url: "amqp://arl:arlpassword@rabbitmq:5672/arlv2host"
+redis:
+  url: "redis://:arlpassword@redis:6379/0"
 
 queue:
-  driver: "rabbitmq"
+  driver: "redis"
 
 auth:
   accessSecret: "change-me-before-production-0123456789abcdef"

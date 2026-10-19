@@ -15,7 +15,7 @@ import (
 type Config struct {
 	Server      ServerConfig       `yaml:"server"`
 	Mongo       MongoConfig        `yaml:"mongo"`
-	RabbitMQ    RabbitMQConfig     `yaml:"rabbitmq"`
+	Redis       RedisConfig        `yaml:"redis"`
 	Queue       QueueConfig        `yaml:"queue"`
 	Auth        AuthConfig         `yaml:"auth"`
 	Scan        ScanConfig         `yaml:"scan"`
@@ -44,7 +44,7 @@ type MongoConfig struct {
 	Database string `yaml:"database"`
 }
 
-type RabbitMQConfig struct {
+type RedisConfig struct {
 	URL string `yaml:"url"`
 }
 
@@ -232,8 +232,8 @@ func Default() Config {
 			URI:      "mongodb://127.0.0.1:27017",
 			Database: "arl",
 		},
-		RabbitMQ: RabbitMQConfig{
-			URL: "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host",
+		Redis: RedisConfig{
+			URL: "redis://127.0.0.1:6379/0",
 		},
 		Queue: QueueConfig{Driver: "memory"},
 		Auth: AuthConfig{
@@ -321,7 +321,7 @@ func applyEnv(c *Config) {
 	set("ARL_SERVER_TLS_KEY", &c.Server.TLSKey)
 	set("ARL_MONGO_URI", &c.Mongo.URI)
 	set("ARL_MONGO_DATABASE", &c.Mongo.Database)
-	set("ARL_RABBITMQ_URL", &c.RabbitMQ.URL)
+	set("ARL_REDIS_URL", &c.Redis.URL)
 	set("ARL_QUEUE_DRIVER", &c.Queue.Driver)
 	set("ARL_AUTH_ACCESS_SECRET", &c.Auth.AccessSecret)
 	set("ARL_AUTH_ACCESS_TTL", &c.Auth.AccessTTL)
@@ -372,11 +372,11 @@ func (c Config) Validate() error {
 	if c.Mongo.URI == "" || c.Mongo.Database == "" {
 		errs = append(errs, "mongo.uri and mongo.database are required")
 	}
-	if c.Queue.Driver != "memory" && c.Queue.Driver != "rabbitmq" {
-		errs = append(errs, "queue.driver must be memory or rabbitmq")
+	if c.Queue.Driver != "memory" && c.Queue.Driver != "redis" {
+		errs = append(errs, "queue.driver must be memory or redis")
 	}
-	if c.Queue.Driver == "rabbitmq" && c.RabbitMQ.URL == "" {
-		errs = append(errs, "rabbitmq.url is required when queue.driver=rabbitmq")
+	if c.Queue.Driver == "redis" && c.Redis.URL == "" {
+		errs = append(errs, "redis.url is required when queue.driver=redis")
 	}
 	if c.Auth.AccessSecret == "" {
 		errs = append(errs, "auth.accessSecret is required (set ARL_AUTH_ACCESS_SECRET)")

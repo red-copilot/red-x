@@ -9,12 +9,12 @@ mongo:
   uri: "mongodb://127.0.0.1:27017"
   database: "arl"
 
-rabbitmq:
-  url: "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host"
+redis:
+  url: "redis://127.0.0.1:6379/0"
 
 queue:
-  # rabbitmq for multi-process deployments; memory is intended for `arl all` development mode.
-  driver: "rabbitmq"
+  # redis for multi-process deployments; memory is intended for `arl all` development mode.
+  driver: "redis"
 
 auth:
   # Generate with: openssl rand -base64 48
