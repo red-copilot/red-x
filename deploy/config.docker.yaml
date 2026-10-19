@@ -31,6 +31,7 @@ scan:
     - "1.1.1.1:53"
   concurrency: 200
   httpConcurrency: 12
+  # Caps input targets and discovery/brute candidate sets; truncation is reported as a task warning.
   maxHosts: 4096
   maxPorts: 65535
   maxRuntime: "2h"
@@ -87,6 +88,10 @@ scanners:
     templateThreads: 10
     interactshURL: ""
 
+geoip:
+  city: ""
+  asn: ""
+
 neo4j:
   uri: ""
   user: "neo4j"
@@ -99,7 +104,7 @@ icp:
     cookieFile: ""
     userAgent: ""
   icpQuery:
-    baseURL: "http://127.0.0.1:16181"
+    baseURL: "http://icp-query:16181"
     timeout: 30
     pageSize: 50
 

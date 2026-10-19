@@ -20,6 +20,17 @@ contain `subfinder`, `dnsx`, `naabu`, `tlsx`, `httpx`, `katana`, `nuclei`,
 
 - Upstream SDK rate limiting, retries, service fingerprints, redirect handling
   and result timing differ from the previous native implementations.
+- Subfinder runs first for ICANN-managed registrable domains and multi-label
+  public suffixes, including inputs such as `baidu.com`, `guc.edu.cn`, `edu.cn`
+  and `com.cn`. A normal subdomain such as `www.baidu.com`, a private suffix
+  such as `foo.github.io`, or an unmanaged name such as `intranet.corp` is
+  treated as a host target and does not trigger parent-domain enumeration.
+  Inputs are not rewritten to the registrable domain.
+- Passive candidates, dictionary-brute words, historical DNS results and
+  AltDNS candidates are capped by `scan.maxHosts`; truncation records a task
+  warning. Retained passive candidates are resolved with bounded concurrency
+  using `scan.concurrency`. Subfinder applies the same result limit while
+  collecting source output.
 - OS information is reported only when naabu service metadata provides an OS
   type. It is not nmap OS-database parity and is omitted when unavailable.
 - `nuclei` runs only the HTTP templates under `assets/nuclei`; code, file,

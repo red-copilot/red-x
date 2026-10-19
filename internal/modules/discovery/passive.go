@@ -20,6 +20,7 @@ type SubfinderEnumerator struct {
 	Threads            int
 	Timeout            int
 	MaxEnumerationTime int
+	MaxResults         int
 	ProviderConfig     string
 }
 
@@ -30,11 +31,18 @@ func NewSubfinderEnumerator(sources []string, threads, timeout, maxEnumerationTi
 	}
 }
 
-func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) ([]DomainResult, error) {
+func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) (PassiveEnumeration, error) {
 	domain = normalizeDomain(domain)
+	limit := s.MaxResults
+	if limit <= 0 {
+		limit = 4096
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var (
-		mu      sync.Mutex
-		entries []*subfinderresolve.HostEntry
+		mu           sync.Mutex
+		entries      []*subfinderresolve.HostEntry
+		limitReached bool
 	)
 	options := &subfinderrunner.Options{
 		Domain:             []string{domain},
@@ -42,6 +50,7 @@ func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) ([]D
 		Threads:            s.Threads,
 		Timeout:            s.Timeout,
 		MaxEnumerationTime: s.MaxEnumerationTime,
+		MaxResults:         limit + 1,
 		ProviderConfig:     s.ProviderConfig,
 		Output:             io.Discard,
 		Silent:             true,
@@ -52,7 +61,10 @@ func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) ([]D
 				return
 			}
 			mu.Lock()
-			entries = append(entries, entry)
+			if !appendSubfinderEntry(&entries, entry, limit) {
+				limitReached = true
+				cancel()
+			}
 			mu.Unlock()
 		},
 	}
@@ -67,14 +79,27 @@ func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) ([]D
 	}
 	runner, err := subfinderrunner.NewRunner(options)
 	if err != nil {
-		return nil, fmt.Errorf("create subfinder runner: %w", err)
+		return PassiveEnumeration{}, fmt.Errorf("create subfinder runner: %w", err)
 	}
-	if _, err := runner.EnumerateSingleDomainWithCtx(ctx, domain, nil); err != nil {
-		return nil, err
+	if _, err := runner.EnumerateSingleDomainWithCtx(runCtx, domain, nil); err != nil {
+		mu.Lock()
+		reached := limitReached
+		mu.Unlock()
+		if !reached {
+			return PassiveEnumeration{}, err
+		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	return passiveDomainResults(entries, domain), nil
+	return PassiveEnumeration{Domains: passiveDomainResults(entries, domain), Truncated: limitReached}, nil
+}
+
+func appendSubfinderEntry(entries *[]*subfinderresolve.HostEntry, entry *subfinderresolve.HostEntry, limit int) bool {
+	if entry == nil || limit <= 0 || len(*entries) >= limit {
+		return false
+	}
+	*entries = append(*entries, entry)
+	return true
 }
 
 func passiveDomainResults(entries []*subfinderresolve.HostEntry, base string) []DomainResult {

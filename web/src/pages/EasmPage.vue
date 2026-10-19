@@ -20,7 +20,7 @@
     <div v-if="lookupResult" class="lookup-card">
       <div class="lookup-main">
         <b>{{ lookupResult.attribution.orgName }}</b>
-        <span class="muted">{{ lookupResult.attribution.icpNo || '无备案号' }} · 置信度 {{ lookupResult.confidence }}</span>
+        <span class="muted">{{ lookupResult.attribution.icpNo || '无备案号' }} · 置信度 {{ lookupResult.confidence }} · 来源 {{ lookupResult.provider || 'ICP' }}</span>
       </div>
       <div class="lookup-actions">
         <button @click="openLookup">打开组织</button>

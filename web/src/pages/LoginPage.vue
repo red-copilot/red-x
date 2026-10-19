@@ -3,12 +3,12 @@
     <div class="login-card">
       <div class="login-brand"><div class="mark">A</div><div><h1>ARL</h1><p>Asset Reconnaissance Lighthouse</p></div></div>
       <a-alert v-if="error" type="error" :message="error" show-icon style="margin-bottom: 16px" />
-      <a-form layout="vertical" @finish="submit">
+      <a-form :model="form" layout="vertical" @finish="submit">
         <a-form-item label="用户名" name="username" :rules="[{ required: true, message: '请输入用户名' }]">
-          <a-input v-model:value="username" size="large" autocomplete="username" />
+          <a-input v-model:value="form.username" size="large" autocomplete="username" />
         </a-form-item>
         <a-form-item label="密码" name="password" :rules="[{ required: true, message: '请输入密码' }]">
-          <a-input-password v-model:value="password" size="large" autocomplete="current-password" />
+          <a-input-password v-model:value="form.password" size="large" autocomplete="current-password" />
         </a-form-item>
         <a-button type="primary" html-type="submit" size="large" block :loading="loading">登录</a-button>
       </a-form>
@@ -18,15 +18,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-const username = ref('admin')
-const password = ref('')
+const form = reactive({ username: 'admin', password: '' })
 const error = ref('')
 const loading = ref(false)
 
@@ -34,7 +33,7 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    await auth.login(username.value, password.value)
+    await auth.login(form.username, form.password)
     router.push((route.query.next as string) || '/')
   } catch (e: any) {
     error.value = e.message || '登录失败'

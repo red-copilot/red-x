@@ -127,6 +127,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, version strin
 		cfg.Scanners.Subfinder.Sources, cfg.Scanners.Subfinder.Threads,
 		cfg.Scanners.Subfinder.Timeout, cfg.Scanners.Subfinder.MaxEnumerationTime, providerConfig,
 	)
+	passive.MaxResults = cfg.Scan.MaxHosts
 	crawler := webintel.NewKatanaCrawler(
 		cfg.Scanners.Katana.MaxDepth, cfg.Scanners.Katana.MaxPages, cfg.Scanners.Katana.RateLimit,
 		cfg.Scanners.Katana.Timeout, cfg.Scanners.Katana.Concurrency,
@@ -145,13 +146,15 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, version strin
 	engine := &tasking.Engine{
 		Store: st, Queue: queue, Config: cfg, Log: log, Policy: policy,
 		DNS: dnsResolver, Passive: passive, Ports: portScanner, TLS: tlsInspector,
-		HTTP: prober, HTTPClient: safeClient, Matcher: matcher,
-		WIH:        &webintel.WIHScanner{Client: safeClient, Config: wihCfg},
-		FileLeak:   webintel.NewFileLeakScanner(safeClient, 6),
-		Spider:     crawler,
-		Screenshot: webintel.Screenshotter{BrowserPath: cfg.Tools.ChromiumPath, OutputDir: cfg.Storage.ScreenshotsDir},
-		Nuclei:     nucleiScanner,
-		POCClient:  pocClient, AssetsDir: cfg.Storage.AssetsDir,
+		HTTP: prober, HTTPClient: safeClient,
+		ControlClient: pdtools.NewVerifiedHTTPClient(policy, cfg.Scan.ProxyURL, cfg.Scanners.HTTPX.Timeout),
+		Matcher:       matcher,
+		WIH:           &webintel.WIHScanner{Client: safeClient, Config: wihCfg},
+		FileLeak:      webintel.NewFileLeakScanner(safeClient, 6),
+		Spider:        crawler,
+		Screenshot:    webintel.Screenshotter{BrowserPath: cfg.Tools.ChromiumPath, OutputDir: cfg.Storage.ScreenshotsDir},
+		Nuclei:        nucleiScanner,
+		POCClient:     pocClient, AssetsDir: cfg.Storage.AssetsDir,
 	}
 	engine.InitPlugins()
 	ident := identity.New(st, cfg, log)

@@ -315,3 +315,51 @@ func TestHealthTracksProviderOutcome(t *testing.T) {
 		t.Fatalf("health = %q", got)
 	}
 }
+
+func TestLookupDomainFallsBackToICPQuery(t *testing.T) {
+	st := newFakeICPStore()
+	svc := &Service{
+		Store: st,
+		ICPQuery: fakeICPQuery{records: []OrgDomainRecord{
+			{Domain: "other.example.com", UnitName: "其他单位", ServiceLicence: "京ICP备000号"},
+			{Domain: "scitc.edu.cn", UnitName: "四川信息职业技术学院", ServiceLicence: "蜀ICP备12031012号-1"},
+		}},
+	}
+	out, err := svc.LookupDomain(context.Background(), "www.scitc.edu.cn", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Attribution.OrgName != "四川信息职业技术学院" || out.Attribution.ICPNo != "蜀ICP备12031012号-1" {
+		t.Fatalf("unexpected fallback attribution: %+v", out.Attribution)
+	}
+	if len(st.evidence) != 1 || st.evidence[0].Provider != "icp_query" {
+		t.Fatalf("expected ICP_Query evidence, got %+v", st.evidence)
+	}
+	if len(st.domains) != 1 {
+		t.Fatalf("expected one candidate domain, got %d", len(st.domains))
+	}
+	if out.Provider != "icp_query" {
+		t.Fatalf("expected fallback provider, got %q", out.Provider)
+	}
+}
+
+func TestLookupDomainFallsBackWhenChinazCredentialsFail(t *testing.T) {
+	st := newFakeICPStore()
+	svc := &Service{
+		Store:  st,
+		Chinaz: fakeChinaz{err: ErrICPCookieExpired},
+		ICPQuery: fakeICPQuery{records: []OrgDomainRecord{
+			{Domain: "example.edu.cn", UnitName: "示例单位", ServiceLicence: "蜀ICP备999号"},
+		}},
+	}
+	out, err := svc.LookupDomain(context.Background(), "example.edu.cn", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Attribution.OrgName != "示例单位" || out.Attribution.ICPNo != "蜀ICP备999号" {
+		t.Fatalf("unexpected fallback attribution: %+v", out.Attribution)
+	}
+	if len(st.evidence) != 1 || st.evidence[0].Provider != "icp_query" {
+		t.Fatalf("expected ICP_Query evidence, got %+v", st.evidence)
+	}
+}

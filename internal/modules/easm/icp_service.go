@@ -36,10 +36,16 @@ type LookupResult struct {
 	Organization domain.Organization `json:"organization"`
 	Attribution  DomainICPResult     `json:"attribution"`
 	Confidence   domain.Confidence   `json:"confidence"`
+	Provider     string              `json:"provider"`
+}
+
+type providerLookupResult struct {
+	result   DomainICPResult
+	provider string
 }
 
 func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*LookupResult, error) {
-	if s.Chinaz == nil || s.Store == nil {
+	if s.Store == nil {
 		return nil, ErrICPUnavailable
 	}
 	root, err := NormalizeRootDomain(rawDomain)
@@ -47,26 +53,46 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 		return nil, err
 	}
 	v, err, _ := s.lookupGroup.Do(root, func() (any, error) {
-		if err := s.chinazGuard.acquire(ctx); err != nil {
+		var chinazErr error
+		if s.Chinaz != nil {
+			if err := s.chinazGuard.acquire(ctx); err == nil {
+				out, err := s.Chinaz.LookupByDomain(ctx, root)
+				if err == nil {
+					s.chinazGuard.success()
+					s.setHealth("chinaz", "ok")
+					return providerLookupResult{result: out, provider: "chinaz"}, nil
+				}
+				chinazErr = err
+				s.chinazGuard.failure()
+				s.setHealth("chinaz", icpHealth(err))
+			} else {
+				chinazErr = err
+			}
+		}
+		if s.ICPQuery != nil {
+			out, err := s.lookupDomainWithICPQuery(ctx, root)
+			if err == nil {
+				s.setHealth("icpQuery", "ok")
+				return providerLookupResult{result: out, provider: "icp_query"}, nil
+			}
+			if chinazErr != nil {
+				return nil, chinazErr
+			}
 			return nil, err
 		}
-		out, err := s.Chinaz.LookupByDomain(ctx, root)
-		if err != nil {
-			s.chinazGuard.failure()
-			s.setHealth("chinaz", icpHealth(err))
-			return nil, err
+		if chinazErr != nil {
+			return nil, chinazErr
 		}
-		s.chinazGuard.success()
-		s.setHealth("chinaz", "ok")
-		return out, nil
+		return nil, ErrICPUnavailable
 	})
 	if err != nil {
 		return nil, err
 	}
-	res, _ := v.(DomainICPResult)
+	looked := v.(providerLookupResult)
+	res, provider := looked.result, looked.provider
 	now := time.Now().UTC()
 	ev := &domain.ICPEvidence{
-		Provider: "chinaz", QueryType: "domain", QueryKey: root, Raw: res.RawHTML,
+		Provider: provider, QueryType: "domain", QueryKey: root, Raw: res.RawHTML,
 		FetchedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour), PayloadHash: payloadHash(res.RawHTML),
 	}
 	_ = s.Store.AddICPEvidence(ctx, ev)
@@ -107,7 +133,7 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	}
 	od := &domain.OrganizationDomain{
 		OrganizationID: org.ID, RootDomain: root, ICPNo: res.ICPNo, AuditDate: res.AuditDate,
-		Source: "chinaz", Confidence: conf, Status: domain.DomainStatusCandidate, EvidenceID: &ev.ID,
+		Source: provider, Confidence: conf, Status: domain.DomainStatusCandidate, EvidenceID: &ev.ID,
 	}
 	if err := s.Store.UpsertOrganizationDomain(ctx, od); err != nil {
 		return nil, err
@@ -115,7 +141,33 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	s.audit(ctx, actor, "easm.icp_lookup", org.ID.Hex(), map[string]any{
 		"domain": root, "organization": org.CanonicalName, "confidence": conf,
 	})
-	return &LookupResult{Organization: *org, Attribution: res, Confidence: conf}, nil
+	return &LookupResult{Organization: *org, Attribution: res, Confidence: conf, Provider: provider}, nil
+}
+
+func (s *Service) lookupDomainWithICPQuery(ctx context.Context, root string) (DomainICPResult, error) {
+	records, err := s.ICPQuery.SearchByOrganization(ctx, root)
+	if err != nil {
+		return DomainICPResult{}, err
+	}
+	var selected *OrgDomainRecord
+	for i := range records {
+		normalized, err := NormalizeRootDomain(records[i].Domain)
+		if err == nil && normalized == root {
+			selected = &records[i]
+			break
+		}
+	}
+	if selected == nil && len(records) > 0 {
+		selected = &records[0]
+	}
+	if selected == nil || strings.TrimSpace(selected.UnitName) == "" {
+		return DomainICPResult{}, ErrICPNoAttribution
+	}
+	raw, _ := json.Marshal(records)
+	return DomainICPResult{
+		OrgName: strings.TrimSpace(selected.UnitName), ICPNo: strings.TrimSpace(selected.ServiceLicence),
+		RawHTML: string(raw),
+	}, nil
 }
 
 type providerGuard struct {

@@ -49,7 +49,10 @@
             </a-select>
           </a-form-item></a-col>
         </a-row>
-        <a-form-item label="目标"><a-textarea v-model:value="form.target" :rows="3" placeholder="example.com / 10.0.0.0/24 / https://site.example" /></a-form-item>
+        <a-form-item label="目标">
+          <a-textarea v-model:value="form.target" :rows="3" placeholder="example.com / 10.0.0.0/24 / https://site.example" />
+          <div class="muted" style="margin-top: 6px">公网根域（如 baidu.com、guc.edu.cn、edu.cn）会自动使用 subfinder 枚举子域；输入 www.baidu.com 等子域或内部域名时只扫描该主机。</div>
+        </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item label="策略 ID（可选）"><a-input v-model:value="form.policyId" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item label="资产组 ID（可选）"><a-input v-model:value="form.scopeId" /></a-form-item></a-col>

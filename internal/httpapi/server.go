@@ -275,12 +275,16 @@ func (s *Server) serveSPA() http.HandlerFunc {
 			clean := path.Clean("/" + r.URL.Path)
 			name := "dist" + clean
 			if f, err := webui.Dist.Open(name); err == nil {
-				defer f.Close()
-				if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
-					w.Header().Set("Content-Type", ct)
+				info, statErr := f.Stat()
+				if statErr == nil && !info.IsDir() {
+					defer f.Close()
+					if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+						w.Header().Set("Content-Type", ct)
+					}
+					_, _ = io.Copy(w, f)
+					return
 				}
-				_, _ = io.Copy(w, f)
-				return
+				_ = f.Close()
 			}
 			if path.Ext(clean) != "" {
 				httpx.WriteProblem(w, r, http.StatusNotFound, "not_found", "static asset not found")

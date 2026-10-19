@@ -105,8 +105,13 @@ type Resolver interface {
 	Brute(ctx context.Context, base string, words []string, wildcard []string, progress func(done, total int)) []DomainResult
 }
 
+type PassiveEnumeration struct {
+	Domains   []DomainResult
+	Truncated bool
+}
+
 type PassiveEnumerator interface {
-	Enumerate(ctx context.Context, domain string) ([]DomainResult, error)
+	Enumerate(ctx context.Context, domain string) (PassiveEnumeration, error)
 }
 
 type PortScanner interface {

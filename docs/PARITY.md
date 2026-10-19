@@ -9,7 +9,7 @@ This document maps the legacy Flask surface to the Go implementation. Status is 
 | Task submit/list/detail/stop/delete/retry | `/api/v1/tasks` | Implemented |
 | Task real-time progress | `/api/v1/tasks/{id}/events` | Implemented (SSE) |
 | Domain brute and DNS resolution | `discovery` package + `dns` step | Implemented (`dnsx` v1.3.1 SDK) |
-| Passive DNS plugins | `crtsh`, `alienvault`, `rapiddns`, `fofa` | Implemented (`subfinder` v2.17.0 SDK plus Fofa API) |
+| Passive DNS plugins | `crtsh`, `alienvault`, `rapiddns`, `fofa` | Implemented (`subfinder` v2.17.0 SDK plus Fofa API); ICANN root-domain tasks enumerate automatically, subdomains and private/unmanaged suffixes do not |
 | Port scan / service detection / TLS cert | `port` step | Implemented (`naabu` v2.6.1 and `tlsx` v1.4.1 SDKs) |
 | OS detection | `port` step | Best effort from naabu service metadata only |
 | Site probing / title / favicon / headers | `http` step | Implemented (`httpx` v1.12.0 SDK) |
@@ -29,7 +29,6 @@ This document maps the legacy Flask surface to the Go implementation. Status is 
 | CSV / Excel export | `/api/v1/exports` | Implemented |
 | DingTalk/Feishu/WeCom/email/webhook | `platform/notify` | Implemented |
 | Console/device metrics | `/api/v1/system/info`, `/metrics` | Implemented |
-| EASM organization map and asset graph | `/` + `/api/v1/easm/*` | Implemented (organization-first world map, ICP attribution, Neo4j graph) |
 
 ## Plugin note
 
@@ -37,7 +36,6 @@ The registry contains the legacy counts: 40 POC, 28 sniffer and 28 brute plugins
 
 ## Deliberate differences
 
-- The legacy 资产态势 dashboard is replaced by the EASM wallboard at `/`.
 - No legacy MongoDB migration and no old `/api` compatibility.
 - OS detection is limited to the OS metadata returned by naabu service probes.
 - Screenshots require a browser runtime.

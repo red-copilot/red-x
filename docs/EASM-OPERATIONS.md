@@ -17,6 +17,7 @@ Manual and CSV domain imports create `candidate` rows. They do not appear in the
 cp deploy/.env.easm.example deploy/.env.easm
 mkdir -p deploy/secrets deploy/geoip
 # Place an authorized Chinaz cookie at deploy/secrets/chinaz.cookie
+# Then set CHINAZ_COOKIE_FILE=/run/secrets/chinaz.cookie in deploy/.env.easm
 # Place MaxMind-compatible City and ASN MMDB files in deploy/geoip/ (GeoLite2 or DB-IP Lite work)
 docker compose --env-file deploy/.env.easm -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --build
 ```

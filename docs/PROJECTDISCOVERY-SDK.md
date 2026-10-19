@@ -37,6 +37,11 @@ ProjectDiscovery network policy. The same blocked ranges are passed to nuclei
 as excluded targets. Redirects and ancillary HTTP clients are revalidated by
 `netsafe`; scanners must not bypass it with a raw external client.
 
+SaaS control-plane calls such as FOFA use `pdtools.NewVerifiedHTTPClient`,
+which keeps the `netsafe` dial/redirect checks but verifies TLS certificates.
+Scanner HTTP clients intentionally allow self-signed targets and must not be
+reused for API calls that carry credentials.
+
 ## Verification
 
 ```bash

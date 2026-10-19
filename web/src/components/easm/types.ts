@@ -90,6 +90,7 @@ export interface LookupResult {
     auditDate: string
   }
   confidence: string
+  provider?: string
 }
 
 export interface ICPJob {

@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/gologger/formatter"
 	"github.com/projectdiscovery/gologger/levels"
 	"github.com/projectdiscovery/gologger/writer"
 	"github.com/projectdiscovery/networkpolicy"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 )
 
 const (
@@ -118,6 +118,41 @@ func NewSafeHTTPClient(policy netsafe.Policy, proxyURL string, timeoutSeconds in
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, // scanner inspects arbitrary endpoints
 		MaxIdleConns:          128,
 		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       30 * time.Second,
+		ResponseHeaderTimeout: time.Duration(timeoutSeconds) * time.Second,
+	}
+	if proxyURL != "" {
+		if u, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(u)
+		}
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(timeoutSeconds) * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+			defer cancel()
+			return policy.ValidateHost(ctx, req.URL.Hostname())
+		},
+	}
+}
+
+// NewVerifiedHTTPClient returns a client for control-plane API calls. Unlike
+// scanner clients it verifies TLS certificates, so credentials sent to
+// third-party services are not exposed to a man-in-the-middle.
+func NewVerifiedHTTPClient(policy netsafe.Policy, proxyURL string, timeoutSeconds int) *http.Client {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 12
+	}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           policy.DialContext,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   4,
 		IdleConnTimeout:       30 * time.Second,
 		ResponseHeaderTimeout: time.Duration(timeoutSeconds) * time.Second,
 	}

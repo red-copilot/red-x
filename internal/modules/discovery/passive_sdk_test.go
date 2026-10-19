@@ -25,3 +25,19 @@ func TestPassiveDomainResults(t *testing.T) {
 		t.Fatalf("second result = %+v", got[1])
 	}
 }
+
+func TestAppendSubfinderEntryHonorsLimit(t *testing.T) {
+	var entries []*resolve.HostEntry
+	if !appendSubfinderEntry(&entries, &resolve.HostEntry{Host: "one.example.com"}, 2) {
+		t.Fatal("first entry should be accepted")
+	}
+	if !appendSubfinderEntry(&entries, &resolve.HostEntry{Host: "two.example.com"}, 2) {
+		t.Fatal("second entry should be accepted")
+	}
+	if appendSubfinderEntry(&entries, &resolve.HostEntry{Host: "three.example.com"}, 2) {
+		t.Fatal("entry over the limit should be rejected")
+	}
+	if len(entries) != 2 {
+		t.Fatalf("collected %d entries, want 2", len(entries))
+	}
+}

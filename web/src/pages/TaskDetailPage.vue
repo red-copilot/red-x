@@ -80,6 +80,7 @@ const rows = ref<any[]>([])
 const tab = ref('domains')
 const loading = ref(false)
 let source: EventSource | null = null
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
 const columns = [
   { title: '名称 / 目标', dataIndex: 'title', width: 260 },
@@ -97,11 +98,14 @@ function stepColor(status: string) {
 function terminal(status: string) { return ['succeeded', 'partial', 'failed', 'canceled'].includes(status) }
 
 async function load() {
+  await refreshTask()
+  connectEvents()
+}
+async function refreshTask() {
   const res = await api<{ data: { task: any; steps: any[] } }>(`/tasks/${route.params.id}`)
   task.value = res.data.task
   steps.value = res.data.steps || []
   await loadTab()
-  connectEvents()
 }
 async function loadTab() {
   if (!task.value) return
@@ -129,16 +133,23 @@ function connectEvents() {
     try {
       const ev = JSON.parse(e.data)
       events.value.push(ev)
-      if (ev.type === 'task.status' || ev.type === 'step.status') load()
+      if (ev.type === 'task.status' || ev.type === 'step.status' || ev.type === 'task.warning') scheduleRefresh()
     } catch {}
   }
   source.onmessage = onEvent
-  ;['task.status', 'step.status', 'asset.new', 'finding.new'].forEach((name) => source?.addEventListener(name, onEvent as EventListener))
+  ;['task.status', 'step.status', 'task.warning', 'asset.new', 'finding.new'].forEach((name) => source?.addEventListener(name, onEvent as EventListener))
+}
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined
+    refreshTask()
+  }, 100)
 }
 async function cancel() {
   await api(`/tasks/${route.params.id}/cancel`, { method: 'POST', body: JSON.stringify({}) })
   message.success('已停止')
-  load()
+  await refreshTask()
 }
 async function exportReport() {
   const res = await api<{ data: { downloadUrl: string } }>('/exports', { method: 'POST', body: JSON.stringify({ taskId: task.value.id, format: 'xlsx' }) })
@@ -146,7 +157,10 @@ async function exportReport() {
 }
 
 onMounted(load)
-onBeforeUnmount(() => source?.close())
+onBeforeUnmount(() => {
+  source?.close()
+  if (refreshTimer) clearTimeout(refreshTimer)
+})
 </script>
 
 <style scoped>

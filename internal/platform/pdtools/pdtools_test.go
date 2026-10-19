@@ -2,11 +2,14 @@ package pdtools
 
 import (
 	"context"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/red-copilot/red-x/internal/platform/netsafe"
@@ -70,6 +73,24 @@ func TestSafeHTTPClientRevalidatesRedirects(t *testing.T) {
 	client = NewSafeHTTPClient(policy, "", 2)
 	if _, err := client.Get(redirector.URL); err == nil {
 		t.Fatal("expected loopback request to be blocked")
+	}
+}
+
+func TestVerifiedHTTPClientRejectsSelfSignedCertificate(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	server.Config.ErrorLog = log.New(io.Discard, "", 0)
+	server.StartTLS()
+	defer server.Close()
+
+	client := NewVerifiedHTTPClient(netsafe.Policy{AllowLoopback: true}, "", 2)
+	_, err := client.Get(server.URL)
+	if err == nil {
+		t.Fatal("expected self-signed certificate to be rejected")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "certificate") {
+		t.Fatalf("expected certificate verification error, got %v", err)
 	}
 }
 

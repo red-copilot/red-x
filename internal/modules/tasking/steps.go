@@ -48,17 +48,44 @@ func (e *Engine) executeStep(ctx context.Context, task *domain.Task, step *domai
 
 func (e *Engine) stepDNS(ctx context.Context, task *domain.Task, step *domain.TaskStep) error {
 	base := strings.ToLower(strings.TrimSpace(task.Target))
+	var passive []discovery.DomainResult
+	if task.Options.DNSQueryPlugin && e.Passive != nil {
+		var err error
+		var enumeration discovery.PassiveEnumeration
+		enumeration, err = e.Passive.Enumerate(ctx, base)
+		if err != nil {
+			e.recordDNSWarning(ctx, task, fmt.Sprintf("subfinder 枚举失败: %v", err))
+		} else {
+			passive = enumeration.Domains
+			limit := e.hostBudget()
+			if enumeration.Truncated {
+				e.recordDNSLimit(ctx, task, "subfinder", fmt.Sprintf("subfinder 达到 maxHosts=%d 上限并停止枚举", limit))
+			}
+			if len(passive) > limit {
+				if !enumeration.Truncated {
+					e.recordDNSLimit(ctx, task, "subfinder", fmt.Sprintf("subfinder 返回 %d 个子域，按 maxHosts=%d 截断", len(passive), limit))
+				}
+				passive = passive[:limit]
+			}
+			e.recordDNSDiscovery(ctx, task, step, len(passive))
+		}
+	}
 	res, err := e.DNS.Resolve(ctx, base)
 	if err != nil {
 		return err
 	}
 	e.observeDomain(ctx, task, res, "dns")
+	e.resolvePassiveDomains(ctx, task, passive)
 	wildcard := e.DNS.WildcardIPs(ctx, base)
 	if task.Options.DomainBrute {
 		dictPath := e.dictPath(task.Options.DomainBruteType)
 		words, err := discovery.LoadWords(dictPath)
 		if err != nil {
 			return fmt.Errorf("load domain dictionary: %w", err)
+		}
+		if limit := e.hostBudget(); len(words) > limit {
+			e.recordDNSLimit(ctx, task, "domain_brute", fmt.Sprintf("域名爆破字典 %d 项，按 maxHosts=%d 截断", len(words), limit))
+			words = words[:limit]
 		}
 		results := e.DNS.Brute(ctx, base, words, wildcard, func(done, total int) {
 			p := 0
@@ -71,23 +98,13 @@ func (e *Engine) stepDNS(ctx context.Context, task *domain.Task, step *domain.Ta
 			e.observeDomain(ctx, task, r, "domain_brute")
 		}
 	}
-	if task.Options.DNSQueryPlugin {
-		if e.Passive != nil {
-			passive, err := e.Passive.Enumerate(ctx, base)
-			if err != nil {
-				e.Log.Warn("passive enumeration failed", "taskId", task.ID.Hex(), "error", err)
-			}
-			for _, r := range passive {
-				rr, err := e.DNS.Resolve(ctx, r.Domain)
-				if err == nil {
-					rr.Source = r.Source
-					e.observeDomain(ctx, task, rr, r.Source)
-				}
-			}
-		}
-	}
 	if task.Options.ARLSearch {
-		history, _ := e.Store.SearchHistoryDomains(ctx, base, 5000)
+		limit := e.hostBudget()
+		history, _ := e.Store.SearchHistoryDomains(ctx, base, limit+1)
+		if len(history) > limit {
+			e.recordDNSLimit(ctx, task, "arl", fmt.Sprintf("ARL 历史域名超过 maxHosts=%d，按上限截断", limit))
+			history = history[:limit]
+		}
 		for _, d := range history {
 			rr, err := e.DNS.Resolve(ctx, d)
 			if err == nil {
@@ -100,6 +117,10 @@ func (e *Engine) stepDNS(ctx context.Context, task *domain.Task, step *domain.Ta
 		words, _ := discovery.LoadWords(e.dictPath("test"))
 		subs, _ := e.taskAssetKeys(ctx, task.ID, domain.AssetDomain)
 		alts := discovery.AltDNSWords(subs, base, words)
+		if limit := e.hostBudget(); len(alts) > limit {
+			e.recordDNSLimit(ctx, task, "alt_dns", fmt.Sprintf("AltDNS 生成 %d 个候选，按 maxHosts=%d 截断", len(alts), limit))
+			alts = alts[:limit]
+		}
 		if len(alts) > 0 {
 			results := e.DNS.Brute(ctx, base, alts, wildcard, nil)
 			for _, r := range results {
@@ -108,6 +129,43 @@ func (e *Engine) stepDNS(ctx context.Context, task *domain.Task, step *domain.Ta
 		}
 	}
 	return nil
+}
+
+func (e *Engine) hostBudget() int {
+	if e.Config.Scan.MaxHosts > 0 {
+		return e.Config.Scan.MaxHosts
+	}
+	return 4096
+}
+
+func (e *Engine) resolvePassiveDomains(ctx context.Context, task *domain.Task, domains []discovery.DomainResult) {
+	if len(domains) == 0 {
+		return
+	}
+	concurrency := e.Config.Scan.Concurrency
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for _, item := range domains {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item discovery.DomainResult) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			result, err := e.DNS.Resolve(ctx, item.Domain)
+			if err != nil {
+				return
+			}
+			result.Source = item.Source
+			e.observeDomain(ctx, task, result, item.Source)
+		}(item)
+	}
+	wg.Wait()
 }
 
 func (e *Engine) dictPath(kind string) string {
@@ -121,6 +179,9 @@ func (e *Engine) dictPath(kind string) string {
 
 func (e *Engine) observeDomain(ctx context.Context, task *domain.Task, res discovery.DomainResult, source string) {
 	if res.Domain == "" {
+		return
+	}
+	if e.Store == nil {
 		return
 	}
 	data := map[string]any{
@@ -143,6 +204,39 @@ func (e *Engine) observeDomain(ctx context.Context, task *domain.Task, res disco
 			e.linkScope(ctx, task, ipAsset)
 		}
 	}
+}
+
+func (e *Engine) recordDNSWarning(ctx context.Context, task *domain.Task, message string) {
+	e.recordDNSIssue(ctx, task, "subfinder", message, "failed", "subfinder enumeration failed")
+}
+
+func (e *Engine) recordDNSLimit(ctx context.Context, task *domain.Task, kind, message string) {
+	e.recordDNSIssue(ctx, task, kind, message, "truncated", "dns discovery truncated")
+}
+
+func (e *Engine) recordDNSIssue(ctx context.Context, task *domain.Task, kind, message, status, logMessage string) {
+	task.Warnings = append(task.Warnings, message)
+	if e.Log != nil {
+		e.Log.Warn(logMessage, "taskId", task.ID.Hex(), "warning", message)
+	}
+	if e.Store == nil {
+		return
+	}
+	_ = e.Store.UpdateTaskFields(ctx, task.ID, bson.M{"warnings": task.Warnings})
+	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
+		TaskID: task.ID, Type: "task.warning", Message: message,
+		Payload: map[string]any{"kind": kind, "status": status},
+	})
+}
+
+func (e *Engine) recordDNSDiscovery(ctx context.Context, task *domain.Task, step *domain.TaskStep, count int) {
+	if e.Store == nil {
+		return
+	}
+	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
+		TaskID: task.ID, Type: "step.status", Message: fmt.Sprintf("subfinder 发现 %d 个子域候选", count),
+		Payload: map[string]any{"stepId": step.ID.Hex(), "kind": step.Kind, "status": "running", "discovery": "subfinder", "count": count},
+	})
 }
 
 func (e *Engine) stepPort(ctx context.Context, task *domain.Task, step *domain.TaskStep) error {
@@ -523,7 +617,10 @@ func (e *Engine) stepFofa(ctx context.Context, task *domain.Task, step *domain.T
 	if e.Config.Fofa.Key == "" {
 		return fmt.Errorf("fofa key is not configured")
 	}
-	src := discovery.FofaSource{Client: e.HTTPClient, Key: e.Config.Fofa.Key, BaseURL: e.Config.Fofa.URL, PageSize: e.Config.Fofa.PageSize}
+	if e.ControlClient == nil {
+		return fmt.Errorf("control HTTP client is not configured")
+	}
+	src := discovery.FofaSource{Client: e.ControlClient, Key: e.Config.Fofa.Key, BaseURL: e.Config.Fofa.URL, PageSize: e.Config.Fofa.PageSize}
 	domains, err := src.Query(ctx, task.Target)
 	if err != nil {
 		return err

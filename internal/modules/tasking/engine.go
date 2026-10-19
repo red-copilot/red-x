@@ -30,36 +30,37 @@ type SubmitInput struct {
 	OrganizationID string             `json:"organizationId,omitempty"`
 	RootDomain     string             `json:"rootDomain,omitempty"`
 	Origin         domain.TaskOrigin  `json:"origin,omitempty"`
-	PolicyID    string             `json:"policyId"`
-	ScopeID     string             `json:"scopeId"`
-	ResultSetID string             `json:"resultSetId"`
-	CreatedBy   string             `json:"-"`
+	PolicyID       string             `json:"policyId"`
+	ScopeID        string             `json:"scopeId"`
+	ResultSetID    string             `json:"resultSetId"`
+	CreatedBy      string             `json:"-"`
 }
 
 type Engine struct {
-	Store       *store.Store
-	Queue       jobs.Queue
-	Config      config.Config
-	Log         *slog.Logger
-	Policy      netsafe.Policy
-	DNS         discovery.Resolver
-	Passive     discovery.PassiveEnumerator
-	Ports       discovery.PortScanner
-	TLS         discovery.TLSInspector
-	HTTP        discovery.HTTPProbe
-	HTTPClient  *http.Client
-	Matcher     *webintel.FingerprintMatcher
-	WIH         *webintel.WIHScanner
-	FileLeak    *webintel.FileLeakScanner
-	Spider      webintel.Crawler
-	Screenshot  webintel.Screenshotter
-	Nuclei      webintel.NucleiScanner
-	POCClient   *poc.HTTPClient
-	AssetsDir   string
-	Notifier    Notifier
-	pluginsOnce sync.Once
-	plugins     []poc.Plugin
-	pluginByID  map[string]poc.Plugin
+	Store         *store.Store
+	Queue         jobs.Queue
+	Config        config.Config
+	Log           *slog.Logger
+	Policy        netsafe.Policy
+	DNS           discovery.Resolver
+	Passive       discovery.PassiveEnumerator
+	Ports         discovery.PortScanner
+	TLS           discovery.TLSInspector
+	HTTP          discovery.HTTPProbe
+	HTTPClient    *http.Client
+	ControlClient *http.Client
+	Matcher       *webintel.FingerprintMatcher
+	WIH           *webintel.WIHScanner
+	FileLeak      *webintel.FileLeakScanner
+	Spider        webintel.Crawler
+	Screenshot    webintel.Screenshotter
+	Nuclei        webintel.NucleiScanner
+	POCClient     *poc.HTTPClient
+	AssetsDir     string
+	Notifier      Notifier
+	pluginsOnce   sync.Once
+	plugins       []poc.Plugin
+	pluginByID    map[string]poc.Plugin
 }
 
 type Notifier interface {
@@ -126,13 +127,15 @@ func (e *Engine) Submit(ctx context.Context, in SubmitInput) ([]domain.Task, err
 	}
 	var created []domain.Task
 	for _, target := range targets {
-		if err := e.validateTarget(ctx, target, in.Kind); err != nil {
+		options, err := e.prepareTarget(ctx, in.Options, in.Kind, target)
+		if err != nil {
 			return created, err
 		}
 		t := &domain.Task{
 			Name: in.Name, Kind: in.Kind, Target: target.Raw, Targets: []string{target.Raw},
-			Status: domain.TaskQueued, Options: in.Options, PolicyID: in.PolicyID,
-			ScopeID: in.ScopeID, CreatedBy: in.CreatedBy,
+			Status: domain.TaskQueued, Options: options, PolicyID: in.PolicyID,
+			ScopeID: in.ScopeID, OrganizationID: in.OrganizationID, RootDomain: in.RootDomain,
+			Origin: in.Origin, CreatedBy: in.CreatedBy,
 		}
 		if err := e.Store.CreateTask(ctx, t); err != nil {
 			return created, err
@@ -157,7 +160,34 @@ func (e *Engine) Submit(ctx context.Context, in SubmitInput) ([]domain.Task, err
 	return created, nil
 }
 
-func (e *Engine) validateTarget(ctx context.Context, t discovery.Target, kind domain.TaskKind) error {
+func (e *Engine) prepareTarget(ctx context.Context, base domain.TaskOptions, kind domain.TaskKind, target discovery.Target) (domain.TaskOptions, error) {
+	options, err := deriveTaskOptions(base, kind, target)
+	if err != nil {
+		return base, err
+	}
+	if err := e.validateTarget(ctx, target, kind, options.DNSQueryPlugin); err != nil {
+		return base, err
+	}
+	return options, nil
+}
+
+func deriveTaskOptions(base domain.TaskOptions, kind domain.TaskKind, target discovery.Target) (domain.TaskOptions, error) {
+	if kind != domain.TaskDomain || target.Kind != "domain" {
+		return base, nil
+	}
+	if strings.Contains(target.Host, "{fuzz}") {
+		base.DNSQueryPlugin = false
+		return base, nil
+	}
+	root, err := discovery.IsRootDomain(target.Host)
+	if err != nil {
+		return base, fmt.Errorf("classify domain %q: %w", target.Host, err)
+	}
+	base.DNSQueryPlugin = root
+	return base, nil
+}
+
+func (e *Engine) validateTarget(ctx context.Context, t discovery.Target, kind domain.TaskKind, enumerateSubdomains bool) error {
 	switch t.Kind {
 	case "domain":
 		if strings.Contains(t.Host, "{fuzz}") {
@@ -165,6 +195,9 @@ func (e *Engine) validateTarget(ctx context.Context, t discovery.Target, kind do
 		}
 		if _, err := netsafe.ValidateDomain(t.Host); err != nil {
 			return fmt.Errorf("invalid domain %q: %w", t.Host, err)
+		}
+		if enumerateSubdomains {
+			return nil
 		}
 		return e.Policy.ValidateHost(ctx, t.Host)
 	case "ip":

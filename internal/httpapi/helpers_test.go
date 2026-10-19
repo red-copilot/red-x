@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/webui"
 )
 
 func TestOpenAPISpecIsJSON(t *testing.T) {
@@ -55,5 +57,26 @@ func TestSystemInfoIncludesScannerVersions(t *testing.T) {
 	}
 	if body.Data.Scanners["nuclei"] != "v3.11.1" || body.Data.Scanners["httpx"] != "v1.12.0" {
 		t.Fatalf("scanners = %v", body.Data.Scanners)
+	}
+}
+
+func TestServeSPADoesNotTreatAssetDirectoryAsFile(t *testing.T) {
+	if _, err := webui.Dist.ReadFile("dist/index.html"); err != nil {
+		t.Skip("embedded frontend build is not present")
+	}
+	handler := (&Server{}).serveSPA()
+
+	for _, target := range []string{"/assets", "/assets/"} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d", target, rec.Code)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+			t.Fatalf("%s content-type = %q", target, got)
+		}
+		if !strings.Contains(rec.Body.String(), `<div id="app">`) {
+			t.Fatalf("%s did not return the SPA index", target)
+		}
 	}
 }
