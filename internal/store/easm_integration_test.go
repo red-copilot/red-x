@@ -48,7 +48,14 @@ func TestOrganizationDomainUpsertIsIdempotent(t *testing.T) {
 	if err := st.UpsertOrganizationDomain(ctx, first); err != nil {
 		t.Fatal(err)
 	}
-	firstSeen := first.FirstSeen
+	before, err := st.ListOrganizationDomains(ctx, org.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("expected 1 row after insert, got %d", len(before))
+	}
+	firstSeen := before[0].FirstSeen
 	time.Sleep(5 * time.Millisecond)
 	second := &domain.OrganizationDomain{
 		OrganizationID: org.ID, RootDomain: "scitc.edu.cn", SiteName: "新名称",
