@@ -4,58 +4,47 @@
 
 ARL is a Go modular monolith with an embedded Vue 3 console.
 
-- `cmd/arl/`: CLI (`web`, `worker`, `scheduler`, `migrate`, `doctor`).
-- `internal/app/`, `httpapi/`, `store/`: wiring, API/SSE, MongoDB repositories.
-- `internal/modules/`: identity, discovery, webintel, PoC, tasking, monitoring, GitHub, reporting.
-- `internal/platform/`: config, logging, queues, network safety, notifications.
-- `web/src/`: Vue/TypeScript; output goes to `internal/webui/dist`.
-- `assets/`: dictionaries, fingerprints, WIH rules, and standard nuclei templates.
-- `deploy/`, `docs/`: deployment and design/parity docs.
+- `cmd/arl/`: CLI roles (`web`, `worker`, `scheduler`, `migrate`, `doctor`).
+- `internal/app/`, `internal/httpapi/`, `internal/store/`: wiring, REST/SSE/OpenAPI, and MongoDB repositories.
+- `internal/modules/`: identity, discovery, webintel, EASM, PoC, tasking, monitoring, GitHub, and reporting.
+- `internal/platform/`: config, logging, queues, safety, notifications, and ProjectDiscovery helpers.
+- `web/src/`: Vue/TypeScript source; `web/e2e/`: Playwright tests; output goes to `internal/webui/dist`.
+- `assets/`: dictionaries, fingerprints, WIH rules, and nuclei templates. `deploy/` and `docs/` contain deployment and design docs.
 
 ## Build, Test, and Development Commands
 
 Requires Go 1.27+ and Node.js 22+.
 
 ```bash
-make build        # build frontend and Go binary
-make test         # go test ./... + web typecheck
-make race         # go test -race ./...
-make lint         # gofmt, go vet, vue-tsc
-make verify       # go mod verify, vet, tests, frontend typecheck
-make frontend     # install and build Vue
-make compose-build
+make build     # frontend and Go binary
+make test      # Go tests and frontend typecheck
+make race      # Go race tests
+make lint      # gofmt, vet, vue-tsc
+make verify    # module verification, vet, tests, typecheck
 ```
 
-Run `./arl migrate --config config.yaml` before web/worker/scheduler. For local single-process work, set `queue.driver: memory` and run `./arl all --config config.yaml`.
+Run `./arl migrate --config config.yaml` before roles; use `queue.driver: memory` with `./arl all` locally. From `web/`: `npm test` (Vitest), `npm run test:e2e` (Playwright).
 
 ## Coding Style & Naming Conventions
 
-- Run `gofmt`; package names lowercase. Use `PascalCase` for exports, `camelCase` locally, `%w` for errors.
-- Put `context.Context` first and propagate cancellation through scanners/workers.
-- Use camelCase JSON/BSON fields (`taskId`, `scopeId`) and existing module boundaries.
-- Scanner engines are in-process ProjectDiscovery SDKs pinned in `go.mod`; do not add CLI wrappers or shell out to scanner binaries.
-- Vue: two spaces, `<script setup lang="ts">`, Composition API, `PascalCase` components.
-- Do not reintroduce Python, Flask, Celery, nmap, massdns or PhantomJS runtime dependencies.
-- Keep `platform/pdtools` as the single place that maps `netsafe` policy and structured logs into ProjectDiscovery SDK configuration.
+- Run `gofmt`; use lowercase packages, `PascalCase` exports, `camelCase` locals, and `%w` for errors.
+- Put `context.Context` first and propagate cancellation through scanners and workers.
+- Use camelCase JSON/BSON fields such as `taskId` and `scopeId`.
+- Use in-process ProjectDiscovery SDKs pinned in `go.mod`; no CLI wrappers or shell-outs.
+- Vue uses two spaces, `<script setup lang="ts">`, Composition API, and `PascalCase` components.
+- Keep `pdtools` as the sole mapping of `netsafe` policy and logs to ProjectDiscovery config.
+- Do not reintroduce Python, Flask, Celery, nmap, massdns, or PhantomJS.
 
 ## Testing Guidelines
 
-Use Go `testing` with table-driven tests and `httptest`. Name tests `TestXxx`, colocate with the package, and cover success, failure, and authorization. MongoDB integration tests require:
-
-```bash
-ARL_TEST_MONGO_URI=mongodb://127.0.0.1:27017 go test ./internal/store
-```
-
-No fixed coverage threshold; add focused tests for each change. Frontend changes must pass `npm run typecheck` and `npm run build`.
+Use Go's `testing` package with table-driven tests and `httptest`. Name tests `TestXxx`, colocate them with the package, and cover success, failure, and authorization. Integration tests use `ARL_TEST_MONGO_URI`, `ARL_TEST_NEO4J_*`, or `ARL_TEST_GEOIP_*`. Add focused tests; no fixed coverage threshold. Frontend changes must pass `npm run typecheck` and `npm run build`.
 
 ## Commit & Pull Request Guidelines
 
-Use Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
+Use Conventional Commits, for example `feat: add EASM wallboard` or `fix: preserve ICP ownership`. After verification, stage only task-specific files and commit automatically; exclude unrelated changes, generated artifacts, and secrets. Do not push unless asked.
 
-Auto-commit completed work: once a task's relevant verification passes, stage only the files changed for that task and create a Conventional Commit automatically. Never include unrelated pre-existing changes, generated artifacts, or secrets. Do not push unless explicitly asked. If verification fails or there are no task changes, do not commit.
-
-PRs should explain the problem and change, list verification commands, link issues, and call out API/schema/config/security changes. Include UI screenshots and update `docs/PARITY.md` or `docs/SCANNER-DIFFERENCES.md` when behavior changes.
+PRs should cover the problem, change, verification commands, and linked issues; call out API/schema/config/security changes. Include UI screenshots and update `docs/PARITY.md` or `docs/SCANNER-DIFFERENCES.md` when behavior changes.
 
 ## Security & Configuration
 
-Never commit secrets. `config.example.yaml` is a template; use `ARL_*` env overrides. Preserve blacklist/SSRF checks, CSRF and RBAC.
+Never commit secrets. Treat `config.example.yaml` as a template and prefer `ARL_*` environment overrides. Preserve blacklist/SSRF checks, CSRF protection, RBAC, and sensitive-field masking.
