@@ -4,7 +4,7 @@
 
 ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资产侦察平台。它以组织为主线，把域名归属、资产、风险、任务和报告串成一条可追溯的链路；除可选的 Chromium 截图外，所有扫描引擎都在 Go 进程内运行，不需要安装 nmap、massdns 或 ProjectDiscovery CLI。
 
-当前版本是 3.0：一个 Go 二进制默认以 `all` 单节点角色运行，React 控制台构建后直接嵌入二进制；PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务。`web`、`worker`、`scheduler` 仍可用于拆分扩容。
+当前版本是 3.0：一个 Go 二进制以 `arl all` 单节点方式运行，React 控制台构建后直接嵌入二进制；PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务，所有后台处理都在同一进程内完成。
 
 > **仅用于已获得明确授权的资产、域名、IP 和站点测试。** 使用前请阅读 [Disclaimer.md](Disclaimer.md)。
 
@@ -41,7 +41,7 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 - React 19 + TypeScript + Vite 控制台：TanStack Query/Table、Radix UI、Tailwind CSS、ECharts。
 - OpenAPI 3.1 文档、RFC 7807 错误响应、SSE 任务事件、Prometheus 指标。
 - `viewer` / `operator` / `admin` 三级 RBAC、API Key、CSRF、审计日志与结构化日志。
-- 单个 Go 二进制（扫描资产外置）+ systemd 原生部署；Docker 仅用于 PostgreSQL、Redis 和可选 EASM 基础服务。`worker` 可水平扩展，`scheduler` 通过 PostgreSQL 租约选主。
+- 单个 Go 二进制（扫描资产外置）+ systemd 原生部署；Docker 仅用于 PostgreSQL、Redis。所有后台组件都在同一个 ARL 进程内运行。
 
 ## 架构
 
@@ -55,18 +55,17 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
                               Redis Streams
                                      │
                      ┌───────────────▼──────────────────────┐
-                     │ worker × N                           │
+                     │ 同一 arl 进程内的 worker 循环          │
                      │ 扫描步骤：DNS / 端口 / HTTP / 指纹 / PoC │
                      └──────────────────────────────────────┘
 
-  scheduler ── PostgreSQL lease ──▶ 到期的 monitor / schedule
-  可选：Neo4j（关系图）、MaxMind GeoIP（地图）、ICP_Query sidecar
+  同一进程内的 scheduler ── PostgreSQL lease ──▶ 到期任务
+  可选外部服务：Neo4j（关系图）、MaxMind GeoIP（地图）、ICP_Query
 ```
 
-- **web**：无状态，除 PostgreSQL 外不保存会话；提供控制台、API、SSE、健康检查和指标。
-- **worker**：消费 Redis Streams，执行单个任务步骤；可并发运行多个实例。
-- **scheduler**：通过 PostgreSQL 租约保证同一时间只有一个实例派发定时任务。
-- **all / dev**：默认单节点模式，在一个进程里运行三种角色；生产配合 Redis，本地可临时使用内存队列。
+- Web/API 层提供嵌入式控制台、REST、SSE、健康检查和指标。
+- 同一 `arl` 进程消费 Redis Streams、执行任务步骤、派发定时任务并投影图数据。
+- `arl all` 是唯一运行入口；生产使用持久化 Redis 队列。
 
 更完整的设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧版功能对照见 [docs/PARITY.md](docs/PARITY.md)。
 
@@ -81,7 +80,7 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 | PostgreSQL | 18+ | 业务数据、任务租约与 outbox |
 | Redis | 7.0+ | 持久化任务队列；生产默认使用 Redis |
 | Chromium | 可选 | 宿主安装后可启用站点截图 |
-| Docker + Compose | 可选 | 仅用于 PostgreSQL、Redis 和可选 EASM 基础服务 |
+| Docker + Compose | 可选 | 仅用于 PostgreSQL、Redis |
 
 ### 方式一：基础设施容器 + 原生 ARL（推荐）
 
@@ -119,28 +118,21 @@ sudo /opt/arl/arl migrate --config /etc/arl/config.yaml
 sudo systemctl enable --now arl
 ```
 
-安装脚本把二进制和外部扫描资产放到 `/opt/arl`，配置与 `arl.env` 放到 `/etc/arl`，运行数据放到 `/var/lib/arl`。旧的 `arl-web`、`arl-worker`、`arl-scheduler` 单元会被停用并移除；默认只保留一个 `arl.service`。基础设施仍可用 `make infra-up` 启动，或改用宿主原生 PostgreSQL/Redis。
-
-需要多进程水平扩展时，可手工拆分角色；这些命令仍保留，但不再由默认安装脚本启动：
-
-```bash
-./arl web --config config.yaml
-./arl worker --config config.yaml
-./arl scheduler --config config.yaml
-```
+安装脚本把二进制和外部扫描资产放到 `/opt/arl`，配置与 `arl.env` 放到 `/etc/arl`，运行数据放到 `/var/lib/arl`。系统只安装一个 `arl.service`，它运行完整的单节点服务。基础设施仍可用 `make infra-up` 启动，或改用宿主原生 PostgreSQL/Redis。
 
 ### 可选 EASM 组件
 
-需要关系图、ICP 归属证据或地图时，Docker 仍只承载可选基础设施。ARL 继续以原生进程运行，并通过回环地址访问这些服务：
+Neo4j、ICP_Query 和 GeoIP 不属于默认 Docker 基础设施。需要这些能力时，连接外部或宿主原生实例，并在启动 ARL 前加载环境变量：
 
 ```bash
 cp deploy/.env.easm.example deploy/.env.easm
-mkdir -p deploy/secrets deploy/geoip
-docker compose --env-file deploy/.env.easm \
-  -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --wait
+set -a
+source deploy/.env.easm
+set +a
+./arl all --config config.yaml
 ```
 
-启动 ARL 前执行 `set -a; source deploy/.env.easm; set +a`，再补充宿主上的 GeoIP/Chinaz cookie 路径。详细步骤与降级行为见 [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md)。
+详细配置与降级行为见 [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md)。
 
 ## 配置
 
@@ -178,10 +170,7 @@ docker compose --env-file deploy/.env.easm \
 
 | 命令 | 说明 |
 | --- | --- |
-| `arl web` | API、SSE、OpenAPI 与嵌入式控制台 |
-| `arl worker` | 消费 Redis Streams 任务，可加 `--queues` 限定队列 |
-| `arl scheduler` | 监控器与计划任务调度（PostgreSQL 租约选主） |
-| `arl all` / `arl dev` | 单节点生产模式，同时运行 web、worker、scheduler；本地可改用内存队列 |
+| `arl all` | 唯一运行入口：API、嵌入式控制台、任务消费、调度器与图投影 |
 | `arl migrate` | 执行 PostgreSQL AutoMigrate、写入默认策略并同步 PoC 插件元数据 |
 | `arl doctor` | 检查配置、依赖、队列、资源与 DNS |
 | `arl health` | 进程健康检查，例如 `--url http://127.0.0.1:5003/healthz` |
@@ -244,7 +233,7 @@ npm run test:visual  # Playwright 视觉回归
 npm run generate:api # 根据 internal/httpapi/openapi.json 生成类型
 ```
 
-CI 会构建前端产物、运行 Go 测试（含 race）、构建原生 `arl` 二进制，并校验基础及 EASM Compose 配置。
+CI 会构建前端产物、运行 Go 测试（含 race）、构建原生 `arl` 二进制，并校验基础设施 Compose 配置。
 
 ## 目录结构
 

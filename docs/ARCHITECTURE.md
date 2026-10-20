@@ -1,22 +1,13 @@
 # Architecture
 
-## Runtime roles
+## Runtime topology
 
-The default deployment is one native `arl all` process backed by PostgreSQL and
-Redis. It serves the embedded SPA and API, consumes Redis Streams, runs the
-scheduler, and relays the PostgreSQL outbox. If any worker or HTTP component
-fails, the process exits non-zero so systemd can restart it.
-
-The same binary retains three split roles for advanced deployments:
-
-1. `web`: serves the embedded SPA, `/api/v1`, OpenAPI, SSE and metrics. It is stateless apart from PostgreSQL.
-2. `worker`: consumes Redis Streams and executes task steps. Multiple workers can run concurrently.
-3. `scheduler`: wins a PostgreSQL lease and enqueues due monitors/schedules. Only one scheduler is active at a time.
-
-Docker is optional and carries infrastructure only: PostgreSQL and Redis by
-default, plus Neo4j and ICP_Query when the EASM overlay is enabled. The old
-application image and multi-container web/worker/scheduler deployment are not
-part of the runtime topology.
+ARL runs as one native `arl all` process backed by PostgreSQL and Redis. It
+serves the embedded SPA and API, consumes Redis Streams, runs the PostgreSQL
+scheduler lease and projects the graph outbox. If the worker loop or HTTP server
+fails, the process exits non-zero so systemd can restart it. Docker is optional
+and carries only PostgreSQL and Redis. Neo4j, ICP_Query and GeoIP are external
+integrations, not part of the default Compose stack.
 
 ## Module boundaries
 

@@ -4,11 +4,24 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/platform/config"
 )
+
+func TestUsageOnlyDocumentsSingleNodeServer(t *testing.T) {
+	text := usageText()
+	if !strings.Contains(text, "arl all") {
+		t.Fatal("usage does not document the single-node server command")
+	}
+	for _, role := range []string{"arl web", "arl worker", "arl scheduler", "arl dev"} {
+		if strings.Contains(text, role) {
+			t.Fatalf("usage still documents removed role %q", role)
+		}
+	}
+}
 
 func TestNewHTTPServerUsesStreamingTimeouts(t *testing.T) {
 	cfg := config.Default()

@@ -15,7 +15,7 @@ redis:
   url: "redis://:arlpassword@127.0.0.1:6379/0"
 
 queue:
-  # redis for multi-process deployments; memory is intended for `arl all` development mode.
+  # redis is the durable single-node queue; memory is only for throwaway local runs.
   driver: "redis"
 
 auth:

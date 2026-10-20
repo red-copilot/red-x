@@ -37,16 +37,8 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 	switch cmd {
-	case "web":
-		if err := runWeb(args); err != nil {
-			fatal(err)
-		}
-	case "worker":
-		runWorker(args)
-	case "scheduler":
-		runScheduler(args)
-	case "all", "dev":
-		if err := runAll(args); err != nil {
+	case "all":
+		if err := runSingleNode(args); err != nil {
 			fatal(err)
 		}
 	case "migrate":
@@ -75,19 +67,21 @@ func fatal(err error) {
 }
 
 func usage() {
-	fmt.Println(`ARL modular monolith
+	fmt.Print(usageText())
+}
+
+func usageText() string {
+	return `ARL modular monolith
 Usage:
-  arl web       [--config config.yaml]
-  arl worker    [--config config.yaml] [--queues q.web.fetch,q.web.scan]
-  arl scheduler [--config config.yaml]
-  arl all       [--config config.yaml]   # single-node: web+worker+scheduler
+  arl all       [--config config.yaml]   # single-node server
   arl migrate   [--config config.yaml]
   arl doctor    [--config config.yaml]
   arl health    [--url http://127.0.0.1:5003/readyz]
   arl admin create-user --username NAME --password PASS [--role admin]
   arl admin reset-password --username NAME --password PASS
   arl poc sync  [--config config.yaml]
-  arl graph rebuild [--config config.yaml]`)
+  arl graph rebuild [--config config.yaml]
+`
 }
 
 func configFlag(args []string) (config.Config, string) {
@@ -113,18 +107,6 @@ func build(args []string) (*app.App, config.Config, context.Context, context.Can
 		os.Exit(1)
 	}
 	return a, cfg, ctx, cancel
-}
-
-func runWeb(args []string) error {
-	a, cfg, ctx, cancel := build(args)
-	defer cancel()
-	defer a.Close(context.Background())
-	if err := a.Identity.BootstrapAdmin(ctx); err != nil {
-		a.Log.Error("bootstrap admin failed", "error", err)
-	}
-	a.Server.EASM = newEASMService(a)
-	a.Log.Info("web listening", "address", cfg.Server.Listen)
-	return serveHTTP(ctx, cfg, a.Log, a.Server.Router())
 }
 
 func serveHTTP(ctx context.Context, cfg config.Config, log *slog.Logger, handler http.Handler) error {
@@ -182,60 +164,7 @@ func runComponents(ctx context.Context, components ...func(context.Context) erro
 	return err
 }
 
-func runWorker(args []string) {
-	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
-	path := fs.String("config", "config.yaml", "path to config file")
-	queuesFlag := fs.String("queues", strings.Join(jobs.QueueNames, ","), "comma-separated queues")
-	_ = fs.Parse(args)
-	cfg, err := config.Load(*path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "config error:", err)
-		os.Exit(1)
-	}
-	log := logx.New("", cfg.Server.Debug)
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-	a, err := app.New(ctx, cfg, log, version)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "startup error:", err)
-		os.Exit(1)
-	}
-	defer a.Close(context.Background())
-	go a.Engine.OutboxRelay(ctx)
-	stopProjector := startProjector(ctx, a, log)
-	if stopProjector != nil {
-		defer stopProjector()
-	}
-	icpSvc := newEASMService(a)
-	queues := splitCSV(*queuesFlag)
-	log.Info("worker started", "queues", queues, "driver", cfg.Queue.Driver)
-	err = a.Queue.Consume(ctx, queues, 2, func(ctx context.Context, d jobs.Delivery) error {
-		if d.Queue == "q.github" {
-			return fmt.Errorf("github queue jobs are handled by the API-triggered GitHub worker")
-		}
-		if d.Queue == "q.icp" {
-			return icpSvc.HandleICPJob(ctx, d)
-		}
-		return a.Engine.HandleDelivery(ctx, d)
-	})
-	if err != nil && ctx.Err() == nil {
-		log.Error("worker stopped", "error", err)
-	}
-}
-
-func runScheduler(args []string) {
-	a, _, ctx, cancel := build(args)
-	defer cancel()
-	defer a.Close(context.Background())
-	if err := a.Identity.BootstrapAdmin(ctx); err != nil {
-		a.Log.Error("bootstrap admin failed", "error", err)
-	}
-	go a.Engine.OutboxRelay(ctx)
-	a.Log.Info("scheduler started", "owner", a.Scheduler.Owner)
-	a.Scheduler.Run(ctx)
-}
-
-func runAll(args []string) error {
+func runSingleNode(args []string) error {
 	a, cfg, ctx, cancel := build(args)
 	defer cancel()
 	defer a.Close(context.Background())
@@ -518,17 +447,6 @@ func runPOC(args []string) {
 		}
 	}
 	fmt.Printf("synced %d PoC plugins\n", count)
-}
-
-func splitCSV(s string) []string {
-	var out []string
-	for _, x := range strings.Split(s, ",") {
-		x = strings.TrimSpace(x)
-		if x != "" {
-			out = append(out, x)
-		}
-	}
-	return out
 }
 
 func startProjector(ctx context.Context, a *app.App, log *slog.Logger) func() {

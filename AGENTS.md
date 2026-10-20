@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-ARL is a Go modular monolith with an embedded Vue 3 console.
+ARL is a Go modular monolith with an embedded React console.
 
-- `cmd/arl/`: CLI roles (`web`, `worker`, `scheduler`, `migrate`, `doctor`).
+- `cmd/arl/`: single-node server plus operational CLI commands (`all`, `migrate`, `doctor`).
 - `internal/app/`, `internal/httpapi/`, `internal/store/`: wiring, REST/SSE/OpenAPI, and PostgreSQL/GORM repositories.
 - `internal/modules/`: identity, discovery, webintel, EASM, PoC, tasking, monitoring, GitHub, and reporting.
 - `internal/platform/`: config, logging, queues, safety, notifications, and ProjectDiscovery helpers.
@@ -23,7 +23,7 @@ make lint      # gofmt, vet, vue-tsc
 make verify    # module verification, vet, tests, typecheck
 ```
 
-Run `./arl migrate --config config.yaml` before roles; use `queue.driver: memory` with `./arl all` locally. From `web/`: `npm test` (Vitest), `npm run test:e2e` (Playwright).
+Run `./arl migrate --config config.yaml` before starting; production uses Redis with `./arl all`, while `queue.driver: memory` is only for throwaway local runs. From `web/`: `npm test` (Vitest), `npm run test:e2e` (Playwright).
 
 ## Coding Style & Naming Conventions
 

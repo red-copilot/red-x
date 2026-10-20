@@ -29,11 +29,6 @@ chown -R root:arl "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets"
 find "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets" -type d -exec chmod 0750 {} +
 find "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets" -type f -exec chmod 0640 {} +
 
-# Upgrade path: the old split-role units must not compete with arl.service.
-for unit in arl-web arl-worker arl-scheduler; do
-  systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
-  rm -f "/etc/systemd/system/${unit}.service"
-done
 install -m 0644 "${ROOT}/deploy/systemd/arl.service" /etc/systemd/system/arl.service
 systemctl daemon-reload
 
