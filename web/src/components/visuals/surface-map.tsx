@@ -3,7 +3,7 @@ import { MapChart, ScatterChart } from 'echarts/charts'
 import { GeoComponent, GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import ReactECharts from 'echarts-for-react'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import worldGeo from '@/assets/world.geo.json'
 import type { MapSnapshot } from '@/api'
 
@@ -29,6 +29,43 @@ export function SurfaceMap({
   snapshot?: MapSnapshot
   onSelect?: (assetId: string, orgIds: string[]) => void
 }) {
+  const chartRef = useRef<any>(null)
+  const dragRef = useRef<{ x: number; y: number } | null>(null)
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    const chart = chartRef.current
+    if (!chart) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const point = [event.clientX - rect.left, event.clientY - rect.top]
+    try {
+      if (chart.containPixel?.({ geoIndex: 0 }, point)) return
+    } catch {
+      // Fall through to the panel-level drag handler if ECharts is not ready.
+    }
+    dragRef.current = { x: event.clientX, y: event.clientY }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const last = dragRef.current
+    if (!last) return
+    const dx = event.clientX - last.x
+    const dy = event.clientY - last.y
+    if (dx !== 0 || dy !== 0) {
+      chartRef.current?.dispatchAction({ type: 'geoRoam', componentType: 'geo', geoIndex: 0, dx, dy })
+      dragRef.current = { x: event.clientX, y: event.clientY }
+    }
+    event.preventDefault()
+  }
+
+  function endDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return
+    dragRef.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
   const option = useMemo(() => {
     const points = snapshot?.points || []
     const series = Object.entries(colors).map(([risk, color]) => ({
@@ -72,11 +109,21 @@ export function SurfaceMap({
   }, [snapshot])
 
   return (
-    <div className="relative h-full min-h-[260px] w-full overflow-hidden rounded-lg border bg-[#fbfcfe] data-grid">
+    <div
+      data-testid="surface-map"
+      className="data-grid relative h-full min-h-[260px] w-full cursor-grab overflow-hidden rounded-lg border bg-[#fbfcfe] active:cursor-grabbing"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       <ReactECharts
         option={option}
         notMerge
-        style={{ height: '100%', minHeight: 360 }}
+        style={{ height: '100%', width: '100%' }}
+        onChartReady={(chart) => {
+          chartRef.current = chart
+        }}
         onEvents={{
           click: (params: any) => {
             if (params?.data?.assetId) onSelect?.(params.data.assetId, params.data.orgIds || [])

@@ -226,7 +226,7 @@ export function OverviewPage() {
               ) : null}
             </div>
           </div>
-          <div className="min-h-0 flex-1 p-3">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {visual === 'map' ? (
               map.isLoading ? (
                 <LoadingBlock label="正在定位资产…" />
