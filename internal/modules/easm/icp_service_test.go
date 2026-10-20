@@ -120,6 +120,9 @@ func (f *fakeICPStore) ConfirmOrganizationDomains(_ context.Context, orgID strin
 	return n, nil
 }
 func (f *fakeICPStore) AddICPEvidence(_ context.Context, ev *domain.ICPEvidence) error {
+	if ev.ID == "" {
+		ev.ID = domain.MustID()
+	}
 	f.evidence = append(f.evidence, ev)
 	return nil
 }
@@ -250,6 +253,18 @@ func TestHandleJobPersistsCandidatesAndCompletes(t *testing.T) {
 	}
 	if len(st.domains) != 2 {
 		t.Fatalf("expected 2 candidate domains, got %d", len(st.domains))
+	}
+	if len(st.evidence) != 1 {
+		t.Fatalf("expected one ICP evidence record, got %d", len(st.evidence))
+	}
+	ev := st.evidence[0]
+	if ev.Provider != "icp_query" || ev.QueryType != "organization" || ev.QueryKey != org.CanonicalName {
+		t.Fatalf("unexpected evidence: %+v", ev)
+	}
+	for _, od := range st.domains {
+		if od.EvidenceID == nil || *od.EvidenceID != ev.ID {
+			t.Fatalf("domain %s missing evidence link: %+v", od.RootDomain, od)
+		}
 	}
 }
 

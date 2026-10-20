@@ -297,6 +297,23 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 	}
 	s.icpGuard.success()
 	s.setHealth("icpQuery", "ok")
+	now := time.Now().UTC()
+	var evidenceID *string
+	if len(records) > 0 {
+		raw, err := json.Marshal(records)
+		if err != nil {
+			return s.failJob(ctx, id, err)
+		}
+		ev := &domain.ICPEvidence{
+			Provider: "icp_query", QueryType: "organization", QueryKey: org.CanonicalName,
+			Raw: string(raw), FetchedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
+			PayloadHash: payloadHash(string(raw)),
+		}
+		if err := s.Store.AddICPEvidence(ctx, ev); err != nil {
+			return s.failJob(ctx, id, err)
+		}
+		evidenceID = &ev.ID
+	}
 	count := 0
 	for _, rec := range records {
 		conf := domain.ConfidenceLow
@@ -306,13 +323,13 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 		od := &domain.OrganizationDomain{
 			OrganizationID: org.ID, RootDomain: rec.Domain, SiteName: rec.ServiceName,
 			ICPNo: rec.ServiceLicence, Source: "icp_query", Confidence: conf, Status: domain.DomainStatusCandidate,
+			EvidenceID: evidenceID,
 		}
 		if err := s.Store.UpsertOrganizationDomain(ctx, od); err != nil {
 			continue
 		}
 		count++
 	}
-	now := time.Now().UTC()
 	if err := s.Store.UpdateICPJob(ctx, id, store.ICPJobPatch{Status: ptrValue(domain.ICPJobDone), ResultCount: &count, FinishedAt: &now}); err != nil {
 		return err
 	}
