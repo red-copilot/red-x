@@ -99,7 +99,7 @@ overview; `/easm/organizations` handles organization and domain review,
 `/easm/organizations/:id` exposes assets, current findings, tasks and reports,
 and `/easm/assets`, `/easm/findings`, `/easm/tasks` provide cross-organization
 views. PostgreSQL remains the source of truth; Neo4j is rebuilt from the outbox
-and `arl graph rebuild` after the `mongoId` → `entityId` projection rename.
+and `arl graph rebuild` after storage migrations that change projection identifiers.
 
 ICP attribution uses the Chinaz domain page plus its signed permit endpoint for
 domain → organization. Organization → filed domains uses the external

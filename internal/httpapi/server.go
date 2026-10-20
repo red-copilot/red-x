@@ -307,7 +307,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.Store.Ping(ctx); err != nil {
-		httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "dependency.mongo", err.Error())
+		httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "dependency.database", err.Error())
 		return
 	}
 	if err := s.Queue.Health(ctx); err != nil {

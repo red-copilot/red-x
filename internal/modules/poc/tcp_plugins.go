@@ -7,9 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"github.com/red-copilot/red-x/internal/modules/poc/mongowire"
 )
 
 type TCPNoAuthPlugin struct {
@@ -92,13 +90,8 @@ func (p *MongoNoAuthPlugin) Run(ctx context.Context, target Target) (Result, err
 	if port == 0 {
 		port = 27017
 	}
-	uri := fmt.Sprintf("mongodb://%s:%d", target.Host, port)
-	client, err := mongo.Connect(options.Client().ApplyURI(uri).SetServerSelectionTimeout(3 * time.Second))
-	if err != nil {
-		return Result{}, nil
-	}
-	defer client.Disconnect(ctx)
-	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+	address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", port))
+	if err := mongowire.ProbeUnauthenticated(ctx, address); err != nil {
 		return Result{}, nil
 	}
 	uriOut := fmt.Sprintf("mongodb://%s:%d", target.Host, port)

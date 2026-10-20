@@ -75,6 +75,6 @@ func TestNeo4jProjectionRoundTrip(t *testing.T) {
 		}
 	}
 	if !foundDomain {
-		t.Fatalf("domain Mongo id missing from graph nodes: %+v", nodes)
+		t.Fatalf("domain entity id missing from graph nodes: %+v", nodes)
 	}
 }

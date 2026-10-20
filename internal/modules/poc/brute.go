@@ -16,9 +16,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"github.com/red-copilot/red-x/internal/modules/poc/mongowire"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -220,21 +218,11 @@ func mssqlLogin(ctx context.Context, target Target, user, pass string) (bool, er
 }
 
 func mongoLogin(ctx context.Context, target Target, user, pass string) (bool, error) {
-	uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin", urlQuery(user), urlQuery(pass), target.Host, target.Port)
-	client, err := mongo.Connect(options.Client().ApplyURI(uri).SetServerSelectionTimeout(4 * time.Second))
-	if err != nil {
-		return false, err
-	}
-	defer client.Disconnect(ctx)
-	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+	address := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
+	if err := mongowire.Authenticate(ctx, address, user, pass); err != nil {
 		return false, nil
 	}
 	return true, nil
-}
-
-func urlQuery(s string) string {
-	r := strings.NewReplacer("@", "%40", ":", "%3A", "/", "%2F", "?", "%3F", "#", "%23")
-	return r.Replace(s)
 }
 
 func imapLogin(ctx context.Context, target Target, user, pass string) (bool, error) {

@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// PruneExpired replaces the Mongo TTL indexes with application-driven cleanup.
+// PruneExpired applies application-driven retention cleanup.
 func (s *Store) PruneExpired(ctx context.Context, now time.Time) error {
 	now = now.UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
