@@ -1,3 +1,5 @@
+![Red Copilot — AI-Native Offensive Security Engineering](https://raw.githubusercontent.com/red-copilot/.github/main/assets/red-copilot-banner.svg)
+
 # ARL · 资产侦察灯塔
 
 **Authorization-first external attack surface management and asset reconnaissance.**
