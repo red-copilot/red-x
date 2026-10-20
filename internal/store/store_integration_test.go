@@ -231,3 +231,26 @@ func TestPendingOutboxIsClaimedOnce(t *testing.T) {
 		t.Fatalf("claimed %d outbox messages, want 2", total)
 	}
 }
+
+func TestListAssetsDefaultOrderUsesLastSeen(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	taskID := domain.MustID()
+	if err := st.CreateTask(ctx, &domain.Task{ID: taskID, Name: "assets", Kind: domain.TaskDomain, Target: "example.com", Status: domain.TaskQueued}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertAsset(ctx, domain.AssetDomain, "first.example.com", map[string]any{"domain": "first.example.com"}, taskID, ""); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	second, err := st.UpsertAsset(ctx, domain.AssetDomain, "second.example.com", map[string]any{"domain": "second.example.com"}, taskID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, total, err := st.ListAssets(ctx, "", "", "", PageQuery{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list assets with default sort: %v", err)
+	}
+	if total != 2 || len(items) != 2 || items[0].ID != second.ID {
+		t.Fatalf("assets total=%d items=%+v want newest asset first", total, items)
+	}
+}

@@ -180,6 +180,10 @@ func (s *Store) AddFinding(ctx context.Context, f *domain.Finding) (bool, error)
 }
 
 func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q PageQuery) ([]domain.Asset, int64, error) {
+	// Assets have first_seen/last_seen rather than the shared createdAt default.
+	if q.Sort == "" || q.Sort == "createdAt:desc" {
+		q.Sort = "lastSeen:desc"
+	}
 	q = q.Normalized()
 	db := active(s.db.WithContext(ctx)).Model(&domain.Asset{})
 	if kind != "" {
