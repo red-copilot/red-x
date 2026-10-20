@@ -1,8 +1,8 @@
 # Scanner differences
 
-ARL uses ProjectDiscovery Go SDKs in-process. The production image does not
-contain `subfinder`, `dnsx`, `naabu`, `tlsx`, `httpx`, `katana`, `nuclei`,
-`nmap`, `massdns`, or `wih` executables.
+ARL uses ProjectDiscovery Go SDKs in-process. The native production binary does
+not require or launch `subfinder`, `dnsx`, `naabu`, `tlsx`, `httpx`, `katana`,
+`nuclei`, `nmap`, `massdns`, or `wih` executables.
 
 ## Pinned engines
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -58,9 +59,33 @@ func TestSystemInfoIncludesScannerVersions(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFrontendIncludesBuiltAssets(t *testing.T) {
+	index, err := webui.Dist.ReadFile("dist/index.html")
+	if err != nil {
+		t.Fatalf("read embedded index: %v", err)
+	}
+	if !strings.Contains(string(index), `<div id="root"></div>`) {
+		t.Fatal("embedded index does not contain the React root")
+	}
+	assetRefs := regexp.MustCompile(`(?:src|href)="(/assets/[^"]+)"`).FindAllStringSubmatch(string(index), -1)
+	if len(assetRefs) == 0 {
+		t.Fatal("embedded index does not reference built assets")
+	}
+	for _, match := range assetRefs {
+		name := "dist" + match[1]
+		info, err := webui.Dist.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read embedded asset %s: %v", name, err)
+		}
+		if len(info) == 0 {
+			t.Fatalf("embedded asset %s is empty", name)
+		}
+	}
+}
+
 func TestServeSPADoesNotTreatAssetDirectoryAsFile(t *testing.T) {
 	if _, err := webui.Dist.ReadFile("dist/index.html"); err != nil {
-		t.Skip("embedded frontend build is not present")
+		t.Fatalf("embedded frontend build is not present: %v", err)
 	}
 	handler := (&Server{}).serveSPA()
 

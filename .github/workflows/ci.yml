@@ -56,16 +56,6 @@ jobs:
       - run: go vet ./...
       - run: CGO_ENABLED=0 go test ./...
       - run: CGO_ENABLED=1 go test -race ./...
-
-  image:
-    needs: [go, web]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker build -f deploy/Dockerfile -t arl:ci .
-      - run: |
-          docker run --rm --entrypoint sh arl:ci -c '
-            for t in subfinder dnsx naabu tlsx httpx katana nuclei nmap massdns python python3 celery flask phantomjs wih; do
-              if command -v "$t" >/dev/null 2>&1; then echo "forbidden executable: $t"; exit 1; fi
-            done
-          '
+      - run: CGO_ENABLED=0 go build -trimpath -o arl ./cmd/arl
+      - run: docker compose -f deploy/compose.yaml config >/dev/null
+      - run: NEO4J_PASSWORD=ci-only docker compose -f deploy/compose.yaml -f deploy/compose.easm.yaml config >/dev/null

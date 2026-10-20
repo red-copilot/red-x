@@ -1,5 +1,7 @@
 name: arl
 
+# Infrastructure only. Run the ARL binary natively via systemd; the console is
+# embedded in the binary. Ports bind to loopback for the host-native process.
 services:
   postgres:
     image: postgres:18-alpine
@@ -9,6 +11,8 @@ services:
       POSTGRES_USER: arl
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-arlpassword}"
       POSTGRES_DB: arl
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -34,6 +38,8 @@ services:
       - noeviction
       - --requirepass
       - "${REDIS_PASSWORD:-arlpassword}"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -43,76 +49,9 @@ services:
       retries: 20
     networks: [arl]
 
-  web:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-      args:
-        VERSION: "3.0.0"
-    image: arl:local
-    container_name: arl-web
-    restart: unless-stopped
-    command: ["web", "--config", "/etc/arl/config.yaml"]
-    environment:
-      ARL_POSTGRES_DSN: "host=postgres port=5432 user=arl password=${POSTGRES_PASSWORD:-arlpassword} dbname=arl sslmode=disable"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    ports:
-      - "5003:5003"
-    volumes:
-      - ./config.docker.yaml:/etc/arl/config.yaml:ro
-      - arl-data:/data
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/arl", "health", "--url", "http://127.0.0.1:5003/healthz"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-    networks: [arl]
-
-  worker:
-    image: arl:local
-    container_name: arl-worker
-    restart: unless-stopped
-    command: ["worker", "--config", "/etc/arl/config.yaml"]
-    environment:
-      ARL_POSTGRES_DSN: "host=postgres port=5432 user=arl password=${POSTGRES_PASSWORD:-arlpassword} dbname=arl sslmode=disable"
-    depends_on:
-      web:
-        condition: service_healthy
-    volumes:
-      - ./config.docker.yaml:/etc/arl/config.yaml:ro
-      - arl-data:/data
-    cap_add: [NET_RAW]
-    security_opt: ["no-new-privileges:true"]
-    networks: [arl]
-
-  scheduler:
-    image: arl:local
-    container_name: arl-scheduler
-    restart: unless-stopped
-    command: ["scheduler", "--config", "/etc/arl/config.yaml"]
-    environment:
-      ARL_POSTGRES_DSN: "host=postgres port=5432 user=arl password=${POSTGRES_PASSWORD:-arlpassword} dbname=arl sslmode=disable"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-    volumes:
-      - ./config.docker.yaml:/etc/arl/config.yaml:ro
-      - arl-data:/data
-    security_opt: ["no-new-privileges:true"]
-    networks: [arl]
-
 volumes:
   postgres-data:
   redis-data:
-  arl-data:
 
 networks:
   arl:

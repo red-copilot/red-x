@@ -13,24 +13,31 @@ DATA_DIR="${DATA_DIR:-/var/lib/arl}"
 
 id arl >/dev/null 2>&1 || useradd --system --home-dir "${PREFIX}" --shell /usr/sbin/nologin arl
 
-install -d -m 0755 "${PREFIX}" "${PREFIX}/assets" "${CONFIG_DIR}" "${DATA_DIR}"
+install -d -m 0755 "${PREFIX}" "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets" "${CONFIG_DIR}" "${DATA_DIR}"
 install -m 0755 "${ROOT}/arl" "${PREFIX}/arl"
 cp -a "${ROOT}/assets/." "${PREFIX}/assets/"
 if [[ ! -f "${CONFIG_DIR}/config.yaml" ]]; then
   install -m 0640 -o root -g arl "${ROOT}/config.example.yaml" "${CONFIG_DIR}/config.yaml"
   echo "created ${CONFIG_DIR}/config.yaml; edit secrets before starting"
 fi
+if [[ ! -f "${CONFIG_DIR}/arl.env" ]]; then
+  install -m 0640 -o root -g arl "${ROOT}/deploy/arl.env.example" "${CONFIG_DIR}/arl.env"
+  echo "created ${CONFIG_DIR}/arl.env; add environment overrides as needed"
+fi
 chown -R arl:arl "${DATA_DIR}"
-chown -R root:arl "${PREFIX}/assets"
-find "${PREFIX}/assets" -type d -exec chmod 0750 {} +
-find "${PREFIX}/assets" -type f -exec chmod 0640 {} +
+chown -R root:arl "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets"
+find "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets" -type d -exec chmod 0750 {} +
+find "${PREFIX}/assets" "${PREFIX}/geoip" "${PREFIX}/secrets" -type f -exec chmod 0640 {} +
 
-install -m 0644 "${ROOT}/deploy/systemd/arl-web.service" /etc/systemd/system/arl-web.service
-install -m 0644 "${ROOT}/deploy/systemd/arl-worker.service" /etc/systemd/system/arl-worker.service
-install -m 0644 "${ROOT}/deploy/systemd/arl-scheduler.service" /etc/systemd/system/arl-scheduler.service
+# Upgrade path: the old split-role units must not compete with arl.service.
+for unit in arl-web arl-worker arl-scheduler; do
+  systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
+  rm -f "/etc/systemd/system/${unit}.service"
+done
+install -m 0644 "${ROOT}/deploy/systemd/arl.service" /etc/systemd/system/arl.service
 systemctl daemon-reload
 
 echo "installed ARL to ${PREFIX}"
-echo "1. edit ${CONFIG_DIR}/config.yaml"
+echo "1. edit ${CONFIG_DIR}/config.yaml and ${CONFIG_DIR}/arl.env"
 echo "2. run: ${PREFIX}/arl migrate --config ${CONFIG_DIR}/config.yaml"
-echo "3. systemctl enable --now arl-web arl-worker arl-scheduler"
+echo "3. run: systemctl enable --now arl"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,7 @@ import (
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/platform/logx"
 	"github.com/red-copilot/red-x/internal/platform/pdtools"
+	"golang.org/x/sync/errgroup"
 )
 
 var version = "3.0.0"
@@ -36,13 +38,17 @@ func main() {
 	args := os.Args[2:]
 	switch cmd {
 	case "web":
-		runWeb(args)
+		if err := runWeb(args); err != nil {
+			fatal(err)
+		}
 	case "worker":
 		runWorker(args)
 	case "scheduler":
 		runScheduler(args)
 	case "all", "dev":
-		runAll(args)
+		if err := runAll(args); err != nil {
+			fatal(err)
+		}
 	case "migrate":
 		runMigrate(args)
 	case "doctor":
@@ -63,13 +69,18 @@ func main() {
 	}
 }
 
+func fatal(err error) {
+	fmt.Fprintln(os.Stderr, "arl:", err)
+	os.Exit(1)
+}
+
 func usage() {
 	fmt.Println(`ARL modular monolith
 Usage:
   arl web       [--config config.yaml]
   arl worker    [--config config.yaml] [--queues q.web.fetch,q.web.scan]
   arl scheduler [--config config.yaml]
-  arl all       [--config config.yaml]   # development: web+worker+scheduler
+  arl all       [--config config.yaml]   # single-node: web+worker+scheduler
   arl migrate   [--config config.yaml]
   arl doctor    [--config config.yaml]
   arl health    [--url http://127.0.0.1:5003/readyz]
@@ -104,7 +115,7 @@ func build(args []string) (*app.App, config.Config, context.Context, context.Can
 	return a, cfg, ctx, cancel
 }
 
-func runWeb(args []string) {
+func runWeb(args []string) error {
 	a, cfg, ctx, cancel := build(args)
 	defer cancel()
 	defer a.Close(context.Background())
@@ -112,30 +123,63 @@ func runWeb(args []string) {
 		a.Log.Error("bootstrap admin failed", "error", err)
 	}
 	a.Server.EASM = newEASMService(a)
-	srv := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           a.Server.Router(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      0,
-		IdleTimeout:       90 * time.Second,
-	}
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, c := context.WithTimeout(context.Background(), 15*time.Second)
-		defer c()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
 	a.Log.Info("web listening", "address", cfg.Server.Listen)
+	return serveHTTP(ctx, cfg, a.Log, a.Server.Router())
+}
+
+func serveHTTP(ctx context.Context, cfg config.Config, log *slog.Logger, handler http.Handler) error {
+	srv := newHTTPServer(cfg, handler)
+	stopped := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(shutdownCtx)
+		case <-stopped:
+		}
+	}()
+	defer close(stopped)
+
 	var err error
 	if cfg.Server.TLSCert != "" && cfg.Server.TLSKey != "" {
 		err = srv.ListenAndServeTLS(cfg.Server.TLSCert, cfg.Server.TLSKey)
 	} else {
 		err = srv.ListenAndServe()
 	}
-	if err != nil && err != http.ErrServerClosed {
-		a.Log.Error("web server stopped", "error", err)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
 	}
+	if err != nil {
+		log.Error("http server stopped", "error", err)
+	}
+	return err
+}
+
+func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              cfg.Server.Listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       90 * time.Second,
+	}
+}
+
+func runComponents(ctx context.Context, components ...func(context.Context) error) error {
+	group, groupCtx := errgroup.WithContext(ctx)
+	for _, component := range components {
+		component := component
+		group.Go(func() error {
+			return component(groupCtx)
+		})
+	}
+	err := group.Wait()
+	if ctx.Err() != nil && (err == nil || errors.Is(err, context.Canceled)) {
+		return nil
+	}
+	return err
 }
 
 func runWorker(args []string) {
@@ -191,12 +235,15 @@ func runScheduler(args []string) {
 	a.Scheduler.Run(ctx)
 }
 
-func runAll(args []string) {
+func runAll(args []string) error {
 	a, cfg, ctx, cancel := build(args)
 	defer cancel()
 	defer a.Close(context.Background())
 	if err := a.Identity.BootstrapAdmin(ctx); err != nil {
 		a.Log.Error("bootstrap admin failed", "error", err)
+	}
+	if cfg.Queue.Driver == "memory" {
+		a.Log.Warn("single-node mode uses the in-memory queue; pending jobs will be lost on restart")
 	}
 	go a.Engine.OutboxRelay(ctx)
 	stopProjector := startProjector(ctx, a, a.Log)
@@ -206,31 +253,27 @@ func runAll(args []string) {
 	icpSvc := newEASMService(a)
 	a.Server.EASM = icpSvc
 	go a.Scheduler.Run(ctx)
-	go func() {
-		err := a.Queue.Consume(ctx, jobs.QueueNames, 2, func(ctx context.Context, d jobs.Delivery) error {
-			if d.Queue == "q.github" {
-				return nil
+	a.Log.Info("single-node server listening", "address", cfg.Server.Listen, "queue", cfg.Queue.Driver)
+	return runComponents(ctx,
+		func(ctx context.Context) error {
+			err := a.Queue.Consume(ctx, jobs.QueueNames, 2, func(ctx context.Context, d jobs.Delivery) error {
+				if d.Queue == "q.github" {
+					return nil
+				}
+				if d.Queue == "q.icp" {
+					return icpSvc.HandleICPJob(ctx, d)
+				}
+				return a.Engine.HandleDelivery(ctx, d)
+			})
+			if err == nil && ctx.Err() == nil {
+				return errors.New("worker stopped unexpectedly")
 			}
-			if d.Queue == "q.icp" {
-				return icpSvc.HandleICPJob(ctx, d)
-			}
-			return a.Engine.HandleDelivery(ctx, d)
-		})
-		if err != nil && ctx.Err() == nil {
-			a.Log.Error("worker stopped", "error", err)
-		}
-	}()
-	srv := &http.Server{Addr: cfg.Server.Listen, Handler: a.Server.Router(), ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, c := context.WithTimeout(context.Background(), 15*time.Second)
-		defer c()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-	a.Log.Info("development all-in-one listening", "address", cfg.Server.Listen, "queue", cfg.Queue.Driver)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		a.Log.Error("server stopped", "error", err)
-	}
+			return err
+		},
+		func(ctx context.Context) error {
+			return serveHTTP(ctx, cfg, a.Log, a.Server.Router())
+		},
+	)
 }
 
 func runMigrate(args []string) {

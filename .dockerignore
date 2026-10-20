@@ -1,5 +1,0 @@
-.git
-*.log
-data
-web/node_modules
-internal/webui/dist/assets

@@ -1,6 +1,0 @@
-FROM arl:local
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium \
-    && rm -rf /var/lib/apt/lists/*
-USER 10001:10001

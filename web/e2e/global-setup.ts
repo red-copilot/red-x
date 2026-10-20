@@ -10,7 +10,7 @@ export default async function globalSetup() {
     }
   } catch (error) {
     throw new Error(
-      `Cannot reach ARL at ${baseURL}. Start the stack (for example: docker compose -f deploy/compose.yaml up -d) or set E2E_BASE_URL. Cause: ${String(error)}`,
+      `Cannot reach ARL at ${baseURL}. Start infrastructure with "make infra-up" and run "./arl all --config config.yaml", or set E2E_BASE_URL. Cause: ${String(error)}`,
     )
   } finally {
     await context.dispose()

@@ -125,10 +125,6 @@ node_modules
 
 *.zip
 
-docker/image/
-docker/arl_web.log
-docker/arl_worker.log
-
 # Playwright
 web/test-results/
 web/playwright-report/

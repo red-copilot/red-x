@@ -4,7 +4,7 @@
 
 ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资产侦察平台。它以组织为主线，把域名归属、资产、风险、任务和报告串成一条可追溯的链路；除可选的 Chromium 截图外，所有扫描引擎都在 Go 进程内运行，不需要安装 nmap、massdns 或 ProjectDiscovery CLI。
 
-当前版本是 3.0：一个 Go 二进制提供 `web`、`worker`、`scheduler` 三种角色，React 控制台构建后直接嵌入二进制，PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务。
+当前版本是 3.0：一个 Go 二进制默认以 `all` 单节点角色运行，React 控制台构建后直接嵌入二进制；PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务。`web`、`worker`、`scheduler` 仍可用于拆分扩容。
 
 > **仅用于已获得明确授权的资产、域名、IP 和站点测试。** 使用前请阅读 [Disclaimer.md](Disclaimer.md)。
 
@@ -41,7 +41,7 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 - React 19 + TypeScript + Vite 控制台：TanStack Query/Table、Radix UI、Tailwind CSS、ECharts。
 - OpenAPI 3.1 文档、RFC 7807 错误响应、SSE 任务事件、Prometheus 指标。
 - `viewer` / `operator` / `admin` 三级 RBAC、API Key、CSRF、审计日志与结构化日志。
-- Docker Compose、systemd、单二进制部署；`worker` 可水平扩展，`scheduler` 通过 PostgreSQL 租约选主。
+- 单个 Go 二进制（扫描资产外置）+ systemd 原生部署；Docker 仅用于 PostgreSQL、Redis 和可选 EASM 基础服务。`worker` 可水平扩展，`scheduler` 通过 PostgreSQL 租约选主。
 
 ## 架构
 
@@ -66,7 +66,7 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 - **web**：无状态，除 PostgreSQL 外不保存会话；提供控制台、API、SSE、健康检查和指标。
 - **worker**：消费 Redis Streams，执行单个任务步骤；可并发运行多个实例。
 - **scheduler**：通过 PostgreSQL 租约保证同一时间只有一个实例派发定时任务。
-- **all / dev**：本地开发模式，在一个进程里运行三种角色，可配合内存队列。
+- **all / dev**：默认单节点模式，在一个进程里运行三种角色；生产配合 Redis，本地可临时使用内存队列。
 
 更完整的设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧版功能对照见 [docs/PARITY.md](docs/PARITY.md)。
 
@@ -76,50 +76,52 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| Go | 1.27+ | 构建后端 |
-| Node.js | 22.12+ | 仅构建前端 |
+| Go | 1.27+ | 构建后端和单二进制 |
+| Node.js | 22.12+ | 仅构建前端，构建后打入 `arl` |
 | PostgreSQL | 18+ | 业务数据、任务租约与 outbox |
-| Redis | 7.0+ | 多进程/生产队列；本地单进程可用内存队列 |
-| Chromium | 可选 | 站点截图 |
+| Redis | 7.0+ | 持久化任务队列；生产默认使用 Redis |
+| Chromium | 可选 | 宿主安装后可启用站点截图 |
+| Docker + Compose | 可选 | 仅用于 PostgreSQL、Redis 和可选 EASM 基础服务 |
 
-### 方式一：Docker Compose
+### 方式一：基础设施容器 + 原生 ARL（推荐）
 
-先修改 `deploy/config.docker.yaml`，至少替换 `auth.accessSecret`、`auth.apiKeyPepper`、`bootstrapPassword`，并通过 `POSTGRES_PASSWORD` / `REDIS_PASSWORD` 设置基础设施密码。示例配置中的默认密码**只能用于本地试用**。
-
-```bash
-# 自定义 Redis/PostgreSQL 密码时，Compose 会同步注入连接串
-export REDIS_PASSWORD='<strong-redis-password>'
-export POSTGRES_PASSWORD='<strong-postgres-password>'
-
-docker compose -f deploy/compose.yaml up -d --build
-
-# 注册 PoC 插件元数据（可选）
-docker compose -f deploy/compose.yaml exec web arl migrate --config /etc/arl/config.yaml
-```
-
-访问 <http://localhost:5003>。默认用户名为 `admin`，密码为 `bootstrapPassword` 的值；若留空，一次性密码会打印在日志中，首次登录后必须修改。
-
-生产部署请启用 TLS（配置 `server.tlsCert` / `server.tlsKey`，或在前置反向代理终止 TLS），并保持 `auth.cookieSecure: true`。
-
-### 方式二：从源码运行
+React 控制台由 Vite 构建到 `internal/webui/dist`，随后通过 `go:embed` 进入 `arl` 二进制。运行时不启动前端容器，也不需要 Node.js。
 
 ```bash
+# 1. 构建单二进制（同时构建并嵌入前端）
 make build
 
+# 2. 准备应用配置；本地 HTTP 调试关闭 Secure Cookie
 cp config.example.yaml config.yaml
 export ARL_AUTH_ACCESS_SECRET="$(openssl rand -base64 48)"
 export ARL_API_KEY_PEPPER="$(openssl rand -base64 32)"
 export ARL_ADMIN_PASSWORD='<initial-admin-password>'
-
-# 本地单进程开发：内存队列 + 允许 HTTP 访问
-export ARL_QUEUE_DRIVER=memory
 export ARL_COOKIE_SECURE=false
 
+# 3. 仅在本地容器中运行 PostgreSQL 与 Redis，端口只绑定 127.0.0.1
+make infra-up
+
+# 4. 初始化并启动单节点服务
 ./arl migrate --config config.yaml
 ./arl all --config config.yaml
 ```
 
-PostgreSQL 需要先运行；启动角色会在 advisory lock 保护下执行幂等 AutoMigrate。生产环境建议拆分为三个角色：
+访问 <http://localhost:5003>。`config.example.yaml` 中的数据库密码只用于本地试用；生产环境应通过 `ARL_POSTGRES_DSN`、`ARL_REDIS_URL` 和密钥管理系统覆盖，并启用 TLS（配置 `server.tlsCert` / `server.tlsKey`，或在前置反向代理终止 TLS）。
+
+### 方式二：systemd 安装
+
+```bash
+make build
+sudo ./deploy/install.sh
+
+sudoedit /etc/arl/config.yaml /etc/arl/arl.env
+sudo /opt/arl/arl migrate --config /etc/arl/config.yaml
+sudo systemctl enable --now arl
+```
+
+安装脚本把二进制和外部扫描资产放到 `/opt/arl`，配置与 `arl.env` 放到 `/etc/arl`，运行数据放到 `/var/lib/arl`。旧的 `arl-web`、`arl-worker`、`arl-scheduler` 单元会被停用并移除；默认只保留一个 `arl.service`。基础设施仍可用 `make infra-up` 启动，或改用宿主原生 PostgreSQL/Redis。
+
+需要多进程水平扩展时，可手工拆分角色；这些命令仍保留，但不再由默认安装脚本启动：
 
 ```bash
 ./arl web --config config.yaml
@@ -129,16 +131,16 @@ PostgreSQL 需要先运行；启动角色会在 advisory lock 保护下执行幂
 
 ### 可选 EASM 组件
 
-需要关系图、ICP 归属证据或地图时，叠加 `deploy/compose.easm.yaml`，并准备 Neo4j、GeoIP MMDB 与授权使用的 ICP cookie：
+需要关系图、ICP 归属证据或地图时，Docker 仍只承载可选基础设施。ARL 继续以原生进程运行，并通过回环地址访问这些服务：
 
 ```bash
 cp deploy/.env.easm.example deploy/.env.easm
 mkdir -p deploy/secrets deploy/geoip
 docker compose --env-file deploy/.env.easm \
-  -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --build
+  -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --wait
 ```
 
-详细步骤与降级行为见 [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md)。
+启动 ARL 前执行 `set -a; source deploy/.env.easm; set +a`，再补充宿主上的 GeoIP/Chinaz cookie 路径。详细步骤与降级行为见 [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md)。
 
 ## 配置
 
@@ -170,7 +172,7 @@ docker compose --env-file deploy/.env.easm \
 
 生产环境的 `postgres.dsn` 应启用 TLS（如 `sslmode=require` 或 `verify-full`），并通过密钥管理系统注入密码。
 
-**不要提交真实密钥。** `deploy/config.docker.yaml` 中的默认值只用于本地演示，部署前必须替换。
+**不要提交真实密钥。** `config.example.yaml` 只作为模板；systemd 部署应把敏感覆盖项写入权限为 `0640` 的 `/etc/arl/arl.env` 或外部密钥管理系统。
 
 ## 命令行
 
@@ -179,10 +181,10 @@ docker compose --env-file deploy/.env.easm \
 | `arl web` | API、SSE、OpenAPI 与嵌入式控制台 |
 | `arl worker` | 消费 Redis Streams 任务，可加 `--queues` 限定队列 |
 | `arl scheduler` | 监控器与计划任务调度（PostgreSQL 租约选主） |
-| `arl all` / `arl dev` | 开发模式，同时运行 web、worker、scheduler |
+| `arl all` / `arl dev` | 单节点生产模式，同时运行 web、worker、scheduler；本地可改用内存队列 |
 | `arl migrate` | 执行 PostgreSQL AutoMigrate、写入默认策略并同步 PoC 插件元数据 |
 | `arl doctor` | 检查配置、依赖、队列、资源与 DNS |
-| `arl health` | 容器健康检查，例如 `--url http://127.0.0.1:5003/healthz` |
+| `arl health` | 进程健康检查，例如 `--url http://127.0.0.1:5003/healthz` |
 | `arl admin create-user` | 创建用户，可指定 `--role viewer/operator/admin` |
 | `arl admin reset-password` | 重置密码 |
 | `arl poc sync` | 将插件元数据同步到 PostgreSQL |
@@ -192,7 +194,7 @@ docker compose --env-file deploy/.env.easm \
 ### 部署与运维
 
 - PostgreSQL 迁移从空库开始：旧版 MongoDB 数据不会自动导入；启用 Neo4j 时升级后执行一次 `./arl graph rebuild`。
-- systemd：`sudo ./deploy/install.sh` 安装到 `/opt/arl`，配置到 `/etc/arl`，数据目录为 `/var/lib/arl`。
+- systemd：`sudo ./deploy/install.sh` 安装单节点 `arl.service`、二进制和外部资产；配置与环境文件分别位于 `/etc/arl/config.yaml`、`/etc/arl/arl.env`，数据目录为 `/var/lib/arl`。
 - Redis 切换/升级前运行 `./scripts/redis-preflight.sh --config config.yaml`，检查连通性、版本、AOF、内存策略、队列深度并执行 `arl doctor`；迁移切换可加 `--require-empty`。
 - EASM 在线冒烟使用 `./scripts/easm-live-smoke.sh`；默认只做只读检查，设置 `EASM_LIVE_SCAN=1` 才会发起有界扫描。
 
@@ -242,7 +244,7 @@ npm run test:visual  # Playwright 视觉回归
 npm run generate:api # 根据 internal/httpapi/openapi.json 生成类型
 ```
 
-CI 会构建前端、运行 Go 测试（含 race）、构建镜像，并检查镜像内不存在 `nmap`、`massdns`、`nuclei`、`python` 等外部扫描器/运行时。
+CI 会构建前端产物、运行 Go 测试（含 race）、构建原生 `arl` 二进制，并校验基础及 EASM Compose 配置。
 
 ## 目录结构
 
@@ -257,7 +259,7 @@ internal/platform      config、日志、队列、netsafe、通知、ProjectDisc
 internal/webui         嵌入式控制台构建产物
 web/                   React + TypeScript + Vite 源码、Vitest、Playwright
 assets/                字典、指纹、WIH 规则与 nuclei 模板
-deploy/                Docker、Compose、systemd、安装脚本
+deploy/                基础设施 Compose、systemd 单元、环境模板与安装脚本
 docs/                  架构、功能对照、扫描器差异、EASM 运维
 scripts/               Redis 预检、EASM 在线冒烟
 ```

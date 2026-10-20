@@ -36,43 +36,5 @@ services:
       retries: 20
     networks: [arl]
 
-  web:
-    environment:
-      ARL_NEO4J_URI: bolt://neo4j:7687
-      ARL_NEO4J_USER: neo4j
-      ARL_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in deploy/.env.easm}
-      ARL_NEO4J_DATABASE: neo4j
-      ARL_ICP_ICPQUERY_BASE_URL: http://icp-query:16181
-      ARL_ICP_CHINAZ_COOKIE_FILE: ${CHINAZ_COOKIE_FILE:-}
-      ARL_GEOIP_CITY: ${GEOIP_CITY_DB:-/data/geoip/dbip-city-lite.mmdb}
-      ARL_GEOIP_ASN: ${GEOIP_ASN_DB:-/data/geoip/dbip-asn-lite.mmdb}
-    volumes:
-      - ./secrets:/run/secrets:ro
-      - ./geoip:/data/geoip:ro
-    depends_on:
-      neo4j:
-        condition: service_healthy
-      icp-query:
-        condition: service_healthy
-
-  worker:
-    environment:
-      ARL_NEO4J_URI: bolt://neo4j:7687
-      ARL_NEO4J_USER: neo4j
-      ARL_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in deploy/.env.easm}
-      ARL_NEO4J_DATABASE: neo4j
-      ARL_ICP_ICPQUERY_BASE_URL: http://icp-query:16181
-      ARL_ICP_CHINAZ_COOKIE_FILE: ${CHINAZ_COOKIE_FILE:-}
-      ARL_GEOIP_CITY: ${GEOIP_CITY_DB:-/data/geoip/dbip-city-lite.mmdb}
-      ARL_GEOIP_ASN: ${GEOIP_ASN_DB:-/data/geoip/dbip-asn-lite.mmdb}
-    volumes:
-      - ./secrets:/run/secrets:ro
-      - ./geoip:/data/geoip:ro
-    depends_on:
-      neo4j:
-        condition: service_healthy
-      icp-query:
-        condition: service_healthy
-
 volumes:
   neo4j-data:

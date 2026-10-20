@@ -12,7 +12,7 @@ postgres:
   connMaxLifetime: "30m"
 
 redis:
-  url: "redis://127.0.0.1:6379/0"
+  url: "redis://:arlpassword@127.0.0.1:6379/0"
 
 queue:
   # redis for multi-process deployments; memory is intended for `arl all` development mode.

@@ -1,4 +1,4 @@
-.PHONY: build frontend test test-postgres race vet lint verify compose-build compose-up clean
+.PHONY: build frontend test test-postgres race vet lint verify infra-up infra-down infra-config clean
 
 VERSION ?= 3.0.0
 
@@ -8,7 +8,7 @@ frontend:
 build: frontend
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o arl ./cmd/arl
 
-test:
+test: frontend
 	go test ./...
 	cd web && npm run typecheck && npm test
 
@@ -16,28 +16,31 @@ test-postgres:
 	@test -n "$$ARL_TEST_POSTGRES_DSN" || (echo "set ARL_TEST_POSTGRES_DSN (PostgreSQL 18+)" >&2; exit 1)
 	go test ./internal/store ./internal/modules/tasking
 
-race:
+race: frontend
 	go test -race ./...
 
-vet:
+vet: frontend
 	go vet ./...
 
-verify:
+verify: frontend
 	go mod verify
 	go vet ./...
 	go test ./...
-	cd web && npm run lint && npm run typecheck && npm test && npm run build
+	cd web && npm run lint && npm run typecheck && npm test
 
-lint:
+lint: frontend
 	test -z "$$(gofmt -l cmd internal)"
 	go vet ./...
 	cd web && npm run lint && npm run typecheck
 
-compose-build:
-	docker compose -f deploy/compose.yaml build
+infra-up:
+	docker compose -f deploy/compose.yaml up -d --wait
 
-compose-up:
-	docker compose -f deploy/compose.yaml up -d
+infra-down:
+	docker compose -f deploy/compose.yaml down
+
+infra-config:
+	docker compose -f deploy/compose.yaml config >/dev/null
 
 clean:
 	go clean ./...

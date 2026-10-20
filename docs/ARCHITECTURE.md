@@ -2,13 +2,21 @@
 
 ## Runtime roles
 
-The `arl` binary has three production roles:
+The default deployment is one native `arl all` process backed by PostgreSQL and
+Redis. It serves the embedded SPA and API, consumes Redis Streams, runs the
+scheduler, and relays the PostgreSQL outbox. If any worker or HTTP component
+fails, the process exits non-zero so systemd can restart it.
+
+The same binary retains three split roles for advanced deployments:
 
 1. `web`: serves the embedded SPA, `/api/v1`, OpenAPI, SSE and metrics. It is stateless apart from PostgreSQL.
 2. `worker`: consumes Redis Streams and executes task steps. Multiple workers can run concurrently.
 3. `scheduler`: wins a PostgreSQL lease and enqueues due monitors/schedules. Only one scheduler is active at a time.
 
-`arl all` is a development convenience that runs all three roles with the in-memory queue.
+Docker is optional and carries infrastructure only: PostgreSQL and Redis by
+default, plus Neo4j and ICP_Query when the EASM overlay is enabled. The old
+application image and multi-container web/worker/scheduler deployment are not
+part of the runtime topology.
 
 ## Module boundaries
 
@@ -31,6 +39,9 @@ helpers. Repository access is centralized in `internal/store`.
 
 The embedded console lives in `web/` and is built with React, TypeScript, Vite,
 Tailwind CSS, Radix/shadcn-style primitives, TanStack Query/Table and ECharts.
+`make build` writes the Vite output to `internal/webui/dist` before compiling Go,
+and `go:embed` places those files in the `arl` binary. Node.js is build-time
+only; the runtime serves `/`, hashed assets and SPA fallback directly from Go.
 The checked-in OpenAPI document is the source for generated TypeScript types.
 Shareable list filters and map/graph selection live in the URL; server state is
 cached by TanStack Query. The console is organization-centric and exposes
@@ -103,8 +114,9 @@ and `arl graph rebuild` after storage migrations that change projection identifi
 
 ICP attribution uses the Chinaz domain page plus its signed permit endpoint for
 domain → organization. Organization → filed domains uses the external
-ICP_Query sidecar (`icp.icpQuery.baseURL`). Provider credentials come from
-environment variables or read-only files and are never persisted.
+ICP_Query sidecar (`icp.icpQuery.baseURL`). Optional EASM services are reached
+through loopback ports when run with the infrastructure Compose overlay. Provider
+credentials come from environment variables or read-only files and are never persisted.
 
 ## Queue topology
 

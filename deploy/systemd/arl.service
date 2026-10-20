@@ -1,6 +1,6 @@
 [Unit]
-Description=ARL scheduler
-After=network-online.target arl-web.service
+Description=ARL single-node server
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -8,15 +8,21 @@ Type=simple
 User=arl
 Group=arl
 WorkingDirectory=/opt/arl
+EnvironmentFile=-/etc/arl/arl.env
 Environment=ARL_STORAGE_DATA_DIR=/var/lib/arl
 Environment=ARL_STORAGE_SCREENSHOTS_DIR=/var/lib/arl/screenshots
 Environment=ARL_STORAGE_EXPORTS_DIR=/var/lib/arl/exports
 Environment=ARL_STORAGE_ASSETS_DIR=/opt/arl/assets
-ExecStart=/opt/arl/arl scheduler --config /etc/arl/config.yaml
+ExecStart=/opt/arl/arl all --config /etc/arl/config.yaml
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
 LimitNOFILE=65536
+UMask=0027
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
+PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/arl

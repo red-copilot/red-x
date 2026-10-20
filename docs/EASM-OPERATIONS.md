@@ -16,13 +16,25 @@ Manual and CSV domain imports create `candidate` rows. They do not appear in the
 ```bash
 cp deploy/.env.easm.example deploy/.env.easm
 mkdir -p deploy/secrets deploy/geoip
-# Place an authorized Chinaz cookie at deploy/secrets/chinaz.cookie
-# Then set CHINAZ_COOKIE_FILE=/run/secrets/chinaz.cookie in deploy/.env.easm
-# Place MaxMind-compatible City and ASN MMDB files in deploy/geoip/ (GeoLite2 or DB-IP Lite work)
-docker compose --env-file deploy/.env.easm -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --build
+# Place an authorized Chinaz cookie at deploy/secrets/chinaz.cookie with mode 0600.
+# Place MaxMind-compatible City and ASN MMDB files in deploy/geoip/ (GeoLite2 or DB-IP Lite work).
+
+# Docker runs infrastructure only; ARL itself remains a native process.
+docker compose --env-file deploy/.env.easm \
+  -f deploy/compose.yaml -f deploy/compose.easm.yaml up -d --wait
+
+# Load the same loopback endpoints and credentials for the native process.
+set -a
+source deploy/.env.easm
+set +a
+export ARL_ICP_CHINAZ_COOKIE_FILE="$PWD/deploy/secrets/chinaz.cookie"
+export ARL_GEOIP_CITY="$PWD/deploy/geoip/dbip-city-lite.mmdb"
+export ARL_GEOIP_ASN="$PWD/deploy/geoip/dbip-asn-lite.mmdb"
+
+./arl all --config config.yaml
 ```
 
-The overlay pins Neo4j and ICP_Query images. ICP_Query is an external Python sidecar; ARL itself does not depend on Python. Do not expose its port outside the local host.
+The overlay pins Neo4j and ICP_Query images. ICP_Query is an external Python sidecar; ARL itself does not depend on Python. All exposed ports bind to `127.0.0.1`; do not expose them outside the local host.
 
 ## Live smoke
 
