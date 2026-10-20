@@ -85,7 +85,7 @@ func (s *Store) AddFinding(ctx context.Context, f *domain.Finding) (bool, error)
 
 func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q PageQuery) ([]domain.Asset, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Asset{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Asset{})
 	if kind != "" {
 		db = db.Where("kind = ?", kind)
 	}
@@ -110,8 +110,11 @@ func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q 
 
 func (s *Store) assetIDsForTask(ctx context.Context, taskID string) ([]string, error) {
 	var ids []string
-	err := s.db.WithContext(ctx).Model(&domain.AssetObservation{}).
-		Where("task_id = ?", taskID).Distinct("asset_id").Pluck("asset_id", &ids).Error
+	err := s.db.WithContext(ctx).Table("asset_observations").
+		Select("DISTINCT asset_observations.asset_id").
+		Joins("JOIN assets ON assets.id = asset_observations.asset_id").
+		Where("asset_observations.task_id = ? AND assets.deleted_at IS NULL", taskID).
+		Pluck("asset_observations.asset_id", &ids).Error
 	return ids, err
 }
 
@@ -224,7 +227,7 @@ func (s *Store) CreateScope(ctx context.Context, sc *domain.Scope) error {
 
 func (s *Store) GetScope(ctx context.Context, id string) (*domain.Scope, error) {
 	var sc domain.Scope
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&sc).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&sc).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -236,7 +239,7 @@ func (s *Store) GetScope(ctx context.Context, id string) (*domain.Scope, error) 
 
 func (s *Store) ListScopes(ctx context.Context, q PageQuery) ([]domain.Scope, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Scope{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Scope{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -339,7 +342,7 @@ func (s *Store) SearchHistoryDomains(ctx context.Context, base string, limit int
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(strings.TrimSpace(base)))
 	var out []string
-	err := s.db.WithContext(ctx).Model(&domain.Asset{}).
+	err := active(s.db.WithContext(ctx)).Model(&domain.Asset{}).
 		Where(`kind = ? AND key ILIKE ? ESCAPE '\'`, domain.AssetDomain, pattern).
 		Order("key ASC").Limit(limit).Pluck("key", &out).Error
 	return out, err
@@ -350,7 +353,7 @@ func (s *Store) CountAssets(ctx context.Context) (map[string]int64, error) {
 		Kind  string
 		Count int64
 	}
-	if err := s.db.WithContext(ctx).Model(&domain.Asset{}).Select("kind, count(*) AS count").Group("kind").Scan(&rows).Error; err != nil {
+	if err := active(s.db.WithContext(ctx)).Model(&domain.Asset{}).Select("kind, count(*) AS count").Group("kind").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[string]int64{}
@@ -361,11 +364,12 @@ func (s *Store) CountAssets(ctx context.Context) (map[string]int64, error) {
 }
 
 type FingerprintRule struct {
-	ID        string    `gorm:"primaryKey;size:24" json:"id"`
-	Name      string    `json:"name"`
-	Rule      string    `json:"rule"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string           `gorm:"primaryKey;size:24" json:"id"`
+	Name      string           `json:"name"`
+	Rule      string           `json:"rule"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
+	Lifecycle domain.Lifecycle `gorm:"embedded"`
 }
 
 func (FingerprintRule) TableName() string { return "fingerprints" }
@@ -385,7 +389,7 @@ func (s *Store) CreateFingerprint(ctx context.Context, r *FingerprintRule) error
 
 func (s *Store) ListFingerprints(ctx context.Context) ([]FingerprintRule, error) {
 	var out []FingerprintRule
-	err := s.db.WithContext(ctx).Order("name ASC").Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Order("name ASC").Find(&out).Error
 	return out, err
 }
 

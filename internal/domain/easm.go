@@ -93,6 +93,7 @@ type Organization struct {
 	CreatedAt     time.Time         `json:"createdAt"`
 	UpdatedAt     time.Time         `json:"updatedAt"`
 	SchemaVersion int               `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 func (o *Organization) Validate() error {
@@ -131,6 +132,7 @@ type OrganizationDomain struct {
 	LastSeen       time.Time    `json:"lastSeen"`
 	UpdatedAt      time.Time    `json:"updatedAt"`
 	SchemaVersion  int          `json:"schemaVersion"`
+	Lifecycle      `gorm:"embedded"`
 }
 
 func (d *OrganizationDomain) Validate() error {

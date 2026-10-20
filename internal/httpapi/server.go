@@ -81,6 +81,8 @@ func (s *Server) Router() http.Handler {
 			protected.Get("/overview", s.handleOverview)
 			protected.Get("/search", s.handleSearch)
 			protected.Get("/audit-events", s.handleAudit)
+			protected.Get("/recycle-bin", s.requireRole(domain.RoleAdmin, s.handleListRecycleBin))
+			protected.Post("/recycle-bin/{type}/{id}/restore", s.requireRole(domain.RoleAdmin, s.handleRestoreRecycleBin))
 
 			protected.Get("/users", s.requireRole(domain.RoleAdmin, s.handleListUsers))
 			protected.Post("/users", s.requireRole(domain.RoleAdmin, s.handleCreateUser))

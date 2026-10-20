@@ -22,7 +22,7 @@ func (s *Store) CreateMonitor(ctx context.Context, m *domain.Monitor) error {
 
 func (s *Store) GetMonitor(ctx context.Context, id string) (*domain.Monitor, error) {
 	var m domain.Monitor
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&m).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&m).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -34,7 +34,7 @@ func (s *Store) GetMonitor(ctx context.Context, id string) (*domain.Monitor, err
 
 func (s *Store) ListMonitors(ctx context.Context, q PageQuery) ([]domain.Monitor, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Monitor{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Monitor{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -61,7 +61,7 @@ func (s *Store) DueMonitors(ctx context.Context, now time.Time, limit int) ([]do
 		limit = 20
 	}
 	var out []domain.Monitor
-	err := s.db.WithContext(ctx).Where("status = ? AND next_run_at <= ?", "active", now).
+	err := active(s.db.WithContext(ctx)).Where("status = ? AND next_run_at <= ?", "active", now).
 		Order("next_run_at ASC, id ASC").Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -81,7 +81,7 @@ func (s *Store) CreateSchedule(ctx context.Context, sc *domain.Schedule) error {
 
 func (s *Store) ListSchedules(ctx context.Context, q PageQuery) ([]domain.Schedule, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Schedule{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Schedule{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -99,7 +99,7 @@ func (s *Store) DueSchedules(ctx context.Context, now time.Time, limit int) ([]d
 		limit = 20
 	}
 	var out []domain.Schedule
-	err := s.db.WithContext(ctx).Where("status = ? AND next_run_at <= ?", "active", now).
+	err := active(s.db.WithContext(ctx)).Where("status = ? AND next_run_at <= ?", "active", now).
 		Order("next_run_at ASC, id ASC").Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -185,7 +185,7 @@ func (s *Store) CreateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor
 
 func (s *Store) ListGitHubMonitors(ctx context.Context, q PageQuery) ([]domain.GitHubMonitor, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.GitHubMonitor{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.GitHubMonitor{})
 	if q.Search != "" {
 		db = db.Where(`keyword ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}

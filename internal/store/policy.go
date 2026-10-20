@@ -51,7 +51,7 @@ func (s *Store) CreatePolicy(ctx context.Context, p *domain.Policy) error {
 
 func (s *Store) GetPolicy(ctx context.Context, id string) (*domain.Policy, error) {
 	var p domain.Policy
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&p).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&p).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -63,7 +63,7 @@ func (s *Store) GetPolicy(ctx context.Context, id string) (*domain.Policy, error
 
 func (s *Store) ListPolicies(ctx context.Context) ([]domain.Policy, error) {
 	var out []domain.Policy
-	err := s.db.WithContext(ctx).Order("created_at ASC, id ASC").Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Order("created_at ASC, id ASC").Find(&out).Error
 	return out, err
 }
 

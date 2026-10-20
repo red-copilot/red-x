@@ -56,7 +56,7 @@ func (s *Store) CreateOrganization(ctx context.Context, org *domain.Organization
 
 func (s *Store) GetOrganization(ctx context.Context, id string) (*domain.Organization, error) {
 	var org domain.Organization
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&org).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&org).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -79,7 +79,7 @@ func (s *Store) FindOrganizationByNameAndRegion(ctx context.Context, name, regio
 	if err != nil {
 		return nil, err
 	}
-	db := s.db.WithContext(ctx).Where("status = ?", domain.OrgStatusActive).
+	db := active(s.db.WithContext(ctx)).Where("status = ?", domain.OrgStatusActive).
 		Where("(canonical_name = ? OR aliases @> ?::jsonb)", name, string(aliasJSON))
 	if region = strings.TrimSpace(region); region != "" {
 		db = db.Where("region = ?", region)
@@ -102,7 +102,7 @@ func (s *Store) ListOrganizations(ctx context.Context, query string, limit int) 
 	if limit > 5000 {
 		limit = 5000
 	}
-	db := s.db.WithContext(ctx).Where("status = ?", domain.OrgStatusActive)
+	db := active(s.db.WithContext(ctx)).Where("status = ?", domain.OrgStatusActive)
 	if q := strings.TrimSpace(query); q != "" {
 		pattern := ilike(q)
 		db = db.Where(`(canonical_name ILIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases) AS alias WHERE alias ILIKE ? ESCAPE '\'))`, pattern, pattern)
@@ -177,7 +177,7 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 }
 
 func (s *Store) ListOrganizationDomains(ctx context.Context, orgID string, status string) ([]domain.OrganizationDomain, error) {
-	db := s.db.WithContext(ctx).Where("organization_id = ?", orgID)
+	db := active(s.db.WithContext(ctx)).Where("organization_id = ?", orgID)
 	if status != "" {
 		db = db.Where("status = ?", status)
 	}
@@ -401,7 +401,7 @@ func (s *Store) MarkGraphOutboxProcessed(ctx context.Context, ids []string) erro
 
 func (s *Store) GetAssetByID(ctx context.Context, id string) (*domain.Asset, error) {
 	var asset domain.Asset
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&asset).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&asset).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -425,7 +425,7 @@ func (s *Store) GetFindingByID(ctx context.Context, id string) (*domain.Finding,
 
 func (s *Store) GetOrganizationDomainByID(ctx context.Context, id string) (*domain.OrganizationDomain, error) {
 	var od domain.OrganizationDomain
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&od).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&od).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -437,12 +437,12 @@ func (s *Store) GetOrganizationDomainByID(ctx context.Context, id string) (*doma
 
 func (s *Store) ListAllOrganizations(ctx context.Context) ([]domain.Organization, error) {
 	var out []domain.Organization
-	err := s.db.WithContext(ctx).Where("status = ?", domain.OrgStatusActive).Order("canonical_name ASC, id ASC").Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Where("status = ?", domain.OrgStatusActive).Order("canonical_name ASC, id ASC").Find(&out).Error
 	return out, err
 }
 
 func (s *Store) ListAllOrganizationDomains(ctx context.Context, status string) ([]domain.OrganizationDomain, error) {
-	db := s.db.WithContext(ctx).Model(&domain.OrganizationDomain{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.OrganizationDomain{})
 	if status != "" {
 		db = db.Where("status = ?", status)
 	}

@@ -10,7 +10,7 @@ import (
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.WithContext(ctx).Model(&domain.User{}).Count(&n).Error
+	err := active(s.db.WithContext(ctx)).Model(&domain.User{}).Count(&n).Error
 	return n, err
 }
 
@@ -29,7 +29,7 @@ func (s *Store) CreateUser(ctx context.Context, u *domain.User) error {
 
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	var u domain.User
-	err := s.db.WithContext(ctx).Where("username = ?", strings.TrimSpace(username)).First(&u).Error
+	err := active(s.db.WithContext(ctx)).Where("username = ?", strings.TrimSpace(username)).First(&u).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -41,7 +41,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (*domain
 
 func (s *Store) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
 	var u domain.User
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&u).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -58,7 +58,7 @@ func (s *Store) UpdateUser(ctx context.Context, u *domain.User) error {
 
 func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.User{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.User{})
 	if q.Search != "" {
 		db = db.Where(`username ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
