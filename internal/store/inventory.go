@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -355,12 +356,22 @@ func (s *Store) UpdateScope(ctx context.Context, sc *domain.Scope) error {
 	return s.db.WithContext(ctx).Save(sc).Error
 }
 
-func (s *Store) DeleteScope(ctx context.Context, id string) error {
+func (s *Store) DeleteScope(ctx context.Context, id, actor string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("scope_id = ?", id).Delete(&domain.ScopeAssetLink{}).Error; err != nil {
+		if err := active(tx).Where("id = ?", id).First(&domain.Scope{}).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
 			return err
 		}
-		return tx.Where("id = ?", id).Delete(&domain.Scope{}).Error
+		var monitors int64
+		if err := active(tx).Model(&domain.Monitor{}).Where("scope_id = ?", id).Count(&monitors).Error; err != nil {
+			return err
+		}
+		if monitors > 0 {
+			return fmt.Errorf("%w: %d monitor(s)", domain.ErrResourceInUse, monitors)
+		}
+		return softDeleteRecordTx(tx, "scope", id, actor)
 	})
 }
 
@@ -491,8 +502,27 @@ func (s *Store) ListFingerprints(ctx context.Context) ([]FingerprintRule, error)
 	return out, err
 }
 
-func (s *Store) DeleteFingerprint(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&FingerprintRule{}, "id = ?", id).Error
+func (s *Store) GetFingerprint(ctx context.Context, id string) (*FingerprintRule, error) {
+	var rule FingerprintRule
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&rule).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rule, nil
+}
+
+func (s *Store) UpdateFingerprint(ctx context.Context, rule *FingerprintRule) error {
+	rule.UpdatedAt = time.Now().UTC()
+	return s.db.WithContext(ctx).Model(&FingerprintRule{}).
+		Where("id = ? AND deleted_at IS NULL", rule.ID).
+		Updates(map[string]any{"name": rule.Name, "rule": rule.Rule, "updated_at": rule.UpdatedAt}).Error
+}
+
+func (s *Store) DeleteFingerprint(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "fingerprint", id, actor)
 }
 
 func (s *Store) UpsertPOCPlugin(ctx context.Context, p *domain.PocPlugin) error {

@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
+	"gorm.io/gorm"
 )
 
 func DefaultPolicy() domain.Policy {
@@ -72,6 +74,26 @@ func (s *Store) UpdatePolicy(ctx context.Context, p *domain.Policy) error {
 	return s.db.WithContext(ctx).Save(p).Error
 }
 
-func (s *Store) DeletePolicy(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.Policy{}, "id = ?", id).Error
+func (s *Store) DeletePolicy(ctx context.Context, id, actor string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := active(tx).Where("id = ?", id).First(&domain.Policy{}).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		var monitors, schedules int64
+		if err := active(tx).Model(&domain.Monitor{}).Where("policy_id = ?", id).Count(&monitors).Error; err != nil {
+			return err
+		}
+		if err := active(tx).Model(&domain.Schedule{}).
+			Where("policy_id = ? AND status <> ?", id, "completed").
+			Count(&schedules).Error; err != nil {
+			return err
+		}
+		if monitors+schedules > 0 {
+			return fmt.Errorf("%w: %d monitor(s), %d schedule(s)", domain.ErrResourceInUse, monitors, schedules)
+		}
+		return softDeleteRecordTx(tx, "policy", id, actor)
+	})
 }

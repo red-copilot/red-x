@@ -158,14 +158,21 @@ func NextCron(spec string, from time.Time) (time.Time, error) {
 }
 
 func (s *Scheduler) CreateMonitor(ctx context.Context, m *domain.Monitor) error {
-	if m.IntervalSec < 21600 {
-		return fmt.Errorf("monitor interval must be at least 6 hours")
+	if err := s.validateMonitor(ctx, m); err != nil {
+		return err
 	}
 	if m.Status == "" {
 		m.Status = "active"
 	}
 	if m.NextRunAt.IsZero() {
 		m.NextRunAt = time.Now().UTC().Add(30 * time.Second)
+	}
+	return s.Store.CreateMonitor(ctx, m)
+}
+
+func (s *Scheduler) validateMonitor(ctx context.Context, m *domain.Monitor) error {
+	if m.IntervalSec < 21600 {
+		return fmt.Errorf("monitor interval must be at least 6 hours")
 	}
 	if _, err := domain.ParseID(m.ScopeID); err != nil {
 		return fmt.Errorf("invalid scope id")
@@ -174,10 +181,34 @@ func (s *Scheduler) CreateMonitor(ctx context.Context, m *domain.Monitor) error 
 	if scope, err := s.Store.GetScope(ctx, scopeID); err != nil || scope == nil {
 		return fmt.Errorf("scope not found")
 	}
-	return s.Store.CreateMonitor(ctx, m)
+	if m.PolicyID != "" {
+		policyID, err := domain.ParseID(m.PolicyID)
+		if err != nil {
+			return fmt.Errorf("invalid policy id")
+		}
+		if policy, err := s.Store.GetPolicy(ctx, policyID); err != nil || policy == nil {
+			return fmt.Errorf("policy not found")
+		}
+	}
+	return nil
+}
+
+func (s *Scheduler) UpdateMonitor(ctx context.Context, m *domain.Monitor) error {
+	if err := s.validateMonitor(ctx, m); err != nil {
+		return err
+	}
+	m.NextRunAt = time.Now().UTC().Add(time.Duration(m.IntervalSec) * time.Second)
+	return s.Store.UpdateMonitor(ctx, m)
 }
 
 func (s *Scheduler) CreateSchedule(ctx context.Context, sc *domain.Schedule) error {
+	if err := s.prepareSchedule(ctx, sc); err != nil {
+		return err
+	}
+	return s.Store.CreateSchedule(ctx, sc)
+}
+
+func (s *Scheduler) prepareSchedule(ctx context.Context, sc *domain.Schedule) error {
 	if sc.PolicyID == "" {
 		return fmt.Errorf("policyId is required")
 	}
@@ -189,6 +220,8 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sc *domain.Schedule) err
 		return fmt.Errorf("policy not found")
 	}
 	if sc.Status == "" {
+		sc.Status = "active"
+	} else if sc.Status == "completed" {
 		sc.Status = "active"
 	}
 	now := time.Now().UTC()
@@ -207,7 +240,14 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sc *domain.Schedule) err
 		}
 		sc.NextRunAt = &next
 	}
-	return s.Store.CreateSchedule(ctx, sc)
+	return nil
+}
+
+func (s *Scheduler) UpdateSchedule(ctx context.Context, sc *domain.Schedule) error {
+	if err := s.prepareSchedule(ctx, sc); err != nil {
+		return err
+	}
+	return s.Store.UpdateSchedule(ctx, sc)
 }
 
 func (s *Scheduler) PauseMonitor(ctx context.Context, id string, paused bool) error {
@@ -226,8 +266,8 @@ func (s *Scheduler) PauseMonitor(ctx context.Context, id string, paused bool) er
 	return s.Store.UpdateMonitor(ctx, m)
 }
 
-func (s *Scheduler) DeleteMonitor(ctx context.Context, id string) error {
-	return s.Store.DeleteMonitor(ctx, id)
+func (s *Scheduler) DeleteMonitor(ctx context.Context, id, actor string) error {
+	return s.Store.DeleteMonitor(ctx, id, actor)
 }
 
 func (s *Scheduler) RunMonitorNow(ctx context.Context, id string) error {

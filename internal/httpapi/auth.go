@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -116,6 +117,23 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": users, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
+func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	user, err := s.Store.GetUserByID(r.Context(), id)
+	if err != nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	if user == nil {
+		httpx.WriteProblem(w, r, http.StatusNotFound, "user_not_found", "user not found")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, user)
+}
+
 type createUserRequest struct {
 	Username string      `json:"username"`
 	Password string      `json:"password"`
@@ -137,20 +155,104 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, u)
 }
 
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	user, err := s.Store.GetUserByID(r.Context(), id)
+	if err != nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	if user == nil {
+		httpx.WriteProblem(w, r, http.StatusNotFound, "user_not_found", "user not found")
+		return
+	}
+	var req struct {
+		Role     *domain.Role `json:"role"`
+		Disabled *bool        `json:"disabled"`
+		Password *string      `json:"password"`
+	}
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	removeAdmin := user.Role == domain.RoleAdmin && !user.Disabled &&
+		((req.Role != nil && *req.Role != domain.RoleAdmin) || (req.Disabled != nil && *req.Disabled))
+	if removeAdmin {
+		admins, err := s.Store.CountActiveAdmins(r.Context())
+		if err != nil {
+			httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		if admins <= 1 {
+			httpx.WriteProblem(w, r, http.StatusConflict, "last_admin_protected", domain.ErrLastAdmin.Error())
+			return
+		}
+	}
+	if req.Role != nil {
+		switch *req.Role {
+		case domain.RoleViewer, domain.RoleOperator, domain.RoleAdmin:
+			user.Role = *req.Role
+		default:
+			httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_role", "invalid role")
+			return
+		}
+	}
+	if req.Disabled != nil {
+		user.Disabled = *req.Disabled
+	}
+	if err := s.Store.UpdateUser(r.Context(), user); err != nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	if req.Password != nil {
+		if s.Identity == nil {
+			httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "identity_unavailable", "identity service is unavailable")
+			return
+		}
+		if err := s.Identity.ResetPassword(r.Context(), id, *req.Password); err != nil {
+			httpx.WriteProblem(w, r, http.StatusBadRequest, "password_reset_failed", err.Error())
+			return
+		}
+	}
+	if req.Role != nil || (req.Disabled != nil && *req.Disabled) {
+		_ = s.Store.RevokeUserSessions(r.Context(), id)
+	}
+	p := principalFrom(r.Context())
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{
+		ActorID: p.UserID, Actor: p.Username, Action: "user.update", Resource: id, IP: r.RemoteAddr,
+	})
+	updated, err := s.Store.GetUserByID(r.Context(), id)
+	if err != nil || updated == nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", "updated user could not be loaded")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return
 	}
 	p := principalFrom(r.Context())
-	if p.UserID == id {
-		httpx.WriteProblem(w, r, http.StatusBadRequest, "user_self_delete", "cannot delete the current user")
+	if err := s.Store.DeleteUser(r.Context(), id, p.Username, p.UserID); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrSelfDelete):
+			httpx.WriteProblem(w, r, http.StatusBadRequest, "user_self_delete", err.Error())
+		case errors.Is(err, domain.ErrLastAdmin):
+			httpx.WriteProblem(w, r, http.StatusConflict, "last_admin_protected", err.Error())
+		case errors.Is(err, domain.ErrRecordNotFound):
+			httpx.WriteProblem(w, r, http.StatusNotFound, "user_not_found", "user not found")
+		default:
+			httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		}
 		return
 	}
-	if err := s.Store.DeleteUser(r.Context(), id); err != nil {
-		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
-		return
-	}
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{
+		ActorID: p.UserID, Actor: p.Username, Action: "user.delete", Resource: id, IP: r.RemoteAddr,
+	})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 

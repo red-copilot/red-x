@@ -66,37 +66,41 @@ func active(db *gorm.DB) *gorm.DB {
 }
 
 func (s *Store) SoftDeleteRecord(ctx context.Context, resourceType, id, actor string) error {
-	resource, ok := lifecycleResources[resourceType]
-	if !ok {
+	if !ValidLifecycleResource(resourceType) {
 		return fmt.Errorf("unsupported lifecycle resource %q", resourceType)
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := time.Now().UTC()
-		result := tx.Exec(
-			fmt.Sprintf("UPDATE %s SET deleted_at = ?, deleted_by = ?, restored_at = NULL, restore_reason = '' WHERE id = ? AND deleted_at IS NULL", resource.Table),
-			now, actor, id,
-		)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return domain.ErrRecordNotFound
-		}
-		if resourceType == "user" {
-			if err := tx.Model(&domain.Session{}).
-				Where("user_id = ? AND revoked_at IS NULL", id).
-				Update("revoked_at", now).Error; err != nil {
-				return err
-			}
-		}
-		switch resourceType {
-		case "organization", "organization_domain", "asset":
-			if err := appendGraphOutboxTx(tx, resourceType, id, domain.OutboxOpDelete); err != nil {
-				return err
-			}
-		}
-		return nil
+		return softDeleteRecordTx(tx, resourceType, id, actor)
 	})
+}
+
+func softDeleteRecordTx(tx *gorm.DB, resourceType, id, actor string) error {
+	resource := lifecycleResources[resourceType]
+	now := time.Now().UTC()
+	result := tx.Exec(
+		fmt.Sprintf("UPDATE %s SET deleted_at = ?, deleted_by = ?, restored_at = NULL, restore_reason = '' WHERE id = ? AND deleted_at IS NULL", resource.Table),
+		now, actor, id,
+	)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrRecordNotFound
+	}
+	if resourceType == "user" {
+		if err := tx.Model(&domain.Session{}).
+			Where("user_id = ? AND revoked_at IS NULL", id).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+	}
+	switch resourceType {
+	case "organization", "organization_domain", "asset":
+		if err := appendGraphOutboxTx(tx, resourceType, id, domain.OutboxOpDelete); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) RestoreRecord(ctx context.Context, resourceType, id, actor string) error {

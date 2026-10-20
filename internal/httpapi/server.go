@@ -86,6 +86,8 @@ func (s *Server) Router() http.Handler {
 
 			protected.Get("/users", s.requireRole(domain.RoleAdmin, s.handleListUsers))
 			protected.Post("/users", s.requireRole(domain.RoleAdmin, s.handleCreateUser))
+			protected.Get("/users/{id}", s.requireRole(domain.RoleAdmin, s.handleGetUser))
+			protected.Patch("/users/{id}", s.requireRole(domain.RoleAdmin, s.handleUpdateUser))
 			protected.Delete("/users/{id}", s.requireRole(domain.RoleAdmin, s.handleDeleteUser))
 			protected.Get("/api-keys", s.requireRole(domain.RoleAdmin, s.handleListAPIKeys))
 			protected.Post("/api-keys", s.requireRole(domain.RoleAdmin, s.handleCreateAPIKey))
@@ -94,12 +96,13 @@ func (s *Server) Router() http.Handler {
 			protected.Get("/policies", s.handleListPolicies)
 			protected.Post("/policies", s.requireWrite(s.handleCreatePolicy))
 			protected.Put("/policies/{id}", s.requireWrite(s.handleUpdatePolicy))
-			protected.Delete("/policies/{id}", s.requireAdmin(s.handleDeletePolicy))
+			protected.Delete("/policies/{id}", s.requireWrite(s.handleDeletePolicy))
 
 			protected.Get("/scopes", s.handleListScopes)
 			protected.Post("/scopes", s.requireWrite(s.handleCreateScope))
 			protected.Get("/scopes/{id}", s.handleGetScope)
-			protected.Delete("/scopes/{id}", s.requireAdmin(s.handleDeleteScope))
+			protected.Patch("/scopes/{id}", s.requireWrite(s.handleUpdateScope))
+			protected.Delete("/scopes/{id}", s.requireWrite(s.handleDeleteScope))
 			protected.Get("/scopes/{id}/assets", s.handleScopeAssets)
 
 			protected.Get("/tasks", s.handleTasks)
@@ -151,6 +154,8 @@ func (s *Server) Router() http.Handler {
 
 			protected.Get("/monitors", s.handleListMonitors)
 			protected.Post("/monitors", s.requireWrite(s.handleCreateMonitor))
+			protected.Get("/monitors/{id}", s.handleGetMonitor)
+			protected.Patch("/monitors/{id}", s.requireWrite(s.handleUpdateMonitor))
 			protected.Post("/monitors/{id}/pause", s.requireWrite(s.handlePauseMonitor))
 			protected.Post("/monitors/{id}/resume", s.requireWrite(s.handleResumeMonitor))
 			protected.Post("/monitors/{id}/run", s.requireWrite(s.handleRunMonitor))
@@ -158,17 +163,23 @@ func (s *Server) Router() http.Handler {
 
 			protected.Get("/schedules", s.handleListSchedules)
 			protected.Post("/schedules", s.requireWrite(s.handleCreateSchedule))
+			protected.Get("/schedules/{id}", s.handleGetSchedule)
+			protected.Patch("/schedules/{id}", s.requireWrite(s.handleUpdateSchedule))
 			protected.Delete("/schedules/{id}", s.requireWrite(s.handleDeleteSchedule))
 
 			protected.Get("/github/tasks", s.handleListGitHubTasks)
 			protected.Post("/github/tasks", s.requireWrite(s.handleCreateGitHubTask))
 			protected.Get("/github/monitors", s.handleListGitHubMonitors)
 			protected.Post("/github/monitors", s.requireWrite(s.handleCreateGitHubMonitor))
+			protected.Get("/github/monitors/{id}", s.handleGetGitHubMonitor)
+			protected.Patch("/github/monitors/{id}", s.requireWrite(s.handleUpdateGitHubMonitor))
 			protected.Delete("/github/monitors/{id}", s.requireWrite(s.handleDeleteGitHubMonitor))
 			protected.Get("/github/findings", s.handleGitHubFindings)
 
 			protected.Get("/fingerprints", s.handleListFingerprints)
 			protected.Post("/fingerprints", s.requireWrite(s.handleCreateFingerprint))
+			protected.Get("/fingerprints/{id}", s.handleGetFingerprint)
+			protected.Patch("/fingerprints/{id}", s.requireWrite(s.handleUpdateFingerprint))
 			protected.Post("/fingerprints/import", s.requireWrite(s.handleImportFingerprints))
 			protected.Delete("/fingerprints/{id}", s.requireWrite(s.handleDeleteFingerprint))
 

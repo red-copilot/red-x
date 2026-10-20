@@ -52,8 +52,8 @@ func (s *Store) UpdateMonitor(ctx context.Context, m *domain.Monitor) error {
 	return s.db.WithContext(ctx).Save(m).Error
 }
 
-func (s *Store) DeleteMonitor(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.Monitor{}, "id = ?", id).Error
+func (s *Store) DeleteMonitor(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "monitor", id, actor)
 }
 
 func (s *Store) DueMonitors(ctx context.Context, now time.Time, limit int) ([]domain.Monitor, error) {
@@ -94,6 +94,18 @@ func (s *Store) ListSchedules(ctx context.Context, q PageQuery) ([]domain.Schedu
 	return out, total, err
 }
 
+func (s *Store) GetSchedule(ctx context.Context, id string) (*domain.Schedule, error) {
+	var schedule domain.Schedule
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&schedule).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &schedule, nil
+}
+
 func (s *Store) DueSchedules(ctx context.Context, now time.Time, limit int) ([]domain.Schedule, error) {
 	if limit <= 0 {
 		limit = 20
@@ -109,8 +121,8 @@ func (s *Store) UpdateSchedule(ctx context.Context, sc *domain.Schedule) error {
 	return s.db.WithContext(ctx).Save(sc).Error
 }
 
-func (s *Store) DeleteSchedule(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.Schedule{}, "id = ?", id).Error
+func (s *Store) DeleteSchedule(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "schedule", id, actor)
 }
 
 func (s *Store) CreateMonitorRun(ctx context.Context, r *domain.MonitorRun) error {
@@ -198,13 +210,25 @@ func (s *Store) ListGitHubMonitors(ctx context.Context, q PageQuery) ([]domain.G
 	return out, total, err
 }
 
+func (s *Store) GetGitHubMonitor(ctx context.Context, id string) (*domain.GitHubMonitor, error) {
+	var monitor domain.GitHubMonitor
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&monitor).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &monitor, nil
+}
+
 func (s *Store) UpdateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor) error {
 	m.UpdatedAt = time.Now().UTC()
 	return s.db.WithContext(ctx).Save(m).Error
 }
 
-func (s *Store) DeleteGitHubMonitor(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.GitHubMonitor{}, "id = ?", id).Error
+func (s *Store) DeleteGitHubMonitor(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "github_monitor", id, actor)
 }
 
 func (s *Store) AddGitHubFinding(ctx context.Context, f *domain.GitHubFinding) (bool, error) {

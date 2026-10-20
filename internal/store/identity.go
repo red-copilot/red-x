@@ -6,12 +6,21 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	err := active(s.db.WithContext(ctx)).Model(&domain.User{}).Count(&n).Error
 	return n, err
+}
+
+func (s *Store) CountActiveAdmins(ctx context.Context) (int64, error) {
+	var count int64
+	err := active(s.db.WithContext(ctx)).Model(&domain.User{}).
+		Where("role = ? AND disabled = FALSE", domain.RoleAdmin).
+		Count(&count).Error
+	return count, err
 }
 
 func (s *Store) CreateUser(ctx context.Context, u *domain.User) error {
@@ -71,8 +80,31 @@ func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int6
 	return out, total, err
 }
 
-func (s *Store) DeleteUser(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.User{}, "id = ?", id).Error
+func (s *Store) DeleteUser(ctx context.Context, id, actor, currentUserID string) error {
+	if id == currentUserID {
+		return domain.ErrSelfDelete
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user domain.User
+		if err := active(tx).Where("id = ?", id).First(&user).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		if user.Role == domain.RoleAdmin && !user.Disabled {
+			var admins int64
+			if err := active(tx).Model(&domain.User{}).
+				Where("role = ? AND disabled = FALSE", domain.RoleAdmin).
+				Count(&admins).Error; err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return domain.ErrLastAdmin
+			}
+		}
+		return softDeleteRecordTx(tx, "user", id, actor)
+	})
 }
 
 func (s *Store) CreateSession(ctx context.Context, sess *domain.Session) error {
