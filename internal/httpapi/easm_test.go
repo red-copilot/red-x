@@ -16,23 +16,27 @@ import (
 )
 
 type fakeEASM struct {
-	lookup     *easm.LookupResult
-	lookupErr  error
-	mapSnap    *easm.MapSnapshot
-	graphSnap  *easm.GraphSnapshot
-	graphErr   error
-	job        *domain.ICPJob
-	confirmN   int
-	confirmErr error
-	confirmed  []string
-	health     easm.Health
-	summary    *easm.OrganizationSummary
-	assets     *easm.AssetPage
-	asset      *easm.AssetItem
-	findings   *easm.FindingPage
-	history    []domain.Finding
-	tasks      []domain.Task
-	scanErr    error
+	lookup      *easm.LookupResult
+	lookupErr   error
+	mapSnap     *easm.MapSnapshot
+	graphSnap   *easm.GraphSnapshot
+	graphErr    error
+	job         *domain.ICPJob
+	confirmN    int
+	confirmErr  error
+	confirmed   []string
+	health      easm.Health
+	summary     *easm.OrganizationSummary
+	assets      *easm.AssetPage
+	asset       *easm.AssetItem
+	findings    *easm.FindingPage
+	history     []domain.Finding
+	tasks       []domain.Task
+	scanErr     error
+	overview    *easm.Overview
+	overviewErr error
+	search      *easm.SearchResult
+	searchErr   error
 }
 
 func (f *fakeEASM) LookupDomain(context.Context, string, string) (*easm.LookupResult, error) {
@@ -91,14 +95,12 @@ func TestEASMMapShape(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	var body struct {
-		Data easm.MapSnapshot `json:"data"`
-	}
+	var body easm.MapSnapshot
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Data.Organizations) != 1 || len(body.Data.Points) != 1 {
-		t.Fatalf("unexpected map: %+v", body.Data)
+	if len(body.Organizations) != 1 || len(body.Points) != 1 {
+		t.Fatalf("unexpected map: %+v", body)
 	}
 }
 

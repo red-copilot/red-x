@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/webintel"
 	"github.com/red-copilot/red-x/internal/platform/httpx"
-	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v3"
 )
@@ -46,7 +46,7 @@ func (s *Server) handlePOCPlugins(w http.ResponseWriter, r *http.Request) {
 			Category: m.Category, Schemes: m.Schemes, DefaultPorts: m.DefaultPorts,
 		})
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": len(items)}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
 }
 
 func (s *Server) handleSyncPOC(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +61,7 @@ func (s *Server) handleSyncPOC(w http.ResponseWriter, r *http.Request) {
 			count++
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"synced": count}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"synced": count})
 }
 
 func (s *Server) handleCreateExport(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +86,7 @@ func (s *Server) handleCreateExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := filepath.Base(path)
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"file": name, "downloadUrl": "/api/v1/exports/" + name}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"file": name, "downloadUrl": "/api/v1/exports/" + name})
 }
 
 func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {

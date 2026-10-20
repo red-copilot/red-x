@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
@@ -27,6 +28,8 @@ type EASMService interface {
 	FindingHistory(ctx context.Context, orgID bson.ObjectID, findingID bson.ObjectID) ([]domain.Finding, error)
 	CreateScans(ctx context.Context, orgID bson.ObjectID, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []easm.ScanError, error)
 	Health(ctx context.Context) easm.Health
+	Overview(ctx context.Context, since time.Time) (*easm.Overview, error)
+	Search(ctx context.Context, query string, limit int) (*easm.SearchResult, error)
 }
 
 func (s *Server) handleListOrganizations(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +44,7 @@ func (s *Server) handleListOrganizations(w http.ResponseWriter, r *http.Request)
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +71,7 @@ func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request
 		Actor: p.Username, Action: "easm.organization_create", Resource: org.ID.Hex(),
 		Detail: map[string]any{"name": org.CanonicalName},
 	})
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": org})
+	httpx.WriteJSON(w, http.StatusCreated, org)
 }
 
 func (s *Server) handleGetOrganization(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +93,7 @@ func (s *Server) handleGetOrganization(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"organization": org, "domains": domains}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"organization": org, "domains": domains})
 }
 
 func (s *Server) handleLookupDomain(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +113,7 @@ func (s *Server) handleLookupDomain(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleRefreshICP(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +127,7 @@ func (s *Server) handleRefreshICP(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{"data": job})
+	httpx.WriteJSON(w, http.StatusAccepted, job)
 }
 
 func (s *Server) handleGetICPJob(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +144,7 @@ func (s *Server) handleGetICPJob(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusNotFound, "icp_job_not_found", "ICP job not found")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": job})
+	httpx.WriteJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) handleListOrgDomains(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +157,7 @@ func (s *Server) handleListOrgDomains(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleConfirmDomains(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +181,7 @@ func (s *Server) handleConfirmDomains(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"changed": n}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"changed": n})
 }
 
 func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
@@ -224,12 +227,16 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 		Actor: p.Username, Action: "easm.domain_import", Resource: id.Hex(),
 		Detail: map[string]any{"imported": len(items), "rejected": rejected},
 	})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "imported": len(items), "rejected": rejected}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "imported": len(items), "rejected": rejected})
 }
 
 func (s *Server) handleEASMMap(w http.ResponseWriter, r *http.Request) {
 	var orgID *bson.ObjectID
-	if raw := r.URL.Query().Get("orgId"); raw != "" {
+	rawOrg := r.URL.Query().Get("orgId")
+	if pathOrg := rPathParam(r, "id"); pathOrg != "" {
+		rawOrg = pathOrg
+	}
+	if raw := rawOrg; raw != "" {
 		id, err := bson.ObjectIDFromHex(raw)
 		if err != nil {
 			httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_org_id", "invalid organization id")
@@ -242,11 +249,15 @@ func (s *Server) handleEASMMap(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMGraph(w http.ResponseWriter, r *http.Request) {
-	id, err := bson.ObjectIDFromHex(r.URL.Query().Get("orgId"))
+	rawOrg := r.URL.Query().Get("orgId")
+	if pathOrg := rPathParam(r, "id"); pathOrg != "" {
+		rawOrg = pathOrg
+	}
+	id, err := bson.ObjectIDFromHex(rawOrg)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_org_id", "orgId is required")
 		return
@@ -258,11 +269,11 @@ func (s *Server) handleEASMGraph(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMHealth(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": s.EASM.Health(r.Context())})
+	httpx.WriteJSON(w, http.StatusOK, s.EASM.Health(r.Context()))
 }
 
 func writeEASMProblem(w http.ResponseWriter, r *http.Request, err error) {

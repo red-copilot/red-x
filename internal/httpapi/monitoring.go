@@ -17,7 +17,7 @@ func (s *Server) handleListMonitors(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleCreateMonitor(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func (s *Server) handleCreateMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": m})
+	httpx.WriteJSON(w, http.StatusCreated, m)
 }
 
 func (s *Server) handlePauseMonitor(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func (s *Server) handlePauseMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_pause_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex(), "status": "paused"}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "paused"})
 }
 
 func (s *Server) handleResumeMonitor(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func (s *Server) handleResumeMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_resume_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex(), "status": "active"}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "active"})
 }
 
 func (s *Server) handleRunMonitor(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func (s *Server) handleRunMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_run_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex(), "status": "triggered"}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "triggered"})
 }
 
 func (s *Server) handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (s *Server) handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +111,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "schedule_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": sc})
+	httpx.WriteJSON(w, http.StatusCreated, sc)
 }
 
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +123,7 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleListGitHubTasks(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func (s *Server) handleListGitHubTasks(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleCreateGitHubTask(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +153,7 @@ func (s *Server) handleCreateGitHubTask(w http.ResponseWriter, r *http.Request) 
 		defer cancel()
 		_ = s.GitHub.RunTask(runCtx, t.ID)
 	}()
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": t})
+	httpx.WriteJSON(w, http.StatusCreated, t)
 }
 
 func (s *Server) handleListGitHubMonitors(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +163,7 @@ func (s *Server) handleListGitHubMonitors(w http.ResponseWriter, r *http.Request
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleCreateGitHubMonitor(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +185,7 @@ func (s *Server) handleCreateGitHubMonitor(w http.ResponseWriter, r *http.Reques
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "github_monitor_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": m})
+	httpx.WriteJSON(w, http.StatusCreated, m)
 }
 
 func (s *Server) handleDeleteGitHubMonitor(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func (s *Server) handleDeleteGitHubMonitor(w http.ResponseWriter, r *http.Reques
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleGitHubFindings(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +207,7 @@ func (s *Server) handleGitHubFindings(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleListFingerprints(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +216,7 @@ func (s *Server) handleListFingerprints(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleCreateFingerprint(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +232,7 @@ func (s *Server) handleCreateFingerprint(w http.ResponseWriter, r *http.Request)
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "fingerprint_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": rule})
+	httpx.WriteJSON(w, http.StatusCreated, rule)
 }
 
 func (s *Server) handleDeleteFingerprint(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +244,7 @@ func (s *Server) handleDeleteFingerprint(w http.ResponseWriter, r *http.Request)
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleImportFingerprints(w http.ResponseWriter, r *http.Request) {
@@ -270,5 +270,5 @@ func (s *Server) handleImportFingerprints(w http.ResponseWriter, r *http.Request
 		}
 		okCount++
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"successCount": okCount, "errorCount": errCount}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"successCount": okCount, "errorCount": errCount})
 }

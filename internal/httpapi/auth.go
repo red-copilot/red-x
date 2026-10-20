@@ -48,9 +48,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setAuthCookies(w, res.AccessToken, res.RefreshToken, res.CSRFToken, res.AccessExpires, res.RefreshExpires)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{"user": res.User, "csrfToken": res.CSRFToken},
-	})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": res.User, "csrfToken": res.CSRFToken})
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -66,9 +64,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setAuthCookies(w, res.AccessToken, res.RefreshToken, res.CSRFToken, res.AccessExpires, res.RefreshExpires)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{"user": res.User, "csrfToken": res.CSRFToken},
-	})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": res.User, "csrfToken": res.CSRFToken})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -82,16 +78,14 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		user, _ = s.Store.GetUserByID(r.Context(), p.UserID)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"user": user, "username": p.Username, "role": p.Role, "via": p.Via,
-		},
+		"user": user, "username": p.Username, "role": p.Role, "via": p.Via,
 	})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.Identity.Logout(r.Context(), principalFrom(r.Context()))
 	s.clearAuthCookies(w)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 type passwordRequest struct {
@@ -109,7 +103,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.clearAuthCookies(w)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"message": "password changed; sign in again"}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"message": "password changed; sign in again"})
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +113,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": users, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": users, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 type createUserRequest struct {
@@ -140,7 +134,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	p := principalFrom(r.Context())
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{ActorID: p.UserID, Actor: p.Username, Action: "user.create", Resource: "user", Detail: map[string]any{"username": u.Username, "role": u.Role}, IP: r.RemoteAddr})
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": u})
+	httpx.WriteJSON(w, http.StatusCreated, u)
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +151,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +160,7 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": keys}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": keys})
 }
 
 type createAPIKeyRequest struct {
@@ -184,7 +178,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "api_key_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"key": key, "secret": raw}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"key": key, "secret": raw})
 }
 
 func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +190,7 @@ func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
@@ -206,18 +200,18 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": events, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": events, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"version": s.Version, "uptimeSec": int(time.Since(s.StartedAt).Seconds()),
 		"queueDriver": s.Config.Queue.Driver, "scanners": pdtools.Versions(),
-	}})
+	})
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	tasks, _ := s.Store.CountTasksByStatus(r.Context())
 	assets, _ := s.Store.CountAssets(r.Context())
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"tasks": tasks, "assets": assets}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"tasks": tasks, "assets": assets})
 }

@@ -53,7 +53,7 @@ func (s *Server) handleUpdateOrganization(w http.ResponseWriter, r *http.Request
 	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
 	p := principalFrom(r.Context())
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "easm.organization_update", Resource: org.ID.Hex(), Detail: map[string]any{"name": org.CanonicalName}})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": org})
+	httpx.WriteJSON(w, http.StatusOK, org)
 }
 
 func (s *Server) handleImportOrganizations(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func (s *Server) handleImportOrganizations(w http.ResponseWriter, r *http.Reques
 	}
 	result["errors"] = rowErrs
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "easm.organization_import", Detail: result})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": result})
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleRejectOrganizationDomain(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +143,7 @@ func (s *Server) handleRejectOrganizationDomain(w http.ResponseWriter, r *http.R
 		return
 	}
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reject", Resource: domainID.Hex(), Detail: map[string]any{"organizationId": orgID.Hex(), "reason": req.Reason}})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": domainID.Hex(), "status": domain.DomainStatusRejected}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": domainID.Hex(), "status": domain.DomainStatusRejected})
 }
 
 func (s *Server) handleReassignOrganizationDomain(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +182,7 @@ func (s *Server) handleReassignOrganizationDomain(w http.ResponseWriter, r *http
 		return
 	}
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reassign", Resource: domainID.Hex(), Detail: map[string]any{"fromOrganizationId": orgID.Hex(), "targetOrganizationId": targetID.Hex(), "newId": moved.ID.Hex(), "reason": req.Reason}})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": moved})
+	httpx.WriteJSON(w, http.StatusOK, moved)
 }
 
 func (s *Server) handleOrganizationDomainEvidence(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +199,11 @@ func (s *Server) handleOrganizationDomainEvidence(w http.ResponseWriter, r *http
 		httpx.WriteProblem(w, r, http.StatusNotFound, "domain_not_found", "organization domain not found")
 		return
 	}
+	p := principalFrom(r.Context())
+	if p == nil || p.Role == domain.RoleViewer {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"domain": row, "evidence": nil, "redacted": true})
+		return
+	}
 	if row.EvidenceID == nil {
 		httpx.WriteProblem(w, r, http.StatusNotFound, "evidence_not_found", "no ICP evidence recorded")
 		return
@@ -212,7 +217,7 @@ func (s *Server) handleOrganizationDomainEvidence(w http.ResponseWriter, r *http
 		httpx.WriteProblem(w, r, http.StatusNotFound, "evidence_not_found", "no ICP evidence recorded")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"domain": row, "evidence": ev}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"domain": row, "evidence": ev})
 }
 
 func uniqueNonEmpty(values []string) []string {
@@ -257,5 +262,5 @@ func (s *Server) handleCreateEASMScans(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "scan_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"items": tasks, "errors": scanErrs, "total": len(tasks)}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"items": tasks, "errors": scanErrs, "total": len(tasks)})
 }

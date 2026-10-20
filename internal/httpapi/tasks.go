@@ -37,7 +37,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "task_create_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"items": tasks, "total": len(tasks)}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"items": tasks, "total": len(tasks)})
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": tasks, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": tasks, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +61,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	steps, _ := s.Store.ListSteps(r.Context(), id)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"task": task, "steps": steps}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"task": task, "steps": steps})
 }
 
 func (s *Server) handleTaskSteps(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +74,7 @@ func (s *Server) handleTaskSteps(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": steps}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": steps})
 }
 
 func (s *Server) handleTaskObservations(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func (s *Server) handleTaskObservations(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": obs, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": obs, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleTaskFindings(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +102,7 @@ func (s *Server) handleTaskFindings(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": findings, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": findings, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +114,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "task_cancel_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex(), "status": "canceled"}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "canceled"})
 }
 
 func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,7 @@ func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "task_retry_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"items": tasks}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"items": tasks})
 }
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +144,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id.Hex()}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
 }
 
 func (s *Server) handleSyncTask(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +174,7 @@ func (s *Server) handleSyncTask(w http.ResponseWriter, r *http.Request) {
 			count++
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"scopeId": req.ScopeID, "assetsLinked": count}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"scopeId": req.ScopeID, "assetsLinked": count})
 }
 
 func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {

@@ -48,15 +48,13 @@ func TestSystemInfoIncludesScannerVersions(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	var body struct {
-		Data struct {
-			Scanners map[string]string `json:"scanners"`
-		} `json:"data"`
+		Scanners map[string]string `json:"scanners"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Data.Scanners["nuclei"] != "v3.11.1" || body.Data.Scanners["httpx"] != "v1.12.0" {
-		t.Fatalf("scanners = %v", body.Data.Scanners)
+	if body.Scanners["nuclei"] != "v3.11.1" || body.Scanners["httpx"] != "v1.12.0" {
+		t.Fatalf("scanners = %v", body.Scanners)
 	}
 }
 

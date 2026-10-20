@@ -56,7 +56,7 @@ func (s *Server) handleEASMOrganizationSummary(w http.ResponseWriter, r *http.Re
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMOrganizationAssets(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func (s *Server) handleEASMOrganizationAssets(w http.ResponseWriter, r *http.Req
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMAssets(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (s *Server) handleEASMAssets(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMAssetDetail(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +101,7 @@ func (s *Server) handleEASMAssetDetail(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMOrganizationFindings(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +114,7 @@ func (s *Server) handleEASMOrganizationFindings(w http.ResponseWriter, r *http.R
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMFindings(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,7 @@ func (s *Server) handleEASMFindings(w http.ResponseWriter, r *http.Request) {
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleEASMFindingHistory(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +145,7 @@ func (s *Server) handleEASMFindingHistory(w http.ResponseWriter, r *http.Request
 		writeEASMProblem(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleEASMOrganizationTasks(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +159,7 @@ func (s *Server) handleEASMOrganizationTasks(w http.ResponseWriter, r *http.Requ
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleEASMTasks(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +178,7 @@ func (s *Server) handleEASMTasks(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": q.Page, "pageSize": q.PageSize})
 }
 
 func (s *Server) handleEASMOrganizationExport(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +218,7 @@ func (s *Server) handleEASMOrganizationExport(w http.ResponseWriter, r *http.Req
 	}
 	name := filepath.Base(path)
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.organization_export", Resource: id.Hex(), Detail: map[string]any{"file": name, "format": req.Format}})
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"file": name, "downloadUrl": "/api/v1/exports/" + name}})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"file": name, "downloadUrl": "/api/v1/exports/" + name})
 }
 
 func (s *Server) listAllEASMTasks(r *http.Request, organizationID string) ([]domain.Task, error) {
