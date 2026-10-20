@@ -47,7 +47,7 @@ func (s *Server) handlePauseMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_pause_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "paused"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "status": "paused"})
 }
 
 func (s *Server) handleResumeMonitor(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func (s *Server) handleResumeMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_resume_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "active"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "status": "active"})
 }
 
 func (s *Server) handleRunMonitor(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func (s *Server) handleRunMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "monitor_run_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "triggered"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "status": "triggered"})
 }
 
 func (s *Server) handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (s *Server) handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +123,7 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleListGitHubTasks(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func (s *Server) handleDeleteGitHubMonitor(w http.ResponseWriter, r *http.Reques
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleGitHubFindings(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +244,7 @@ func (s *Server) handleDeleteFingerprint(w http.ResponseWriter, r *http.Request)
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleImportFingerprints(w http.ResponseWriter, r *http.Request) {

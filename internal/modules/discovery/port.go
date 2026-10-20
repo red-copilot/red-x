@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
-	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	"github.com/projectdiscovery/naabu/v2/pkg/port"
 	naaburesult "github.com/projectdiscovery/naabu/v2/pkg/result"
 	naaburunner "github.com/projectdiscovery/naabu/v2/pkg/runner"
 	"github.com/projectdiscovery/tlsx/pkg/tlsx"
 	"github.com/projectdiscovery/tlsx/pkg/tlsx/clients"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 type NaabuPortScanner struct {

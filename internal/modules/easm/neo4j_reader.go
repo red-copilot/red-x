@@ -77,7 +77,7 @@ func (r *Neo4jReader) ReadOrganizationGraph(ctx context.Context, orgID string, d
 	structureQuery := `
 MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
        null AS ip, null AS ipId, null AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	if depth >= 2 {
@@ -85,8 +85,8 @@ LIMIT $limit`
 MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
-       ip.addr AS ip, ip.mongoId AS ipId, ip.cdn AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
+       ip.addr AS ip, ip.entityId AS ipId, ip.cdn AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	}
 	if depth >= 3 {
@@ -95,8 +95,8 @@ MATCH (o:Organization {id:$orgId})
 OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
 OPTIONAL MATCH (ip)-[:EXPOSES]->(s:Service)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.mongoId AS domainId,
-       ip.addr AS ip, ip.mongoId AS ipId, ip.cdn AS cdn, s.key AS service, s.mongoId AS serviceId, s.port AS port, s.service AS serviceName
+RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
+       ip.addr AS ip, ip.entityId AS ipId, ip.cdn AS cdn, s.key AS service, s.entityId AS serviceId, s.port AS port, s.service AS serviceName
 LIMIT $limit`
 	}
 	structure, err := r.query(ctx, structureQuery, map[string]any{"orgId": orgID, "limit": limit})

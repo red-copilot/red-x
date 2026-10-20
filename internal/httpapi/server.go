@@ -25,7 +25,6 @@ import (
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/store"
 	"github.com/red-copilot/red-x/internal/webui"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Server struct {
@@ -254,11 +253,11 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func pathID(w http.ResponseWriter, r *http.Request, name string) (bson.ObjectID, bool) {
-	id, err := store.ObjectID(chi.URLParam(r, name))
+func pathID(w http.ResponseWriter, r *http.Request, name string) (string, bool) {
+	id, err := domain.ParseID(chi.URLParam(r, name))
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_id", "invalid object id")
-		return bson.NilObjectID, false
+		return "", false
 	}
 	return id, true
 }

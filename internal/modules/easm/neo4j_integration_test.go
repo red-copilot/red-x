@@ -9,7 +9,6 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/config"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestNeo4jProjectionRoundTrip(t *testing.T) {
@@ -40,29 +39,29 @@ func TestNeo4jProjectionRoundTrip(t *testing.T) {
 		t.Fatal("writer is nil")
 	}
 	defer writer.Close(context.Background())
-	orgID := bson.NewObjectID()
-	org := domain.Organization{ID: orgID, CanonicalName: "EASM integration " + orgID.Hex(), Status: domain.OrgStatusActive}
+	orgID := domain.MustID()
+	org := domain.Organization{ID: orgID, CanonicalName: "EASM integration " + orgID, Status: domain.OrgStatusActive}
 	root := fmt.Sprintf("easm-%d.invalid", time.Now().UnixNano())
 	if err := writer.MergeOrganization(context.Background(), org); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.MergeOrganizationDomain(context.Background(), domain.OrganizationDomain{
-		ID: bson.NewObjectID(), OrganizationID: orgID, RootDomain: root,
+		ID: domain.MustID(), OrganizationID: orgID, RootDomain: root,
 		Source: "integration", Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	assetID := bson.NewObjectID()
+	assetID := domain.MustID()
 	if err := writer.MergeAsset(context.Background(), domain.Asset{
 		ID: assetID, Kind: domain.AssetDomain, Key: root, Data: map[string]any{"ips": []any{"1.1.1.1"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	defer writer.DeleteEntityEdges(context.Background(), "organization", orgID.Hex())
+	defer writer.DeleteEntityEdges(context.Background(), "organization", orgID)
 	if err := reader.Probe(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	nodes, edges, _, err := reader.ReadOrganizationGraph(context.Background(), orgID.Hex(), 1, 50)
+	nodes, edges, _, err := reader.ReadOrganizationGraph(context.Background(), orgID, 1, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestNeo4jProjectionRoundTrip(t *testing.T) {
 	}
 	foundDomain := false
 	for _, node := range nodes {
-		if node.Type == "domain" && node.EntityID == assetID.Hex() {
+		if node.Type == "domain" && node.EntityID == assetID {
 			foundDomain = true
 		}
 	}

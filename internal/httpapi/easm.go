@@ -11,22 +11,21 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/platform/httpx"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type EASMService interface {
 	LookupDomain(ctx context.Context, rawDomain, actor string) (*easm.LookupResult, error)
-	EnqueueRefresh(ctx context.Context, orgID bson.ObjectID, actor string) (*domain.ICPJob, error)
-	GetICPJob(ctx context.Context, id bson.ObjectID) (*domain.ICPJob, error)
-	ConfirmDomains(ctx context.Context, orgID bson.ObjectID, domains []string, actor string) (int, error)
-	Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*easm.MapSnapshot, error)
-	Graph(ctx context.Context, orgID bson.ObjectID, depth, limit int) (*easm.GraphSnapshot, error)
-	Summary(ctx context.Context, orgID bson.ObjectID) (*easm.OrganizationSummary, error)
-	Assets(ctx context.Context, orgID *bson.ObjectID, filter easm.AssetFilter) (*easm.AssetPage, error)
-	Asset(ctx context.Context, orgID *bson.ObjectID, id bson.ObjectID) (*easm.AssetItem, error)
-	Findings(ctx context.Context, orgID *bson.ObjectID, filter easm.FindingFilter) (*easm.FindingPage, error)
-	FindingHistory(ctx context.Context, orgID bson.ObjectID, findingID bson.ObjectID) ([]domain.Finding, error)
-	CreateScans(ctx context.Context, orgID bson.ObjectID, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []easm.ScanError, error)
+	EnqueueRefresh(ctx context.Context, orgID string, actor string) (*domain.ICPJob, error)
+	GetICPJob(ctx context.Context, id string) (*domain.ICPJob, error)
+	ConfirmDomains(ctx context.Context, orgID string, domains []string, actor string) (int, error)
+	Map(ctx context.Context, orgID *string, risk string) (*easm.MapSnapshot, error)
+	Graph(ctx context.Context, orgID string, depth, limit int) (*easm.GraphSnapshot, error)
+	Summary(ctx context.Context, orgID string) (*easm.OrganizationSummary, error)
+	Assets(ctx context.Context, orgID *string, filter easm.AssetFilter) (*easm.AssetPage, error)
+	Asset(ctx context.Context, orgID *string, id string) (*easm.AssetItem, error)
+	Findings(ctx context.Context, orgID *string, filter easm.FindingFilter) (*easm.FindingPage, error)
+	FindingHistory(ctx context.Context, orgID string, findingID string) ([]domain.Finding, error)
+	CreateScans(ctx context.Context, orgID string, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []easm.ScanError, error)
 	Health(ctx context.Context) easm.Health
 	Overview(ctx context.Context, since time.Time) (*easm.Overview, error)
 	Search(ctx context.Context, query string, limit int) (*easm.SearchResult, error)
@@ -65,10 +64,10 @@ func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "organization_create_failed", err.Error())
 		return
 	}
-	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
+	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID, domain.OutboxOpUpsert)
 	p := principalFrom(r.Context())
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{
-		Actor: p.Username, Action: "easm.organization_create", Resource: org.ID.Hex(),
+		Actor: p.Username, Action: "easm.organization_create", Resource: org.ID,
 		Detail: map[string]any{"name": org.CanonicalName},
 	})
 	httpx.WriteJSON(w, http.StatusCreated, org)
@@ -224,20 +223,20 @@ func (s *Server) handleImportDomains(w http.ResponseWriter, r *http.Request) {
 		items = append(items, *od)
 	}
 	s.Store.AddAudit(r.Context(), domain.AuditEvent{
-		Actor: p.Username, Action: "easm.domain_import", Resource: id.Hex(),
+		Actor: p.Username, Action: "easm.domain_import", Resource: id,
 		Detail: map[string]any{"imported": len(items), "rejected": rejected},
 	})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "imported": len(items), "rejected": rejected})
 }
 
 func (s *Server) handleEASMMap(w http.ResponseWriter, r *http.Request) {
-	var orgID *bson.ObjectID
+	var orgID *string
 	rawOrg := r.URL.Query().Get("orgId")
 	if pathOrg := rPathParam(r, "id"); pathOrg != "" {
 		rawOrg = pathOrg
 	}
 	if raw := rawOrg; raw != "" {
-		id, err := bson.ObjectIDFromHex(raw)
+		id, err := domain.ParseID(raw)
 		if err != nil {
 			httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_org_id", "invalid organization id")
 			return
@@ -257,7 +256,7 @@ func (s *Server) handleEASMGraph(w http.ResponseWriter, r *http.Request) {
 	if pathOrg := rPathParam(r, "id"); pathOrg != "" {
 		rawOrg = pathOrg
 	}
-	id, err := bson.ObjectIDFromHex(rawOrg)
+	id, err := domain.ParseID(rawOrg)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_org_id", "orgId is required")
 		return

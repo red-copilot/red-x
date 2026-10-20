@@ -6,21 +6,21 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/github"
 	"github.com/red-copilot/red-x/internal/modules/tasking"
 	"github.com/red-copilot/red-x/internal/store"
-	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Scheduler struct {
-	Store  *store.Store
-	Engine *tasking.Engine
-	GitHub *github.Service
-	Log    *slog.Logger
-	Owner  string
+	Store     *store.Store
+	Engine    *tasking.Engine
+	GitHub    *github.Service
+	Log       *slog.Logger
+	Owner     string
+	lastPrune time.Time
 }
 
 func New(st *store.Store, engine *tasking.Engine, gh *github.Service, log *slog.Logger) *Scheduler {
@@ -47,11 +47,18 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
+	if s.lastPrune.IsZero() || now.Sub(s.lastPrune) >= time.Hour {
+		if err := s.Store.PruneExpired(ctx, now); err != nil {
+			s.Log.Warn("retention cleanup failed", "error", err)
+		} else {
+			s.lastPrune = now
+		}
+	}
 	monitors, err := s.Store.DueMonitors(ctx, now, 20)
 	if err == nil {
 		for _, m := range monitors {
 			if err := s.RunMonitor(ctx, m); err != nil {
-				s.Log.Warn("monitor run failed", "monitor", m.ID.Hex(), "error", err)
+				s.Log.Warn("monitor run failed", "monitor", m.ID, "error", err)
 			}
 		}
 	}
@@ -59,7 +66,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	if err == nil {
 		for _, sc := range schedules {
 			if err := s.RunSchedule(ctx, sc); err != nil {
-				s.Log.Warn("schedule run failed", "schedule", sc.ID.Hex(), "error", err)
+				s.Log.Warn("schedule run failed", "schedule", sc.ID, "error", err)
 			}
 		}
 	}
@@ -71,7 +78,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 					runCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 					defer cancel()
 					if err := s.GitHub.RunMonitor(runCtx, m); err != nil {
-						s.Log.Warn("github monitor failed", "monitor", m.ID.Hex(), "error", err)
+						s.Log.Warn("github monitor failed", "monitor", m.ID, "error", err)
 					}
 				}(m)
 			}
@@ -90,7 +97,7 @@ func (s *Scheduler) RunMonitor(ctx context.Context, m domain.Monitor) error {
 		kind = domain.TaskWIHUpdate
 	}
 	opts := m.Options
-	opts.MonitorID = m.ID.Hex()
+	opts.MonitorID = m.ID
 	tasks, err := s.Engine.Submit(ctx, tasking.SubmitInput{
 		Name: fmt.Sprintf("监控-%s-%s", m.Name, time.Now().Format("20060102-150405")),
 		Kind: kind, Target: m.Target, Options: opts, PolicyID: m.PolicyID,
@@ -103,7 +110,7 @@ func (s *Scheduler) RunMonitor(ctx context.Context, m domain.Monitor) error {
 	m.LastRunAt = &now
 	m.NextRunAt = now.Add(time.Duration(m.IntervalSec) * time.Second)
 	if len(tasks) > 0 {
-		m.LastRunID = tasks[0].ID.Hex()
+		m.LastRunID = tasks[0].ID
 	}
 	if err := s.Store.UpdateMonitor(ctx, &m); err != nil {
 		return err
@@ -160,10 +167,10 @@ func (s *Scheduler) CreateMonitor(ctx context.Context, m *domain.Monitor) error 
 	if m.NextRunAt.IsZero() {
 		m.NextRunAt = time.Now().UTC().Add(30 * time.Second)
 	}
-	if _, err := store.ObjectID(m.ScopeID); err != nil {
+	if _, err := domain.ParseID(m.ScopeID); err != nil {
 		return fmt.Errorf("invalid scope id")
 	}
-	scopeID, _ := store.ObjectID(m.ScopeID)
+	scopeID, _ := domain.ParseID(m.ScopeID)
 	if scope, err := s.Store.GetScope(ctx, scopeID); err != nil || scope == nil {
 		return fmt.Errorf("scope not found")
 	}
@@ -174,7 +181,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sc *domain.Schedule) err
 	if sc.PolicyID == "" {
 		return fmt.Errorf("policyId is required")
 	}
-	policyID, err := store.ObjectID(sc.PolicyID)
+	policyID, err := domain.ParseID(sc.PolicyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy id")
 	}
@@ -203,7 +210,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sc *domain.Schedule) err
 	return s.Store.CreateSchedule(ctx, sc)
 }
 
-func (s *Scheduler) PauseMonitor(ctx context.Context, id bson.ObjectID, paused bool) error {
+func (s *Scheduler) PauseMonitor(ctx context.Context, id string, paused bool) error {
 	m, err := s.Store.GetMonitor(ctx, id)
 	if err != nil || m == nil {
 		return fmt.Errorf("monitor not found")
@@ -219,11 +226,11 @@ func (s *Scheduler) PauseMonitor(ctx context.Context, id bson.ObjectID, paused b
 	return s.Store.UpdateMonitor(ctx, m)
 }
 
-func (s *Scheduler) DeleteMonitor(ctx context.Context, id bson.ObjectID) error {
+func (s *Scheduler) DeleteMonitor(ctx context.Context, id string) error {
 	return s.Store.DeleteMonitor(ctx, id)
 }
 
-func (s *Scheduler) RunMonitorNow(ctx context.Context, id bson.ObjectID) error {
+func (s *Scheduler) RunMonitorNow(ctx context.Context, id string) error {
 	m, err := s.Store.GetMonitor(ctx, id)
 	if err != nil || m == nil {
 		return fmt.Errorf("monitor not found")

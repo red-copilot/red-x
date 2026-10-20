@@ -242,7 +242,7 @@ if [[ "$skip_doctor" -ne 1 ]]; then
     fail "arl doctor reported problems"
   }
   printf '%s\n' "$doctor_out"
-  grep -q 'mongo: OK' <<<"$doctor_out" || fail "arl doctor did not report mongo: OK"
+  grep -q 'postgres: OK' <<<"$doctor_out" || fail "arl doctor did not report postgres: OK"
   grep -q 'queue: OK' <<<"$doctor_out" || fail "arl doctor did not report queue: OK"
   echo "PASS: arl doctor"
 else

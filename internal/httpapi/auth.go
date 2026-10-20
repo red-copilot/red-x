@@ -74,7 +74,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var user *domain.User
-	if !p.UserID.IsZero() {
+	if p.UserID != "" {
 		user, _ = s.Store.GetUserByID(r.Context(), p.UserID)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
@@ -151,7 +151,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +190,7 @@ func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {

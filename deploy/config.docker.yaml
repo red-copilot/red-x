@@ -3,9 +3,11 @@ server:
   publicURL: "https://localhost:5003"
   debug: false
 
-mongo:
-  uri: "mongodb://mongo:27017"
-  database: "arl"
+postgres:
+  dsn: "postgres://arl:arlpassword@postgres:5432/arl?sslmode=disable"
+  maxOpenConns: 25
+  maxIdleConns: 10
+  connMaxLifetime: "30m"
 
 redis:
   url: "redis://:arlpassword@redis:6379/0"

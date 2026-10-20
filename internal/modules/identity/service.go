@@ -12,17 +12,16 @@ import (
 	"github.com/red-copilot/red-x/internal/platform/config"
 	"github.com/red-copilot/red-x/internal/platform/security"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Principal struct {
-	UserID   bson.ObjectID
+	UserID   string
 	Username string
 	Role     domain.Role
 	Scopes   []string
 	Via      string
-	Session  bson.ObjectID
-	APIKeyID bson.ObjectID
+	Session  string
+	APIKeyID string
 }
 
 func (p *Principal) IsAdmin() bool { return p != nil && p.Role == domain.RoleAdmin }
@@ -80,7 +79,7 @@ type LoginResult struct {
 	AccessExpires  time.Time
 	RefreshExpires time.Time
 	CSRFToken      string
-	SessionID      bson.ObjectID
+	SessionID      string
 }
 
 func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*LoginResult, error) {
@@ -108,7 +107,7 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	if err := s.store.CreateSession(ctx, sess); err != nil {
 		return nil, err
 	}
-	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID.Hex(), u.Username, string(u.Role), sess.ID.Hex(), accessTTL)
+	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID, u.Username, string(u.Role), sess.ID, accessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +147,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*Lo
 		return nil, errors.New("user disabled")
 	}
 	accessTTL, refreshTTL := s.cfg.AccessTTL(), s.cfg.RefreshTTL()
-	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID.Hex(), u.Username, string(u.Role), sess.ID.Hex(), accessTTL)
+	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID, u.Username, string(u.Role), sess.ID, accessTTL)
 	newRefresh, err := security.RandomToken(32)
 	if err != nil {
 		return nil, err
@@ -169,7 +168,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*Lo
 }
 
 func (s *Service) Logout(ctx context.Context, p *Principal) {
-	if p != nil && !p.Session.IsZero() {
+	if p != nil && p.Session != "" {
 		_ = s.store.RevokeSession(ctx, p.Session)
 	}
 }
@@ -200,7 +199,7 @@ func (s *Service) Authenticate(ctx context.Context, accessToken, apiKey string) 
 	if err != nil {
 		return nil, err
 	}
-	userID, err := bson.ObjectIDFromHex(claims.UserID)
+	userID, err := domain.ParseID(claims.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,15 +210,15 @@ func (s *Service) Authenticate(ctx context.Context, accessToken, apiKey string) 
 	if u == nil || u.Disabled {
 		return nil, errors.New("user disabled")
 	}
-	sessionID := bson.NilObjectID
+	sessionID := ""
 	if claims.SessionID != "" {
-		sessionID, _ = bson.ObjectIDFromHex(claims.SessionID)
+		sessionID, _ = domain.ParseID(claims.SessionID)
 	}
 	return &Principal{UserID: u.ID, Username: u.Username, Role: u.Role, Via: "cookie", Session: sessionID}, nil
 }
 
 func (s *Service) ChangePassword(ctx context.Context, p *Principal, oldPassword, newPassword string) error {
-	if p == nil || p.UserID.IsZero() {
+	if p == nil || p.UserID == "" {
 		return errors.New("only interactive users can change passwords")
 	}
 	u, err := s.store.GetUserByID(ctx, p.UserID)
@@ -267,7 +266,7 @@ func (s *Service) CreateUser(ctx context.Context, username, password string, rol
 	return u, nil
 }
 
-func (s *Service) ResetPassword(ctx context.Context, id bson.ObjectID, password string) error {
+func (s *Service) ResetPassword(ctx context.Context, id string, password string) error {
 	if len(password) < 10 {
 		return errors.New("password must be at least 10 characters")
 	}

@@ -10,7 +10,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/webintel"
 	"github.com/red-copilot/red-x/internal/platform/httpx"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -72,7 +71,7 @@ func (s *Server) handleCreateExport(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	id, err := bson.ObjectIDFromHex(req.TaskID)
+	id, err := domain.ParseID(req.TaskID)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_task", "invalid task id")
 		return

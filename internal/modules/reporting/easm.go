@@ -12,13 +12,12 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/xuri/excelize/v2"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type EASMReportProvider interface {
-	Summary(ctx context.Context, orgID bson.ObjectID) (*easm.OrganizationSummary, error)
-	Assets(ctx context.Context, orgID *bson.ObjectID, filter easm.AssetFilter) (*easm.AssetPage, error)
-	Findings(ctx context.Context, orgID *bson.ObjectID, filter easm.FindingFilter) (*easm.FindingPage, error)
+	Summary(ctx context.Context, orgID string) (*easm.OrganizationSummary, error)
+	Assets(ctx context.Context, orgID *string, filter easm.AssetFilter) (*easm.AssetPage, error)
+	Findings(ctx context.Context, orgID *string, filter easm.FindingFilter) (*easm.FindingPage, error)
 }
 
 type eASMAssetRow struct {
@@ -101,7 +100,7 @@ func (e *Exporter) ExportOrganization(ctx context.Context, provider EASMReportPr
 	if err := os.MkdirAll(e.Dir, 0o750); err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("EASM_%s_%d.%s", org.ID.Hex(), time.Now().Unix(), format)
+	name := fmt.Sprintf("EASM_%s_%d.%s", org.ID, time.Now().Unix(), format)
 	path := filepath.Join(e.Dir, name)
 	switch format {
 	case "csv":
@@ -149,7 +148,7 @@ func writeEASMCSV(path string, data eASMReportData) error {
 		_ = w.Write([]string{orgName, safeCSVCell(strings.Join(x.Roots, ";")), "finding", safeCSVCell(x.Kind), "", safeCSVCell(x.Target), safeCSVCell(x.Severity), safeCSVCell(x.Title), safeCSVCell(x.PluginName), x.CreatedAt.Format(time.RFC3339), x.CreatedAt.Format(time.RFC3339), fmt.Sprintf("occurrences=%d", x.Occurrences)})
 	}
 	for _, t := range data.Tasks {
-		_ = w.Write([]string{orgName, safeCSVCell(t.RootDomain), "task", safeCSVCell(string(t.Kind)), safeCSVCell(t.ID.Hex()), safeCSVCell(t.Target), "", safeCSVCell(t.Name), safeCSVCell(t.CreatedBy), t.CreatedAt.Format(time.RFC3339), t.CreatedAt.Format(time.RFC3339), string(t.Status)})
+		_ = w.Write([]string{orgName, safeCSVCell(t.RootDomain), "task", safeCSVCell(string(t.Kind)), safeCSVCell(t.ID), safeCSVCell(t.Target), "", safeCSVCell(t.Name), safeCSVCell(t.CreatedBy), t.CreatedAt.Format(time.RFC3339), t.CreatedAt.Format(time.RFC3339), string(t.Status)})
 	}
 	return w.Error()
 }
@@ -196,7 +195,7 @@ func writeEASMXLSX(path string, data eASMReportData) error {
 	_, _ = f.NewSheet("Tasks")
 	_ = f.SetSheetRow("Tasks", "A1", &[]any{"ID", "Name", "Root Domain", "Target", "Status", "Progress", "Created At"})
 	for i, t := range data.Tasks {
-		_ = f.SetSheetRow("Tasks", fmt.Sprintf("A%d", i+2), &[]any{t.ID.Hex(), t.Name, t.RootDomain, t.Target, string(t.Status), t.Progress, t.CreatedAt.Format(time.RFC3339)})
+		_ = f.SetSheetRow("Tasks", fmt.Sprintf("A%d", i+2), &[]any{t.ID, t.Name, t.RootDomain, t.Target, string(t.Status), t.Progress, t.CreatedAt.Format(time.RFC3339)})
 	}
 	return f.SaveAs(path)
 }

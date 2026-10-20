@@ -97,7 +97,7 @@ func (s *Server) handleTaskFindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := httpx.PageQuery(r)
-	findings, total, err := s.Store.ListFindings(r.Context(), r.URL.Query().Get("kind"), id.Hex(), "", q)
+	findings, total, err := s.Store.ListFindings(r.Context(), r.URL.Query().Get("kind"), id, "", q)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
@@ -114,7 +114,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "task_cancel_failed", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex(), "status": "canceled"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "status": "canceled"})
 }
 
 func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +144,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleSyncTask(w http.ResponseWriter, r *http.Request) {
@@ -158,12 +158,12 @@ func (s *Server) handleSyncTask(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	scopeID, err := store.ObjectID(req.ScopeID)
+	scopeID, err := domain.ParseID(req.ScopeID)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_scope", "invalid scope id")
 		return
 	}
-	assets, _, err := s.Store.ListAssets(r.Context(), "", id.Hex(), "", store.PageQuery{Page: 1, PageSize: 200})
+	assets, _, err := s.Store.ListAssets(r.Context(), "", id, "", store.PageQuery{Page: 1, PageSize: 200})
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return

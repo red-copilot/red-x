@@ -5,7 +5,7 @@
 ARL is a Go modular monolith with an embedded Vue 3 console.
 
 - `cmd/arl/`: CLI roles (`web`, `worker`, `scheduler`, `migrate`, `doctor`).
-- `internal/app/`, `internal/httpapi/`, `internal/store/`: wiring, REST/SSE/OpenAPI, and MongoDB repositories.
+- `internal/app/`, `internal/httpapi/`, `internal/store/`: wiring, REST/SSE/OpenAPI, and PostgreSQL/GORM repositories.
 - `internal/modules/`: identity, discovery, webintel, EASM, PoC, tasking, monitoring, GitHub, and reporting.
 - `internal/platform/`: config, logging, queues, safety, notifications, and ProjectDiscovery helpers.
 - `web/src/`: Vue/TypeScript source; `web/e2e/`: Playwright tests; output goes to `internal/webui/dist`.
@@ -37,7 +37,7 @@ Run `./arl migrate --config config.yaml` before roles; use `queue.driver: memory
 
 ## Testing Guidelines
 
-Use Go's `testing` package with table-driven tests and `httptest`. Name tests `TestXxx`, colocate them with the package, and cover success, failure, and authorization. Integration tests use `ARL_TEST_MONGO_URI`, `ARL_TEST_NEO4J_*`, or `ARL_TEST_GEOIP_*`. Add focused tests; no fixed coverage threshold. Frontend changes must pass `npm run typecheck` and `npm run build`.
+Use Go's `testing` package with table-driven tests and `httptest`. Name tests `TestXxx`, colocate them with the package, and cover success, failure, and authorization. Integration tests use `ARL_TEST_POSTGRES_DSN`, `ARL_TEST_NEO4J_*`, or `ARL_TEST_GEOIP_*`. Add focused tests; no fixed coverage threshold. Frontend changes must pass `npm run typecheck` and `npm run build`.
 
 ## Commit & Pull Request Guidelines
 

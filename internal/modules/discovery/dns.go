@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
-	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	mdns "github.com/miekg/dns"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 	retryabledns "github.com/projectdiscovery/retryabledns"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 type PDDNSResolver struct {

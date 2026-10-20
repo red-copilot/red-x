@@ -1,4 +1,4 @@
-.PHONY: build frontend test race vet lint verify compose-build compose-up clean
+.PHONY: build frontend test test-postgres race vet lint verify compose-build compose-up clean
 
 VERSION ?= 3.0.0
 
@@ -11,6 +11,10 @@ build: frontend
 test:
 	go test ./...
 	cd web && npm run typecheck && npm test
+
+test-postgres:
+	@test -n "$$ARL_TEST_POSTGRES_DSN" || (echo "set ARL_TEST_POSTGRES_DSN (PostgreSQL 18+)" >&2; exit 1)
+	go test ./internal/store ./internal/modules/tasking
 
 race:
 	go test -race ./...

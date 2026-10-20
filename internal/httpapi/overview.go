@@ -65,7 +65,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 					if len(tasks) >= limit {
 						break
 					}
-					tasks = append(tasks, easm.SearchHit{Type: "task", ID: task.ID.Hex(), Label: task.Name, Detail: task.Target})
+					tasks = append(tasks, easm.SearchHit{Type: "task", ID: task.ID, Label: task.Name, Detail: task.Target})
 				}
 			}
 		}

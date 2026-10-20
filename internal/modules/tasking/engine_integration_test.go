@@ -1,37 +1,17 @@
 package tasking
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/config"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/platform/logx"
-	"github.com/red-copilot/red-x/internal/store"
 )
 
 func TestSubmitPublicSuffixRootsEnableSubfinder(t *testing.T) {
-	uri := os.Getenv("ARL_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("set ARL_TEST_MONGO_URI to run MongoDB integration tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	st, err := store.Open(ctx, uri, fmt.Sprintf("arl_tasking_test_%d", time.Now().UnixNano()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = st.DB().Drop(context.Background())
-		_ = st.Close(context.Background())
-	}()
-	if err := st.EnsureIndexes(ctx); err != nil {
-		t.Fatal(err)
-	}
+	st, ctx := newTaskingPostgresStore(t)
 	queue := jobs.NewMemory(logx.New("error", false))
 	defer queue.Close()
 	cfg := config.Default()

@@ -13,21 +13,20 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type ICPServiceStore interface {
 	CreateOrganization(ctx context.Context, org *domain.Organization) error
 	FindOrganizationByName(ctx context.Context, name string) (*domain.Organization, error)
 	FindOrganizationByNameAndRegion(ctx context.Context, name, region string) (*domain.Organization, error)
-	GetOrganization(ctx context.Context, id bson.ObjectID) (*domain.Organization, error)
+	GetOrganization(ctx context.Context, id string) (*domain.Organization, error)
 	UpsertOrganizationDomain(ctx context.Context, od *domain.OrganizationDomain) error
-	ListOrganizationDomains(ctx context.Context, orgID bson.ObjectID, status string) ([]domain.OrganizationDomain, error)
-	ConfirmOrganizationDomains(ctx context.Context, orgID bson.ObjectID, domains []string) (int, error)
+	ListOrganizationDomains(ctx context.Context, orgID string, status string) ([]domain.OrganizationDomain, error)
+	ConfirmOrganizationDomains(ctx context.Context, orgID string, domains []string, actor string) (int, error)
 	AddICPEvidence(ctx context.Context, ev *domain.ICPEvidence) error
 	CreateICPJob(ctx context.Context, job *domain.ICPJob) error
-	UpdateICPJob(ctx context.Context, id bson.ObjectID, fields bson.M) error
-	GetICPJob(ctx context.Context, id bson.ObjectID) (*domain.ICPJob, error)
+	UpdateICPJob(ctx context.Context, id string, fields store.ICPJobPatch) error
+	GetICPJob(ctx context.Context, id string) (*domain.ICPJob, error)
 	AddAudit(ctx context.Context, e domain.AuditEvent)
 	AppendGraphOutbox(ctx context.Context, entityType, entityID string, op domain.GraphOutboxOp) error
 }
@@ -116,7 +115,7 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 		if err := s.Store.CreateOrganization(ctx, org); err != nil {
 			return nil, err
 		}
-		_ = s.Store.AppendGraphOutbox(ctx, "organization", org.ID.Hex(), domain.OutboxOpUpsert)
+		_ = s.Store.AppendGraphOutbox(ctx, "organization", org.ID, domain.OutboxOpUpsert)
 	}
 	storedLicense := ""
 	if confirmed, err := s.Store.ListOrganizationDomains(ctx, org.ID, string(domain.DomainStatusConfirmed)); err == nil {
@@ -138,7 +137,7 @@ func (s *Service) LookupDomain(ctx context.Context, rawDomain, actor string) (*L
 	if err := s.Store.UpsertOrganizationDomain(ctx, od); err != nil {
 		return nil, err
 	}
-	s.audit(ctx, actor, "easm.icp_lookup", org.ID.Hex(), map[string]any{
+	s.audit(ctx, actor, "easm.icp_lookup", org.ID, map[string]any{
 		"domain": root, "organization": org.CanonicalName, "confidence": conf,
 	})
 	return &LookupResult{Organization: *org, Attribution: res, Confidence: conf, Provider: provider}, nil
@@ -229,7 +228,7 @@ func icpHealth(err error) string {
 	}
 }
 
-func (s *Service) EnqueueRefresh(ctx context.Context, orgID bson.ObjectID, actor string) (*domain.ICPJob, error) {
+func (s *Service) EnqueueRefresh(ctx context.Context, orgID string, actor string) (*domain.ICPJob, error) {
 	if s.Store == nil {
 		return nil, ErrICPUnavailable
 	}
@@ -245,15 +244,14 @@ func (s *Service) EnqueueRefresh(ctx context.Context, orgID bson.ObjectID, actor
 		return nil, err
 	}
 	if s.Queue != nil {
-		payload, _ := json.Marshal(map[string]string{"jobId": job.ID.Hex()})
+		payload, _ := json.Marshal(map[string]string{"jobId": job.ID})
 		if err := s.Queue.Publish(ctx, "q.icp", payload); err != nil {
-			_ = s.Store.UpdateICPJob(ctx, job.ID, bson.M{
-				"status": domain.ICPJobFailed, "error": err.Error(), "finishedAt": time.Now().UTC(),
-			})
+			now := time.Now().UTC()
+			_ = s.Store.UpdateICPJob(ctx, job.ID, store.ICPJobPatch{Status: ptrValue(domain.ICPJobFailed), Error: ptrValue(err.Error()), FinishedAt: &now})
 			return nil, err
 		}
 	}
-	s.audit(ctx, actor, "easm.icp_refresh", orgID.Hex(), map[string]any{"jobId": job.ID.Hex()})
+	s.audit(ctx, actor, "easm.icp_refresh", orgID, map[string]any{"jobId": job.ID})
 	return job, nil
 }
 
@@ -267,7 +265,7 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 	if err := json.Unmarshal(d.Envelope.Payload, &payload); err != nil {
 		return err
 	}
-	id, err := store.ObjectID(payload.JobID)
+	id, err := domain.ParseID(payload.JobID)
 	if err != nil {
 		return err
 	}
@@ -278,7 +276,7 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 	if job == nil || job.Status != domain.ICPJobQueued {
 		return nil
 	}
-	if err := s.Store.UpdateICPJob(ctx, id, bson.M{"status": domain.ICPJobRunning}); err != nil {
+	if err := s.Store.UpdateICPJob(ctx, id, store.ICPJobPatch{Status: ptrValue(domain.ICPJobRunning)}); err != nil {
 		return err
 	}
 	org, err := s.Store.GetOrganization(ctx, job.OrganizationID)
@@ -315,37 +313,34 @@ func (s *Service) HandleICPJob(ctx context.Context, d jobs.Delivery) error {
 		count++
 	}
 	now := time.Now().UTC()
-	if err := s.Store.UpdateICPJob(ctx, id, bson.M{
-		"status": domain.ICPJobDone, "resultCount": count, "finishedAt": now,
-	}); err != nil {
+	if err := s.Store.UpdateICPJob(ctx, id, store.ICPJobPatch{Status: ptrValue(domain.ICPJobDone), ResultCount: &count, FinishedAt: &now}); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Service) failJob(ctx context.Context, id bson.ObjectID, cause error) error {
+func (s *Service) failJob(ctx context.Context, id string, cause error) error {
 	if s.Log != nil {
-		s.Log.Warn("ICP refresh failed", "jobId", id.Hex(), "error", cause)
+		s.Log.Warn("ICP refresh failed", "jobId", id, "error", cause)
 	}
-	_ = s.Store.UpdateICPJob(ctx, id, bson.M{
-		"status": domain.ICPJobFailed, "error": cause.Error(), "finishedAt": time.Now().UTC(),
-	})
+	now := time.Now().UTC()
+	_ = s.Store.UpdateICPJob(ctx, id, store.ICPJobPatch{Status: ptrValue(domain.ICPJobFailed), Error: ptrValue(cause.Error()), FinishedAt: &now})
 	return nil
 }
 
-func (s *Service) ConfirmDomains(ctx context.Context, orgID bson.ObjectID, domains []string, actor string) (int, error) {
+func (s *Service) ConfirmDomains(ctx context.Context, orgID string, domains []string, actor string) (int, error) {
 	if s.Store == nil {
 		return 0, ErrICPUnavailable
 	}
-	n, err := s.Store.ConfirmOrganizationDomains(ctx, orgID, domains)
+	n, err := s.Store.ConfirmOrganizationDomains(ctx, orgID, domains, actor)
 	if err != nil {
 		return 0, err
 	}
-	s.audit(ctx, actor, "easm.domain_confirm", orgID.Hex(), map[string]any{"domains": domains, "changed": n})
+	s.audit(ctx, actor, "easm.domain_confirm", orgID, map[string]any{"domains": domains, "changed": n})
 	return n, nil
 }
 
-func (s *Service) GetICPJob(ctx context.Context, id bson.ObjectID) (*domain.ICPJob, error) {
+func (s *Service) GetICPJob(ctx context.Context, id string) (*domain.ICPJob, error) {
 	if s.Store == nil {
 		return nil, ErrICPUnavailable
 	}
@@ -378,3 +373,5 @@ func payloadHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
+
+func ptrValue[T any](v T) *T { return &v }

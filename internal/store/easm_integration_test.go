@@ -3,36 +3,15 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func newEASMTestStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
-	uri := os.Getenv("ARL_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("set ARL_TEST_MONGO_URI to run MongoDB integration tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	t.Cleanup(cancel)
-	dbName := fmt.Sprintf("arl_test_easm_%d", time.Now().UnixNano())
-	st, err := Open(ctx, uri, dbName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = st.DB().Drop(context.Background())
-		_ = st.Close(context.Background())
-	})
-	if err := st.EnsureIndexes(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return st, ctx
+	return newPostgresTestStore(t)
 }
 
 func TestOrganizationDomainUpsertIsIdempotent(t *testing.T) {
@@ -93,7 +72,7 @@ func TestConfirmOnlyCandidateDomains(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	n, err := st.ConfirmOrganizationDomains(ctx, org.ID, []string{"a-scitc.edu.cn", "b-scitc.edu.cn"})
+	n, err := st.ConfirmOrganizationDomains(ctx, org.ID, []string{"a-scitc.edu.cn", "b-scitc.edu.cn"}, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,12 +86,12 @@ func TestConfirmOnlyCandidateDomains(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 confirmed domains, got %d", len(rows))
 	}
-	count, err := st.C(ColGraphOutbox).CountDocuments(ctx, bson.M{"entityType": "organization_domain"})
+	events, err := st.ClaimGraphOutbox(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 outbox event, got %d", count)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 outbox event, got %d", len(events))
 	}
 }
 
@@ -138,7 +117,7 @@ func TestOutboxClaimIsExclusive(t *testing.T) {
 	if len(second) != 0 {
 		t.Fatalf("expected no reclaim, got %d", len(second))
 	}
-	ids := []bson.ObjectID{first[0].ID, first[1].ID}
+	ids := []string{first[0].ID, first[1].ID}
 	if err := st.MarkGraphOutboxProcessed(ctx, ids); err != nil {
 		t.Fatal(err)
 	}
@@ -199,10 +178,10 @@ func TestConfirmRejectsSecondOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n, err := st.ConfirmOrganizationDomains(ctx, orgA.ID, []string{"conflict.edu.cn"}); err != nil || n != 1 {
+	if n, err := st.ConfirmOrganizationDomains(ctx, orgA.ID, []string{"conflict.edu.cn"}, "test"); err != nil || n != 1 {
 		t.Fatalf("first confirm failed: n=%d err=%v", n, err)
 	}
-	if _, err := st.ConfirmOrganizationDomains(ctx, orgB.ID, []string{"conflict.edu.cn"}); !errors.Is(err, domain.ErrDomainAlreadyConfirmed) {
+	if _, err := st.ConfirmOrganizationDomains(ctx, orgB.ID, []string{"conflict.edu.cn"}, "test"); !errors.Is(err, domain.ErrDomainAlreadyConfirmed) {
 		t.Fatalf("expected ErrDomainAlreadyConfirmed, got %v", err)
 	}
 }
@@ -251,9 +230,9 @@ func TestReassignOrganizationDomainPreservesEvidence(t *testing.T) {
 	if err != nil || len(newRows) != 1 || newRows[0].RootDomain != "reassign.edu.cn" {
 		t.Fatalf("list new: rows=%+v err=%v", newRows, err)
 	}
-	count, err := st.C(ColGraphOutbox).CountDocuments(ctx, bson.M{"entityType": "organization_domain"})
-	if err != nil || count < 2 {
-		t.Fatalf("expected outbox events for old and new rows, count=%d err=%v", count, err)
+	events, err := st.ClaimGraphOutbox(ctx, 100)
+	if err != nil || len(events) < 2 {
+		t.Fatalf("expected outbox events for old and new rows, count=%d err=%v", len(events), err)
 	}
 }
 

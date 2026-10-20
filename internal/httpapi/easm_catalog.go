@@ -10,7 +10,6 @@ import (
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/platform/httpx"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func queryInt(r *http.Request, key string) int {
@@ -18,12 +17,12 @@ func queryInt(r *http.Request, key string) int {
 	return n
 }
 
-func optionalOrgID(r *http.Request, key string) (*bson.ObjectID, bool) {
+func optionalOrgID(r *http.Request, key string) (*string, bool) {
 	raw := strings.TrimSpace(r.URL.Query().Get(key))
 	if raw == "" {
 		return nil, true
 	}
-	id, err := bson.ObjectIDFromHex(raw)
+	id, err := domain.ParseID(raw)
 	if err != nil {
 		return nil, false
 	}
@@ -154,7 +153,7 @@ func (s *Server) handleEASMOrganizationTasks(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	q := httpx.PageQuery(r)
-	items, total, err := s.Store.ListEASMTasks(r.Context(), id.Hex(), r.URL.Query().Get("status"), r.URL.Query().Get("kind"), q)
+	items, total, err := s.Store.ListEASMTasks(r.Context(), id, r.URL.Query().Get("status"), r.URL.Query().Get("kind"), q)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
@@ -171,7 +170,7 @@ func (s *Server) handleEASMTasks(w http.ResponseWriter, r *http.Request) {
 	q := httpx.PageQuery(r)
 	filter := ""
 	if orgID != nil {
-		filter = orgID.Hex()
+		filter = *orgID
 	}
 	items, total, err := s.Store.ListEASMTasks(r.Context(), filter, r.URL.Query().Get("status"), r.URL.Query().Get("kind"), q)
 	if err != nil {
@@ -202,7 +201,7 @@ func (s *Server) handleEASMOrganizationExport(w http.ResponseWriter, r *http.Req
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	tasks, err := s.listAllEASMTasks(r, id.Hex())
+	tasks, err := s.listAllEASMTasks(r, id)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
@@ -217,7 +216,7 @@ func (s *Server) handleEASMOrganizationExport(w http.ResponseWriter, r *http.Req
 		return
 	}
 	name := filepath.Base(path)
-	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.organization_export", Resource: id.Hex(), Detail: map[string]any{"file": name, "format": req.Format}})
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.organization_export", Resource: id, Detail: map[string]any{"file": name, "format": req.Format}})
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"file": name, "downloadUrl": "/api/v1/exports/" + name})
 }
 

@@ -2,8 +2,6 @@ package domain
 
 import (
 	"time"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 const SchemaVersion = 1
@@ -86,422 +84,425 @@ const (
 )
 
 type User struct {
-	ID                 bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Username           string        `bson:"username" json:"username"`
-	PasswordHash       string        `bson:"passwordHash" json:"-"`
-	Role               Role          `bson:"role" json:"role"`
-	MustChangePassword bool          `bson:"mustChangePassword" json:"mustChangePassword"`
-	Disabled           bool          `bson:"disabled" json:"disabled"`
-	CreatedAt          time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt          time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion      int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID                 string    `gorm:"primaryKey;size:24" json:"id"`
+	Username           string    `json:"username"`
+	PasswordHash       string    `json:"-"`
+	Role               Role      `json:"role"`
+	MustChangePassword bool      `json:"mustChangePassword"`
+	Disabled           bool      `json:"disabled"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+	SchemaVersion      int       `json:"schemaVersion"`
 }
 
 type Session struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID        bson.ObjectID `bson:"userId" json:"userId"`
-	RefreshHash   string        `bson:"refreshHash" json:"-"`
-	UserAgent     string        `bson:"userAgent" json:"userAgent"`
-	IP            string        `bson:"ip" json:"ip"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	ExpiresAt     time.Time     `bson:"expiresAt" json:"expiresAt"`
-	RevokedAt     *time.Time    `bson:"revokedAt,omitempty" json:"revokedAt,omitempty"`
-	RotatedAt     *time.Time    `bson:"rotatedAt,omitempty" json:"rotatedAt,omitempty"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	UserID        string     `json:"userId"`
+	RefreshHash   string     `json:"-"`
+	UserAgent     string     `json:"userAgent"`
+	IP            string     `json:"ip"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	ExpiresAt     time.Time  `json:"expiresAt"`
+	RevokedAt     *time.Time `json:"revokedAt,omitempty"`
+	RotatedAt     *time.Time `json:"rotatedAt,omitempty"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type APIKey struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	KeyHash       string        `bson:"keyHash" json:"-"`
-	Scopes        []string      `bson:"scopes" json:"scopes"`
-	CreatedBy     bson.ObjectID `bson:"createdBy" json:"createdBy"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	LastUsedAt    *time.Time    `bson:"lastUsedAt,omitempty" json:"lastUsedAt,omitempty"`
-	RevokedAt     *time.Time    `bson:"revokedAt,omitempty" json:"revokedAt,omitempty"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	Name          string     `json:"name"`
+	KeyHash       string     `json:"-"`
+	Scopes        []string   `gorm:"type:jsonb;serializer:json" json:"scopes"`
+	CreatedBy     string     `json:"createdBy"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	LastUsedAt    *time.Time `json:"lastUsedAt,omitempty"`
+	RevokedAt     *time.Time `json:"revokedAt,omitempty"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type AuditEvent struct {
-	ID        bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	ActorID   bson.ObjectID  `bson:"actorId,omitempty" json:"actorId,omitempty"`
-	Actor     string         `bson:"actor" json:"actor"`
-	Action    string         `bson:"action" json:"action"`
-	Resource  string         `bson:"resource" json:"resource"`
-	Detail    map[string]any `bson:"detail,omitempty" json:"detail,omitempty"`
-	IP        string         `bson:"ip" json:"ip"`
-	CreatedAt time.Time      `bson:"createdAt" json:"createdAt"`
+	ID        string         `gorm:"primaryKey;size:24" json:"id"`
+	ActorID   string         `json:"actorId,omitempty"`
+	Actor     string         `json:"actor"`
+	Action    string         `json:"action"`
+	Resource  string         `json:"resource"`
+	Detail    map[string]any `gorm:"type:jsonb;serializer:json" json:"detail,omitempty"`
+	IP        string         `json:"ip"`
+	CreatedAt time.Time      `json:"createdAt"`
 }
 
 type DomainPolicy struct {
-	DomainBrute     bool   `bson:"domainBrute" json:"domainBrute"`
-	DomainBruteType string `bson:"domainBruteType" json:"domainBruteType"`
-	AltDNS          bool   `bson:"altDns" json:"altDns"`
-	ARLSearch       bool   `bson:"arlSearch" json:"arlSearch"`
-	DNSQueryPlugin  bool   `bson:"dnsQueryPlugin" json:"dnsQueryPlugin"`
+	DomainBrute     bool   `json:"domainBrute"`
+	DomainBruteType string `json:"domainBruteType"`
+	AltDNS          bool   `json:"altDns"`
+	ARLSearch       bool   `json:"arlSearch"`
+	DNSQueryPlugin  bool   `json:"dnsQueryPlugin"`
 }
 
 type IPPolicy struct {
-	PortScan         bool   `bson:"portScan" json:"portScan"`
-	PortScanType     string `bson:"portScanType" json:"portScanType"`
-	PortCustom       string `bson:"portCustom" json:"portCustom"`
-	ServiceDetection bool   `bson:"serviceDetection" json:"serviceDetection"`
-	OSDetection      bool   `bson:"osDetection" json:"osDetection"`
-	SSLCert          bool   `bson:"sslCert" json:"sslCert"`
-	SkipScanCDNIP    bool   `bson:"skipScanCdnIp" json:"skipScanCdnIp"`
-	HostTimeout      int    `bson:"hostTimeout" json:"hostTimeout"`
-	PortParallelism  int    `bson:"portParallelism" json:"portParallelism"`
-	PortMinRate      int    `bson:"portMinRate" json:"portMinRate"`
-	ExcludePorts     string `bson:"excludePorts" json:"excludePorts"`
+	PortScan         bool   `json:"portScan"`
+	PortScanType     string `json:"portScanType"`
+	PortCustom       string `json:"portCustom"`
+	ServiceDetection bool   `json:"serviceDetection"`
+	OSDetection      bool   `json:"osDetection"`
+	SSLCert          bool   `json:"sslCert"`
+	SkipScanCDNIP    bool   `json:"skipScanCdnIp"`
+	HostTimeout      int    `json:"hostTimeout"`
+	PortParallelism  int    `json:"portParallelism"`
+	PortMinRate      int    `json:"portMinRate"`
+	ExcludePorts     string `json:"excludePorts"`
 }
 
 type SitePolicy struct {
-	SiteIdentify  bool `bson:"siteIdentify" json:"siteIdentify"`
-	SiteCapture   bool `bson:"siteCapture" json:"siteCapture"`
-	SearchEngines bool `bson:"searchEngines" json:"searchEngines"`
-	SiteSpider    bool `bson:"siteSpider" json:"siteSpider"`
-	NucleiScan    bool `bson:"nucleiScan" json:"nucleiScan"`
-	WebInfoHunter bool `bson:"webInfoHunter" json:"webInfoHunter"`
-	FileLeak      bool `bson:"fileLeak" json:"fileLeak"`
-	FindVhost     bool `bson:"findVhost" json:"findVhost"`
+	SiteIdentify  bool `json:"siteIdentify"`
+	SiteCapture   bool `json:"siteCapture"`
+	SearchEngines bool `json:"searchEngines"`
+	SiteSpider    bool `json:"siteSpider"`
+	NucleiScan    bool `json:"nucleiScan"`
+	WebInfoHunter bool `json:"webInfoHunter"`
+	FileLeak      bool `json:"fileLeak"`
+	FindVhost     bool `json:"findVhost"`
 }
 
 type PluginToggle struct {
-	PluginName string `bson:"pluginName" json:"pluginName"`
-	VulName    string `bson:"vulName,omitempty" json:"vulName,omitempty"`
-	Enable     bool   `bson:"enable" json:"enable"`
+	PluginName string `json:"pluginName"`
+	VulName    string `json:"vulName,omitempty"`
+	Enable     bool   `json:"enable"`
 }
 
 type PolicyConfig struct {
-	Domain         DomainPolicy   `bson:"domain" json:"domain"`
-	IP             IPPolicy       `bson:"ip" json:"ip"`
-	Site           SitePolicy     `bson:"site" json:"site"`
-	POC            []PluginToggle `bson:"poc" json:"poc"`
-	Brute          []PluginToggle `bson:"brute" json:"brute"`
-	ServiceDetect  bool           `bson:"serviceDetect" json:"serviceDetect"`
-	RelatedScopeID string         `bson:"relatedScopeId,omitempty" json:"relatedScopeId,omitempty"`
+	Domain         DomainPolicy   `json:"domain"`
+	IP             IPPolicy       `json:"ip"`
+	Site           SitePolicy     `json:"site"`
+	POC            []PluginToggle `json:"poc"`
+	Brute          []PluginToggle `json:"brute"`
+	ServiceDetect  bool           `json:"serviceDetect"`
+	RelatedScopeID string         `json:"relatedScopeId,omitempty"`
 }
 
 type Policy struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Description   string        `bson:"description" json:"description"`
-	Config        PolicyConfig  `bson:"config" json:"config"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string       `gorm:"primaryKey;size:24" json:"id"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Config        PolicyConfig `gorm:"type:jsonb;serializer:json" json:"config"`
+	CreatedAt     time.Time    `json:"createdAt"`
+	UpdatedAt     time.Time    `json:"updatedAt"`
+	SchemaVersion int          `json:"schemaVersion"`
 }
 
 type Scope struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Type          string        `bson:"type" json:"type"`
-	Targets       []string      `bson:"targets" json:"targets"`
-	BlackScope    []string      `bson:"blackScope" json:"blackScope"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	Targets       []string  `gorm:"type:jsonb;serializer:json" json:"targets"`
+	BlackScope    []string  `gorm:"type:jsonb;serializer:json" json:"blackScope"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type TaskOptions struct {
-	DomainBrute     bool     `bson:"domainBrute" json:"domainBrute"`
-	DomainBruteType string   `bson:"domainBruteType" json:"domainBruteType"`
-	AltDNS          bool     `bson:"altDns" json:"altDns"`
-	ARLSearch       bool     `bson:"arlSearch" json:"arlSearch"`
-	DNSQueryPlugin  bool     `bson:"dnsQueryPlugin" json:"dnsQueryPlugin"`
-	PortScan        bool     `bson:"portScan" json:"portScan"`
-	PortScanType    string   `bson:"portScanType" json:"portScanType"`
-	PortCustom      string   `bson:"portCustom" json:"portCustom"`
-	ServiceDetect   bool     `bson:"serviceDetection" json:"serviceDetection"`
-	OSDetect        bool     `bson:"osDetection" json:"osDetection"`
-	SSLCert         bool     `bson:"sslCert" json:"sslCert"`
-	SkipScanCDNIP   bool     `bson:"skipScanCdnIp" json:"skipScanCdnIp"`
-	SiteIdentify    bool     `bson:"siteIdentify" json:"siteIdentify"`
-	SiteCapture     bool     `bson:"siteCapture" json:"siteCapture"`
-	SearchEngines   bool     `bson:"searchEngines" json:"searchEngines"`
-	SiteSpider      bool     `bson:"siteSpider" json:"siteSpider"`
-	FileLeak        bool     `bson:"fileLeak" json:"fileLeak"`
-	FindVhost       bool     `bson:"findVhost" json:"findVhost"`
-	NucleiScan      bool     `bson:"nucleiScan" json:"nucleiScan"`
-	WebInfoHunter   bool     `bson:"webInfoHunter" json:"webInfoHunter"`
-	POCPlugins      []string `bson:"pocPlugins" json:"pocPlugins"`
-	BrutePlugins    []string `bson:"brutePlugins" json:"brutePlugins"`
-	ScopeID         string   `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
-	RelatedScopeID  string   `bson:"relatedScopeId,omitempty" json:"relatedScopeId,omitempty"`
-	ResultSetID     string   `bson:"resultSetId,omitempty" json:"resultSetId,omitempty"`
-	MonitorID       string   `bson:"monitorId,omitempty" json:"monitorId,omitempty"`
-	MaxHosts        int      `bson:"maxHosts,omitempty" json:"maxHosts,omitempty"`
-	MaxPorts        int      `bson:"maxPorts,omitempty" json:"maxPorts,omitempty"`
-	MaxHTTPRequests int      `bson:"maxHttpRequests,omitempty" json:"maxHttpRequests,omitempty"`
-	MaxRuntime      string   `bson:"maxRuntime,omitempty" json:"maxRuntime,omitempty"`
-	MaxFindings     int      `bson:"maxFindings,omitempty" json:"maxFindings,omitempty"`
+	DomainBrute     bool     `json:"domainBrute"`
+	DomainBruteType string   `json:"domainBruteType"`
+	AltDNS          bool     `json:"altDns"`
+	ARLSearch       bool     `json:"arlSearch"`
+	DNSQueryPlugin  bool     `json:"dnsQueryPlugin"`
+	PortScan        bool     `json:"portScan"`
+	PortScanType    string   `json:"portScanType"`
+	PortCustom      string   `json:"portCustom"`
+	ServiceDetect   bool     `json:"serviceDetection"`
+	OSDetect        bool     `json:"osDetection"`
+	SSLCert         bool     `json:"sslCert"`
+	SkipScanCDNIP   bool     `json:"skipScanCdnIp"`
+	SiteIdentify    bool     `json:"siteIdentify"`
+	SiteCapture     bool     `json:"siteCapture"`
+	SearchEngines   bool     `json:"searchEngines"`
+	SiteSpider      bool     `json:"siteSpider"`
+	FileLeak        bool     `json:"fileLeak"`
+	FindVhost       bool     `json:"findVhost"`
+	NucleiScan      bool     `json:"nucleiScan"`
+	WebInfoHunter   bool     `json:"webInfoHunter"`
+	POCPlugins      []string `gorm:"type:jsonb;serializer:json" json:"pocPlugins"`
+	BrutePlugins    []string `gorm:"type:jsonb;serializer:json" json:"brutePlugins"`
+	ScopeID         string   `json:"scopeId,omitempty"`
+	RelatedScopeID  string   `json:"relatedScopeId,omitempty"`
+	ResultSetID     string   `json:"resultSetId,omitempty"`
+	MonitorID       string   `json:"monitorId,omitempty"`
+	MaxHosts        int      `json:"maxHosts,omitempty"`
+	MaxPorts        int      `json:"maxPorts,omitempty"`
+	MaxHTTPRequests int      `json:"maxHttpRequests,omitempty"`
+	MaxRuntime      string   `json:"maxRuntime,omitempty"`
+	MaxFindings     int      `json:"maxFindings,omitempty"`
 }
 
 type TaskStatistics struct {
-	Domains   int `bson:"domains" json:"domains"`
-	IPs       int `bson:"ips" json:"ips"`
-	Sites     int `bson:"sites" json:"sites"`
-	URLs      int `bson:"urls" json:"urls"`
-	Certs     int `bson:"certs" json:"certs"`
-	Services  int `bson:"services" json:"services"`
-	Vulns     int `bson:"vulns" json:"vulns"`
-	Nuclei    int `bson:"nuclei" json:"nuclei"`
-	WIH       int `bson:"wih" json:"wih"`
-	FileLeaks int `bson:"fileLeaks" json:"fileLeaks"`
-	Protocols int `bson:"protocols" json:"protocols"`
+	Domains   int `json:"domains"`
+	IPs       int `json:"ips"`
+	Sites     int `json:"sites"`
+	URLs      int `json:"urls"`
+	Certs     int `json:"certs"`
+	Services  int `json:"services"`
+	Vulns     int `json:"vulns"`
+	Nuclei    int `json:"nuclei"`
+	WIH       int `json:"wih"`
+	FileLeaks int `json:"fileLeaks"`
+	Protocols int `json:"protocols"`
 }
 
 type Task struct {
-	ID             bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	Name           string         `bson:"name" json:"name"`
-	Kind           TaskKind       `bson:"kind" json:"kind"`
-	Target         string         `bson:"target" json:"target"`
-	Targets        []string       `bson:"targets" json:"targets"`
-	Status         TaskStatus     `bson:"status" json:"status"`
-	Progress       int            `bson:"progress" json:"progress"`
-	Options        TaskOptions    `bson:"options" json:"options"`
-	PolicyID       string         `bson:"policyId,omitempty" json:"policyId,omitempty"`
-	ScopeID        string         `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
-	OrganizationID string         `bson:"organizationId,omitempty" json:"organizationId,omitempty"`
-	RootDomain     string         `bson:"rootDomain,omitempty" json:"rootDomain,omitempty"`
-	Origin         TaskOrigin     `bson:"origin,omitempty" json:"origin,omitempty"`
-	Statistics     TaskStatistics `bson:"statistics" json:"statistics"`
-	Warnings       []string       `bson:"warnings,omitempty" json:"warnings,omitempty"`
-	Error          string         `bson:"error,omitempty" json:"error,omitempty"`
-	CreatedBy      string         `bson:"createdBy" json:"createdBy"`
-	CreatedAt      time.Time      `bson:"createdAt" json:"createdAt"`
-	StartedAt      *time.Time     `bson:"startedAt,omitempty" json:"startedAt,omitempty"`
-	FinishedAt     *time.Time     `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion  int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID             string         `gorm:"primaryKey;size:24" json:"id"`
+	Name           string         `json:"name"`
+	Kind           TaskKind       `json:"kind"`
+	Target         string         `json:"target"`
+	Targets        []string       `gorm:"type:jsonb;serializer:json" json:"targets"`
+	Status         TaskStatus     `json:"status"`
+	Progress       int            `json:"progress"`
+	Options        TaskOptions    `gorm:"type:jsonb;serializer:json" json:"options"`
+	PolicyID       string         `json:"policyId,omitempty"`
+	ScopeID        string         `json:"scopeId,omitempty"`
+	OrganizationID string         `json:"organizationId,omitempty"`
+	RootDomain     string         `json:"rootDomain,omitempty"`
+	Origin         TaskOrigin     `json:"origin,omitempty"`
+	Statistics     TaskStatistics `gorm:"type:jsonb;serializer:json" json:"statistics"`
+	Warnings       []string       `gorm:"type:jsonb;serializer:json" json:"warnings,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	CreatedBy      string         `json:"createdBy"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	StartedAt      *time.Time     `json:"startedAt,omitempty"`
+	FinishedAt     *time.Time     `json:"finishedAt,omitempty"`
+	LastScreenshot string         `json:"lastScreenshot,omitempty"`
+	SchemaVersion  int            `json:"schemaVersion"`
+	EventSeq       int64          `gorm:"not null;default:0" json:"-"`
 }
 
 type TaskStep struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	TaskID        bson.ObjectID `bson:"taskId" json:"taskId"`
-	Sequence      int           `bson:"sequence" json:"sequence"`
-	Kind          string        `bson:"kind" json:"kind"`
-	Status        StepStatus    `bson:"status" json:"status"`
-	Optional      bool          `bson:"optional" json:"optional"`
-	Attempts      int           `bson:"attempts" json:"attempts"`
-	Progress      int           `bson:"progress" json:"progress"`
-	Message       string        `bson:"message,omitempty" json:"message,omitempty"`
-	Error         string        `bson:"error,omitempty" json:"error,omitempty"`
-	StartedAt     *time.Time    `bson:"startedAt,omitempty" json:"startedAt,omitempty"`
-	FinishedAt    *time.Time    `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	TaskID        string     `json:"taskId"`
+	Sequence      int        `json:"sequence"`
+	Kind          string     `json:"kind"`
+	Status        StepStatus `json:"status"`
+	Optional      bool       `json:"optional"`
+	Attempts      int        `json:"attempts"`
+	Progress      int        `json:"progress"`
+	Message       string     `json:"message,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	StartedAt     *time.Time `json:"startedAt,omitempty"`
+	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type TaskEvent struct {
-	ID        bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	TaskID    bson.ObjectID  `bson:"taskId" json:"taskId"`
-	Sequence  int64          `bson:"sequence" json:"sequence"`
-	Type      string         `bson:"type" json:"type"`
-	Message   string         `bson:"message" json:"message"`
-	Payload   map[string]any `bson:"payload,omitempty" json:"payload,omitempty"`
-	CreatedAt time.Time      `bson:"createdAt" json:"createdAt"`
+	ID        string         `gorm:"primaryKey;size:24" json:"id"`
+	TaskID    string         `json:"taskId"`
+	Sequence  int64          `json:"sequence"`
+	Type      string         `json:"type"`
+	Message   string         `json:"message"`
+	Payload   map[string]any `gorm:"type:jsonb;serializer:json" json:"payload,omitempty"`
+	CreatedAt time.Time      `json:"createdAt"`
 }
 
 type OutboxMessage struct {
-	ID          bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	RoutingKey  string        `bson:"routingKey" json:"routingKey"`
-	Payload     []byte        `bson:"payload" json:"payload"`
-	Status      string        `bson:"status" json:"status"`
-	Attempts    int           `bson:"attempts" json:"attempts"`
-	AvailableAt time.Time     `bson:"availableAt" json:"availableAt"`
-	CreatedAt   time.Time     `bson:"createdAt" json:"createdAt"`
-	PublishedAt *time.Time    `bson:"publishedAt,omitempty" json:"publishedAt,omitempty"`
+	ID           string     `gorm:"primaryKey;size:24" json:"id"`
+	RoutingKey   string     `json:"routingKey"`
+	Payload      []byte     `gorm:"type:bytea" json:"payload"`
+	Status       string     `json:"status"`
+	Attempts     int        `json:"attempts"`
+	AvailableAt  time.Time  `json:"availableAt"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	PublishedAt  *time.Time `json:"publishedAt,omitempty"`
+	ProcessingAt *time.Time `json:"processingAt,omitempty"`
 }
 
 type WorkItem struct {
-	ID         bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	TaskID     bson.ObjectID `bson:"taskId" json:"taskId"`
-	StepID     bson.ObjectID `bson:"stepId" json:"stepId"`
-	Kind       string        `bson:"kind" json:"kind"`
-	Shard      int           `bson:"shard" json:"shard"`
-	Status     StepStatus    `bson:"status" json:"status"`
-	Attempts   int           `bson:"attempts" json:"attempts"`
-	LeaseOwner string        `bson:"leaseOwner,omitempty" json:"leaseOwner,omitempty"`
-	LeaseUntil *time.Time    `bson:"leaseUntil,omitempty" json:"leaseUntil,omitempty"`
-	CreatedAt  time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt  time.Time     `bson:"updatedAt" json:"updatedAt"`
+	ID         string     `gorm:"primaryKey;size:24" json:"id"`
+	TaskID     string     `json:"taskId"`
+	StepID     string     `json:"stepId"`
+	Kind       string     `json:"kind"`
+	Shard      int        `json:"shard"`
+	Status     StepStatus `json:"status"`
+	Attempts   int        `json:"attempts"`
+	LeaseOwner string     `json:"leaseOwner,omitempty"`
+	LeaseUntil *time.Time `json:"leaseUntil,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 type Asset struct {
-	ID            bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	Kind          AssetKind      `bson:"kind" json:"kind"`
-	Key           string         `bson:"key" json:"key"`
-	Data          map[string]any `bson:"data" json:"data"`
-	ScopeIDs      []string       `bson:"scopeIds,omitempty" json:"scopeIds,omitempty"`
-	FirstSeen     time.Time      `bson:"firstSeen" json:"firstSeen"`
-	LastSeen      time.Time      `bson:"lastSeen" json:"lastSeen"`
-	LastTaskID    string         `bson:"lastTaskId,omitempty" json:"lastTaskId,omitempty"`
-	SchemaVersion int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string         `gorm:"primaryKey;size:24" json:"id"`
+	Kind          AssetKind      `json:"kind"`
+	Key           string         `json:"key"`
+	Data          map[string]any `gorm:"type:jsonb;serializer:json" json:"data"`
+	ScopeIDs      []string       `gorm:"type:jsonb;serializer:json" json:"scopeIds,omitempty"`
+	FirstSeen     time.Time      `json:"firstSeen"`
+	LastSeen      time.Time      `json:"lastSeen"`
+	LastTaskID    string         `json:"lastTaskId,omitempty"`
+	SchemaVersion int            `json:"schemaVersion"`
 }
 
 type AssetObservation struct {
-	ID            bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	TaskID        bson.ObjectID  `bson:"taskId" json:"taskId"`
-	AssetID       bson.ObjectID  `bson:"assetId" json:"assetId"`
-	Kind          AssetKind      `bson:"kind" json:"kind"`
-	Key           string         `bson:"key" json:"key"`
-	Source        string         `bson:"source" json:"source"`
-	Snapshot      map[string]any `bson:"snapshot" json:"snapshot"`
-	ObservedAt    time.Time      `bson:"observedAt" json:"observedAt"`
-	SchemaVersion int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string         `gorm:"primaryKey;size:24" json:"id"`
+	TaskID        string         `json:"taskId"`
+	AssetID       string         `json:"assetId"`
+	Kind          AssetKind      `json:"kind"`
+	Key           string         `json:"key"`
+	Source        string         `json:"source"`
+	Snapshot      map[string]any `gorm:"type:jsonb;serializer:json" json:"snapshot"`
+	ObservedAt    time.Time      `json:"observedAt"`
+	SchemaVersion int            `json:"schemaVersion"`
 }
 
 type ScopeAssetLink struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	ScopeID       bson.ObjectID `bson:"scopeId" json:"scopeId"`
-	AssetID       bson.ObjectID `bson:"assetId" json:"assetId"`
-	Kind          AssetKind     `bson:"kind" json:"kind"`
-	Tags          []string      `bson:"tags,omitempty" json:"tags,omitempty"`
-	FirstSeen     time.Time     `bson:"firstSeen" json:"firstSeen"`
-	LastSeen      time.Time     `bson:"lastSeen" json:"lastSeen"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	ScopeID       string    `json:"scopeId"`
+	AssetID       string    `json:"assetId"`
+	Kind          AssetKind `json:"kind"`
+	Tags          []string  `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`
+	FirstSeen     time.Time `json:"firstSeen"`
+	LastSeen      time.Time `json:"lastSeen"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type Finding struct {
-	ID            bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	TaskID        bson.ObjectID  `bson:"taskId" json:"taskId"`
-	ScopeID       string         `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
-	Kind          FindingKind    `bson:"kind" json:"kind"`
-	DedupeKey     string         `bson:"dedupeKey" json:"dedupeKey"`
-	Title         string         `bson:"title" json:"title"`
-	Severity      string         `bson:"severity" json:"severity"`
-	Target        string         `bson:"target" json:"target"`
-	PluginName    string         `bson:"pluginName,omitempty" json:"pluginName,omitempty"`
-	Data          map[string]any `bson:"data" json:"data"`
-	CreatedAt     time.Time      `bson:"createdAt" json:"createdAt"`
-	SchemaVersion int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string         `gorm:"primaryKey;size:24" json:"id"`
+	TaskID        string         `json:"taskId"`
+	ScopeID       string         `json:"scopeId,omitempty"`
+	Kind          FindingKind    `json:"kind"`
+	DedupeKey     string         `json:"dedupeKey"`
+	Title         string         `json:"title"`
+	Severity      string         `json:"severity"`
+	Target        string         `json:"target"`
+	PluginName    string         `json:"pluginName,omitempty"`
+	Data          map[string]any `gorm:"type:jsonb;serializer:json" json:"data"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	SchemaVersion int            `json:"schemaVersion"`
 }
 
 type Monitor struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Kind          string        `bson:"kind" json:"kind"` // domain, ip, site_update, wih_update
-	ScopeID       string        `bson:"scopeId" json:"scopeId"`
-	Target        string        `bson:"target" json:"target"`
-	IntervalSec   int           `bson:"intervalSec" json:"intervalSec"`
-	PolicyID      string        `bson:"policyId,omitempty" json:"policyId,omitempty"`
-	Options       TaskOptions   `bson:"options" json:"options"`
-	Status        string        `bson:"status" json:"status"`
-	NextRunAt     time.Time     `bson:"nextRunAt" json:"nextRunAt"`
-	LastRunAt     *time.Time    `bson:"lastRunAt,omitempty" json:"lastRunAt,omitempty"`
-	LastRunID     string        `bson:"lastRunId,omitempty" json:"lastRunId,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string      `gorm:"primaryKey;size:24" json:"id"`
+	Name          string      `json:"name"`
+	Kind          string      `json:"kind"` // domain, ip, site_update, wih_update
+	ScopeID       string      `json:"scopeId"`
+	Target        string      `json:"target"`
+	IntervalSec   int         `json:"intervalSec"`
+	PolicyID      string      `json:"policyId,omitempty"`
+	Options       TaskOptions `gorm:"type:jsonb;serializer:json" json:"options"`
+	Status        string      `json:"status"`
+	NextRunAt     time.Time   `json:"nextRunAt"`
+	LastRunAt     *time.Time  `json:"lastRunAt,omitempty"`
+	LastRunID     string      `json:"lastRunId,omitempty"`
+	CreatedAt     time.Time   `json:"createdAt"`
+	UpdatedAt     time.Time   `json:"updatedAt"`
+	SchemaVersion int         `json:"schemaVersion"`
 }
 
 type Schedule struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Kind          string        `bson:"kind" json:"kind"` // recurrent_scan, future_scan
-	TaskKind      TaskKind      `bson:"taskKind" json:"taskKind"`
-	Target        string        `bson:"target" json:"target"`
-	PolicyID      string        `bson:"policyId" json:"policyId"`
-	ResultSetID   string        `bson:"resultSetId,omitempty" json:"resultSetId,omitempty"`
-	Cron          string        `bson:"cron,omitempty" json:"cron,omitempty"`
-	StartAt       *time.Time    `bson:"startAt,omitempty" json:"startAt,omitempty"`
-	NextRunAt     *time.Time    `bson:"nextRunAt,omitempty" json:"nextRunAt,omitempty"`
-	Status        string        `bson:"status" json:"status"`
-	RunCount      int           `bson:"runCount" json:"runCount"`
-	LastRunAt     *time.Time    `bson:"lastRunAt,omitempty" json:"lastRunAt,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	Name          string     `json:"name"`
+	Kind          string     `json:"kind"` // recurrent_scan, future_scan
+	TaskKind      TaskKind   `json:"taskKind"`
+	Target        string     `json:"target"`
+	PolicyID      string     `json:"policyId"`
+	ResultSetID   string     `json:"resultSetId,omitempty"`
+	Cron          string     `json:"cron,omitempty"`
+	StartAt       *time.Time `json:"startAt,omitempty"`
+	NextRunAt     *time.Time `json:"nextRunAt,omitempty"`
+	Status        string     `json:"status"`
+	RunCount      int        `json:"runCount"`
+	LastRunAt     *time.Time `json:"lastRunAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type MonitorRun struct {
-	ID            bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	MonitorID     bson.ObjectID  `bson:"monitorId" json:"monitorId"`
-	TaskID        string         `bson:"taskId" json:"taskId"`
-	Status        string         `bson:"status" json:"status"`
-	NewAssets     int            `bson:"newAssets" json:"newAssets"`
-	Detail        map[string]any `bson:"detail,omitempty" json:"detail,omitempty"`
-	StartedAt     time.Time      `bson:"startedAt" json:"startedAt"`
-	FinishedAt    *time.Time     `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string         `gorm:"primaryKey;size:24" json:"id"`
+	MonitorID     string         `json:"monitorId"`
+	TaskID        string         `json:"taskId"`
+	Status        string         `json:"status"`
+	NewAssets     int            `json:"newAssets"`
+	Detail        map[string]any `gorm:"type:jsonb;serializer:json" json:"detail,omitempty"`
+	StartedAt     time.Time      `json:"startedAt"`
+	FinishedAt    *time.Time     `json:"finishedAt,omitempty"`
+	SchemaVersion int            `json:"schemaVersion"`
 }
 
 type GitHubTask struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Keyword       string        `bson:"keyword" json:"keyword"`
-	Status        TaskStatus    `bson:"status" json:"status"`
-	MonitorID     string        `bson:"monitorId,omitempty" json:"monitorId,omitempty"`
-	ResultCount   int           `bson:"resultCount" json:"resultCount"`
-	Error         string        `bson:"error,omitempty" json:"error,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	StartedAt     *time.Time    `bson:"startedAt,omitempty" json:"startedAt,omitempty"`
-	FinishedAt    *time.Time    `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	Keyword       string     `json:"keyword"`
+	Status        TaskStatus `json:"status"`
+	MonitorID     string     `json:"monitorId,omitempty"`
+	ResultCount   int        `json:"resultCount"`
+	Error         string     `json:"error,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	StartedAt     *time.Time `json:"startedAt,omitempty"`
+	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type GitHubMonitor struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Keyword       string        `bson:"keyword" json:"keyword"`
-	IntervalSec   int           `bson:"intervalSec" json:"intervalSec"`
-	Status        string        `bson:"status" json:"status"`
-	NextRunAt     time.Time     `bson:"nextRunAt" json:"nextRunAt"`
-	LastRunAt     *time.Time    `bson:"lastRunAt,omitempty" json:"lastRunAt,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	Name          string     `json:"name"`
+	Keyword       string     `json:"keyword"`
+	IntervalSec   int        `json:"intervalSec"`
+	Status        string     `json:"status"`
+	NextRunAt     time.Time  `json:"nextRunAt"`
+	LastRunAt     *time.Time `json:"lastRunAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type GitHubFinding struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	TaskID        string        `bson:"taskId" json:"taskId"`
-	MonitorID     string        `bson:"monitorId,omitempty" json:"monitorId,omitempty"`
-	Keyword       string        `bson:"keyword" json:"keyword"`
-	Repo          string        `bson:"repo" json:"repo"`
-	Path          string        `bson:"path" json:"path"`
-	HTMLURL       string        `bson:"htmlUrl" json:"htmlUrl"`
-	GitURL        string        `bson:"gitUrl" json:"gitUrl"`
-	HashMD5       string        `bson:"hashMd5" json:"hashMd5"`
-	CommitDate    string        `bson:"commitDate" json:"commitDate"`
-	HumanContent  string        `bson:"humanContent" json:"humanContent"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	TaskID        string    `json:"taskId"`
+	MonitorID     string    `json:"monitorId,omitempty"`
+	Keyword       string    `json:"keyword"`
+	Repo          string    `json:"repo"`
+	Path          string    `json:"path"`
+	HTMLURL       string    `json:"htmlUrl"`
+	GitURL        string    `json:"gitUrl"`
+	HashMD5       string    `json:"hashMd5"`
+	CommitDate    string    `json:"commitDate"`
+	HumanContent  string    `json:"humanContent"`
+	CreatedAt     time.Time `json:"createdAt"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type ExportJob struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	TaskID        string        `bson:"taskId,omitempty" json:"taskId,omitempty"`
-	ScopeID       string        `bson:"scopeId,omitempty" json:"scopeId,omitempty"`
-	Format        string        `bson:"format" json:"format"`
-	Kind          string        `bson:"kind" json:"kind"`
-	Status        string        `bson:"status" json:"status"`
-	Path          string        `bson:"path,omitempty" json:"path,omitempty"`
-	Error         string        `bson:"error,omitempty" json:"error,omitempty"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	FinishedAt    *time.Time    `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	TaskID        string     `json:"taskId,omitempty"`
+	ScopeID       string     `json:"scopeId,omitempty"`
+	Format        string     `json:"format"`
+	Kind          string     `json:"kind"`
+	Status        string     `json:"status"`
+	Path          string     `json:"path,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
+	SchemaVersion int        `json:"schemaVersion"`
 }
 
 type PocPlugin struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name          string        `bson:"name" json:"name"`
-	Type          string        `bson:"type" json:"type"`
-	AppName       string        `bson:"appName" json:"appName"`
-	VulName       string        `bson:"vulName" json:"vulName"`
-	Category      string        `bson:"category" json:"category"`
-	Schemes       []string      `bson:"schemes" json:"schemes"`
-	Description   string        `bson:"description,omitempty" json:"description,omitempty"`
-	Enabled       bool          `bson:"enabled" json:"enabled"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	AppName       string    `json:"appName"`
+	VulName       string    `json:"vulName"`
+	Category      string    `json:"category"`
+	Schemes       []string  `gorm:"type:jsonb;serializer:json" json:"schemes"`
+	Description   string    `json:"description,omitempty"`
+	Enabled       bool      `json:"enabled"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type Lease struct {
-	ID        string    `bson:"_id" json:"id"`
-	Owner     string    `bson:"owner" json:"owner"`
-	ExpiresAt time.Time `bson:"expiresAt" json:"expiresAt"`
+	ID        string    `gorm:"primaryKey;size:24" json:"id"`
+	Owner     string    `json:"owner"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 func NewModel[T any](v T) T {

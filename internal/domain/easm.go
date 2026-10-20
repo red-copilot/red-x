@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // ErrDomainAlreadyConfirmed is returned when a root domain already has another owner.
@@ -84,17 +82,17 @@ func (o GraphOutboxOp) Valid() bool {
 }
 
 type Organization struct {
-	ID            bson.ObjectID     `bson:"_id,omitempty" json:"id"`
-	CanonicalName string            `bson:"canonicalName" json:"canonicalName"`
-	Aliases       []string          `bson:"aliases,omitempty" json:"aliases,omitempty"`
-	USCC          string            `bson:"uscc,omitempty" json:"uscc,omitempty"`
-	Region        string            `bson:"region,omitempty" json:"region,omitempty"`
-	ExternalIDs   map[string]string `bson:"externalIds,omitempty" json:"externalIds,omitempty"`
-	Status        OrgStatus         `bson:"status" json:"status"`
-	MergedInto    *bson.ObjectID    `bson:"mergedInto,omitempty" json:"mergedInto,omitempty"`
-	CreatedAt     time.Time         `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time         `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int               `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string            `gorm:"primaryKey;size:24" json:"id"`
+	CanonicalName string            `json:"canonicalName"`
+	Aliases       []string          `gorm:"type:jsonb;serializer:json" json:"aliases,omitempty"`
+	USCC          string            `json:"uscc,omitempty"`
+	Region        string            `json:"region,omitempty"`
+	ExternalIDs   map[string]string `gorm:"type:jsonb;serializer:json" json:"externalIds,omitempty"`
+	Status        OrgStatus         `json:"status"`
+	MergedInto    *string           `json:"mergedInto,omitempty"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	UpdatedAt     time.Time         `json:"updatedAt"`
+	SchemaVersion int               `json:"schemaVersion"`
 }
 
 func (o *Organization) Validate() error {
@@ -114,29 +112,29 @@ func (o *Organization) Validate() error {
 }
 
 type OrganizationDomain struct {
-	ID             bson.ObjectID  `bson:"_id,omitempty" json:"id"`
-	OrganizationID bson.ObjectID  `bson:"organizationId" json:"organizationId"`
-	RootDomain     string         `bson:"rootDomain" json:"rootDomain"`
-	SiteName       string         `bson:"siteName,omitempty" json:"siteName,omitempty"`
-	HomeSite       string         `bson:"homeSite,omitempty" json:"homeSite,omitempty"`
-	ICPNo          string         `bson:"icpNo,omitempty" json:"icpNo,omitempty"`
-	AuditDate      string         `bson:"auditDate,omitempty" json:"auditDate,omitempty"`
-	Source         string         `bson:"source" json:"source"`
-	Confidence     Confidence     `bson:"confidence" json:"confidence"`
-	Status         DomainStatus   `bson:"status" json:"status"`
-	EvidenceID     *bson.ObjectID `bson:"evidenceId,omitempty" json:"evidenceId,omitempty"`
-	DecisionReason string         `bson:"decisionReason,omitempty" json:"decisionReason,omitempty"`
-	DecidedBy      string         `bson:"decidedBy,omitempty" json:"decidedBy,omitempty"`
-	DecidedAt      *time.Time     `bson:"decidedAt,omitempty" json:"decidedAt,omitempty"`
-	ReassignedTo   *bson.ObjectID `bson:"reassignedTo,omitempty" json:"reassignedTo,omitempty"`
-	FirstSeen      time.Time      `bson:"firstSeen" json:"firstSeen"`
-	LastSeen       time.Time      `bson:"lastSeen" json:"lastSeen"`
-	UpdatedAt      time.Time      `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion  int            `bson:"schemaVersion" json:"schemaVersion"`
+	ID             string       `gorm:"primaryKey;size:24" json:"id"`
+	OrganizationID string       `json:"organizationId"`
+	RootDomain     string       `json:"rootDomain"`
+	SiteName       string       `json:"siteName,omitempty"`
+	HomeSite       string       `json:"homeSite,omitempty"`
+	ICPNo          string       `json:"icpNo,omitempty"`
+	AuditDate      string       `json:"auditDate,omitempty"`
+	Source         string       `json:"source"`
+	Confidence     Confidence   `json:"confidence"`
+	Status         DomainStatus `json:"status"`
+	EvidenceID     *string      `json:"evidenceId,omitempty"`
+	DecisionReason string       `json:"decisionReason,omitempty"`
+	DecidedBy      string       `json:"decidedBy,omitempty"`
+	DecidedAt      *time.Time   `json:"decidedAt,omitempty"`
+	ReassignedTo   *string      `json:"reassignedTo,omitempty"`
+	FirstSeen      time.Time    `json:"firstSeen"`
+	LastSeen       time.Time    `json:"lastSeen"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
+	SchemaVersion  int          `json:"schemaVersion"`
 }
 
 func (d *OrganizationDomain) Validate() error {
-	if d == nil || d.OrganizationID.IsZero() {
+	if d == nil || d.OrganizationID == "" {
 		return errors.New("organization domain requires organizationId")
 	}
 	if strings.TrimSpace(d.RootDomain) == "" {
@@ -155,52 +153,82 @@ func (d *OrganizationDomain) Validate() error {
 }
 
 type ICPEvidence struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Provider      string        `bson:"provider" json:"provider"`
-	QueryType     string        `bson:"queryType" json:"queryType"`
-	QueryKey      string        `bson:"queryKey" json:"queryKey"`
-	Raw           string        `bson:"raw" json:"raw"`
-	FetchedAt     time.Time     `bson:"fetchedAt" json:"fetchedAt"`
-	ExpiresAt     time.Time     `bson:"expiresAt" json:"expiresAt"`
-	PayloadHash   string        `bson:"payloadHash" json:"payloadHash"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	Provider      string    `json:"provider"`
+	QueryType     string    `json:"queryType"`
+	QueryKey      string    `json:"queryKey"`
+	Raw           string    `json:"raw"`
+	FetchedAt     time.Time `json:"fetchedAt"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	PayloadHash   string    `json:"payloadHash"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type IPLocation struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	IP            string        `bson:"ip" json:"ip"`
-	Lat           float64       `bson:"lat" json:"lat"`
-	Lon           float64       `bson:"lon" json:"lon"`
-	Country       string        `bson:"country,omitempty" json:"country,omitempty"`
-	Province      string        `bson:"province,omitempty" json:"province,omitempty"`
-	City          string        `bson:"city,omitempty" json:"city,omitempty"`
-	ASN           uint          `bson:"asn,omitempty" json:"asn,omitempty"`
-	ASNOrg        string        `bson:"asnOrg,omitempty" json:"asnOrg,omitempty"`
-	Source        string        `bson:"source" json:"source"`
-	UpdatedAt     time.Time     `bson:"updatedAt" json:"updatedAt"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string    `gorm:"primaryKey;size:24" json:"id"`
+	IP            string    `json:"ip"`
+	Lat           float64   `json:"lat"`
+	Lon           float64   `json:"lon"`
+	Country       string    `json:"country,omitempty"`
+	Province      string    `json:"province,omitempty"`
+	City          string    `json:"city,omitempty"`
+	ASN           uint      `json:"asn,omitempty"`
+	ASNOrg        string    `json:"asnOrg,omitempty"`
+	Source        string    `json:"source"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+	SchemaVersion int       `json:"schemaVersion"`
 }
 
 type ICPJob struct {
-	ID             bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	OrganizationID bson.ObjectID `bson:"organizationId" json:"organizationId"`
-	Status         ICPJobStatus  `bson:"status" json:"status"`
-	RequestedBy    string        `bson:"requestedBy" json:"requestedBy"`
-	ResultCount    int           `bson:"resultCount" json:"resultCount"`
-	Error          string        `bson:"error,omitempty" json:"error,omitempty"`
-	CreatedAt      time.Time     `bson:"createdAt" json:"createdAt"`
-	FinishedAt     *time.Time    `bson:"finishedAt,omitempty" json:"finishedAt,omitempty"`
-	SchemaVersion  int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID             string       `gorm:"primaryKey;size:24" json:"id"`
+	OrganizationID string       `json:"organizationId"`
+	Status         ICPJobStatus `json:"status"`
+	RequestedBy    string       `json:"requestedBy"`
+	ResultCount    int          `json:"resultCount"`
+	Error          string       `json:"error,omitempty"`
+	CreatedAt      time.Time    `json:"createdAt"`
+	FinishedAt     *time.Time   `json:"finishedAt,omitempty"`
+	SchemaVersion  int          `json:"schemaVersion"`
 }
 
 type GraphOutbox struct {
-	ID            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	EntityType    string        `bson:"entityType" json:"entityType"`
-	EntityID      string        `bson:"entityId" json:"entityId"`
-	Op            GraphOutboxOp `bson:"op" json:"op"`
-	CreatedAt     time.Time     `bson:"createdAt" json:"createdAt"`
-	ProcessingAt  *time.Time    `bson:"processingAt,omitempty" json:"processingAt,omitempty"`
-	ProcessedAt   *time.Time    `bson:"processedAt,omitempty" json:"processedAt,omitempty"`
-	Attempts      int           `bson:"attempts" json:"attempts"`
-	SchemaVersion int           `bson:"schemaVersion" json:"schemaVersion"`
+	ID            string        `gorm:"primaryKey;size:24" json:"id"`
+	EntityType    string        `json:"entityType"`
+	EntityID      string        `json:"entityId"`
+	Op            GraphOutboxOp `json:"op"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	ProcessingAt  *time.Time    `json:"processingAt,omitempty"`
+	ProcessedAt   *time.Time    `json:"processedAt,omitempty"`
+	Attempts      int           `json:"attempts"`
+	SchemaVersion int           `json:"schemaVersion"`
 }
+
+func (User) TableName() string               { return "users" }
+func (Session) TableName() string            { return "sessions" }
+func (APIKey) TableName() string             { return "api_keys" }
+func (AuditEvent) TableName() string         { return "audit_events" }
+func (Policy) TableName() string             { return "policies" }
+func (Scope) TableName() string              { return "scopes" }
+func (Task) TableName() string               { return "tasks" }
+func (TaskStep) TableName() string           { return "task_steps" }
+func (TaskEvent) TableName() string          { return "task_events" }
+func (OutboxMessage) TableName() string      { return "outbox" }
+func (Lease) TableName() string              { return "leases" }
+func (Asset) TableName() string              { return "assets" }
+func (AssetObservation) TableName() string   { return "asset_observations" }
+func (ScopeAssetLink) TableName() string     { return "scope_asset_links" }
+func (Finding) TableName() string            { return "findings" }
+func (Monitor) TableName() string            { return "monitors" }
+func (Schedule) TableName() string           { return "schedules" }
+func (MonitorRun) TableName() string         { return "monitor_runs" }
+func (GitHubTask) TableName() string         { return "github_tasks" }
+func (GitHubMonitor) TableName() string      { return "github_monitors" }
+func (GitHubFinding) TableName() string      { return "github_findings" }
+func (ExportJob) TableName() string          { return "exports" }
+func (PocPlugin) TableName() string          { return "poc_plugins" }
+func (Organization) TableName() string       { return "organizations" }
+func (OrganizationDomain) TableName() string { return "organization_domains" }
+func (ICPEvidence) TableName() string        { return "icp_evidence" }
+func (IPLocation) TableName() string         { return "ip_locations" }
+func (ICPJob) TableName() string             { return "icp_jobs" }
+func (GraphOutbox) TableName() string        { return "graph_outbox" }

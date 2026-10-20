@@ -64,7 +64,7 @@ func (s *Server) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleListScopes(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +118,7 @@ func (s *Server) handleDeleteScope(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id.Hex()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
 func (s *Server) handleScopeAssets(w http.ResponseWriter, r *http.Request) {

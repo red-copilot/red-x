@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-func catalogRepo() (*fakeRepo, bson.ObjectID, bson.ObjectID) {
+func catalogRepo() (*fakeRepo, string, string) {
 	repo, orgA, orgB := baseRepo()
 	repo.services = []domain.Asset{
-		{ID: bson.NewObjectID(), Kind: domain.AssetService, Key: "1.1.1.1:443/tcp", Data: map[string]any{"ip": "1.1.1.1", "port": 443}},
+		{ID: domain.MustID(), Kind: domain.AssetService, Key: "1.1.1.1:443/tcp", Data: map[string]any{"ip": "1.1.1.1", "port": 443}},
 	}
 	return repo, orgA, orgB
 }
@@ -21,9 +20,9 @@ func TestOrganizationSummaryCountsClosure(t *testing.T) {
 	repo, orgA, _ := catalogRepo()
 	now := time.Now().UTC()
 	repo.findings = []domain.Finding{
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "v1", Severity: "high", CreatedAt: now},
-		{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "v2", Severity: "critical", CreatedAt: now},
-		{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "v2", Severity: "low", CreatedAt: now.Add(-time.Hour)},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "v1", Severity: "high", CreatedAt: now},
+		{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "v2", Severity: "critical", CreatedAt: now},
+		{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "v2", Severity: "low", CreatedAt: now.Add(-time.Hour)},
 	}
 	svc := &Service{Repo: repo}
 	got, err := svc.Summary(context.Background(), orgA)
@@ -42,8 +41,8 @@ func TestCurrentFindingsGroupLatestAndCountHistory(t *testing.T) {
 	repo, orgA, _ := catalogRepo()
 	now := time.Now().UTC()
 	repo.findings = []domain.Finding{
-		{ID: bson.NewObjectID(), Kind: domain.FindingNuclei, Title: "old", Target: "example.com", DedupeKey: "same", Severity: "high", CreatedAt: now.Add(-time.Hour)},
-		{ID: bson.NewObjectID(), Kind: domain.FindingNuclei, Title: "new", Target: "example.com", DedupeKey: "same", Severity: "low", CreatedAt: now},
+		{ID: domain.MustID(), Kind: domain.FindingNuclei, Title: "old", Target: "example.com", DedupeKey: "same", Severity: "high", CreatedAt: now.Add(-time.Hour)},
+		{ID: domain.MustID(), Kind: domain.FindingNuclei, Title: "new", Target: "example.com", DedupeKey: "same", Severity: "low", CreatedAt: now},
 	}
 	svc := &Service{Repo: repo}
 	page, err := svc.Findings(context.Background(), &orgA, FindingFilter{State: "current"})
@@ -68,7 +67,7 @@ func TestCurrentFindingsGroupLatestAndCountHistory(t *testing.T) {
 func TestAssetsFilterByKindRiskAndMergeSharedOrganizations(t *testing.T) {
 	repo, orgA, _ := catalogRepo()
 	now := time.Now().UTC()
-	repo.findings = []domain.Finding{{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "v", Severity: "high", CreatedAt: now}}
+	repo.findings = []domain.Finding{{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "v", Severity: "high", CreatedAt: now}}
 	svc := &Service{Repo: repo}
 	page, err := svc.Assets(context.Background(), nil, AssetFilter{Kind: "ip", Risk: "high"})
 	if err != nil {
@@ -92,7 +91,7 @@ func TestAssetsFilterByKindRiskAndMergeSharedOrganizations(t *testing.T) {
 func TestFindingHistoryRejectsFindingOutsideOrganization(t *testing.T) {
 	repo, orgA, orgB := catalogRepo()
 	now := time.Now().UTC()
-	other := domain.Finding{ID: bson.NewObjectID(), Target: "outside.net", DedupeKey: "x", Severity: "high", CreatedAt: now}
+	other := domain.Finding{ID: domain.MustID(), Target: "outside.net", DedupeKey: "x", Severity: "high", CreatedAt: now}
 	repo.findings = []domain.Finding{other}
 	svc := &Service{Repo: repo}
 	if _, err := svc.FindingHistory(context.Background(), orgA, other.ID); err == nil {

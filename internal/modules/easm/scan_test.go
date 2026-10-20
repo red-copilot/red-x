@@ -6,26 +6,25 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/tasking"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type fakeScanSubmitter struct{ inputs []tasking.SubmitInput }
 
 func (f *fakeScanSubmitter) Submit(_ context.Context, in tasking.SubmitInput) ([]domain.Task, error) {
 	f.inputs = append(f.inputs, in)
-	return []domain.Task{{ID: bson.NewObjectID(), Name: in.Name, Target: in.Target, OrganizationID: in.OrganizationID, RootDomain: in.RootDomain, Origin: in.Origin}}, nil
+	return []domain.Task{{ID: domain.MustID(), Name: in.Name, Target: in.Target, OrganizationID: in.OrganizationID, RootDomain: in.RootDomain, Origin: in.Origin}}, nil
 }
 
 func TestCreateScansRequiresConfirmedDomainsAndCreatesOneTaskEach(t *testing.T) {
-	orgID := bson.NewObjectID()
+	orgID := domain.MustID()
 	store := newFakeICPStore()
 	store.orgs[orgID] = &domain.Organization{ID: orgID, CanonicalName: "单位A", Status: domain.OrgStatusActive}
 	for _, row := range []*domain.OrganizationDomain{
-		{ID: bson.NewObjectID(), OrganizationID: orgID, RootDomain: "a.edu.cn", Status: domain.DomainStatusConfirmed},
-		{ID: bson.NewObjectID(), OrganizationID: orgID, RootDomain: "b.edu.cn", Status: domain.DomainStatusConfirmed},
-		{ID: bson.NewObjectID(), OrganizationID: orgID, RootDomain: "c.edu.cn", Status: domain.DomainStatusCandidate},
+		{ID: domain.MustID(), OrganizationID: orgID, RootDomain: "a.edu.cn", Status: domain.DomainStatusConfirmed},
+		{ID: domain.MustID(), OrganizationID: orgID, RootDomain: "b.edu.cn", Status: domain.DomainStatusConfirmed},
+		{ID: domain.MustID(), OrganizationID: orgID, RootDomain: "c.edu.cn", Status: domain.DomainStatusCandidate},
 	} {
-		store.domains[orgID.Hex()+":"+row.RootDomain] = row
+		store.domains[orgID+":"+row.RootDomain] = row
 	}
 	submit := &fakeScanSubmitter{}
 	svc := &Service{Store: store, Submitter: submit}
@@ -36,7 +35,7 @@ func TestCreateScansRequiresConfirmedDomainsAndCreatesOneTaskEach(t *testing.T) 
 	if len(errs) != 0 || len(tasks) != 2 || len(submit.inputs) != 2 {
 		t.Fatalf("tasks=%+v errors=%+v inputs=%+v", tasks, errs, submit.inputs)
 	}
-	if submit.inputs[0].Origin != domain.TaskOriginEASM || submit.inputs[0].OrganizationID != orgID.Hex() || submit.inputs[0].RootDomain != "a.edu.cn" {
+	if submit.inputs[0].Origin != domain.TaskOriginEASM || submit.inputs[0].OrganizationID != orgID || submit.inputs[0].RootDomain != "a.edu.cn" {
 		t.Fatalf("task lineage missing: %+v", submit.inputs[0])
 	}
 	if len(store.audits) != 1 {
@@ -45,10 +44,10 @@ func TestCreateScansRequiresConfirmedDomainsAndCreatesOneTaskEach(t *testing.T) 
 }
 
 func TestCreateScansRejectsUnconfirmedBeforeCreatingTasks(t *testing.T) {
-	orgID := bson.NewObjectID()
+	orgID := domain.MustID()
 	store := newFakeICPStore()
 	store.orgs[orgID] = &domain.Organization{ID: orgID, CanonicalName: "单位A", Status: domain.OrgStatusActive}
-	store.domains[orgID.Hex()+":a.edu.cn"] = &domain.OrganizationDomain{ID: bson.NewObjectID(), OrganizationID: orgID, RootDomain: "a.edu.cn", Status: domain.DomainStatusConfirmed}
+	store.domains[orgID+":a.edu.cn"] = &domain.OrganizationDomain{ID: domain.MustID(), OrganizationID: orgID, RootDomain: "a.edu.cn", Status: domain.DomainStatusConfirmed}
 	submit := &fakeScanSubmitter{}
 	svc := &Service{Store: store, Submitter: submit}
 	_, _, err := svc.CreateScans(context.Background(), orgID, []string{"a.edu.cn", "candidate.edu.cn"}, domain.TaskOptions{}, "", "", "alice")

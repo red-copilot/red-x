@@ -4,11 +4,11 @@
 
 ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资产侦察平台。它以组织为主线，把域名归属、资产、风险、任务和报告串成一条可追溯的链路；除可选的 Chromium 截图外，所有扫描引擎都在 Go 进程内运行，不需要安装 nmap、massdns 或 ProjectDiscovery CLI。
 
-当前版本是 3.0：一个 Go 二进制提供 `web`、`worker`、`scheduler` 三种角色，React 控制台构建后直接嵌入二进制，MongoDB 保存业务数据，Redis Streams 承载异步任务。
+当前版本是 3.0：一个 Go 二进制提供 `web`、`worker`、`scheduler` 三种角色，React 控制台构建后直接嵌入二进制，PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务。
 
 > **仅用于已获得明确授权的资产、域名、IP 和站点测试。** 使用前请阅读 [Disclaimer.md](Disclaimer.md)。
 
-> **与旧版 ARL 的关系：** 3.0 是 Go 重写而非原地升级，不迁移旧版 MongoDB 数据，也不兼容旧 `/api`。旧功能与新实现的对照见 [docs/PARITY.md](docs/PARITY.md)。
+> **与旧版 ARL 的关系：** 3.0 是 Go 重写而非原地升级，不迁移旧版 MongoDB 数据，也不兼容旧 `/api`；当前版本以 PostgreSQL 18 作为唯一业务主库。旧功能与新实现的对照见 [docs/PARITY.md](docs/PARITY.md)。
 
 ---
 
@@ -41,13 +41,13 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 - React 19 + TypeScript + Vite 控制台：TanStack Query/Table、Radix UI、Tailwind CSS、ECharts。
 - OpenAPI 3.1 文档、RFC 7807 错误响应、SSE 任务事件、Prometheus 指标。
 - `viewer` / `operator` / `admin` 三级 RBAC、API Key、CSRF、审计日志与结构化日志。
-- Docker Compose、systemd、单二进制部署；`worker` 可水平扩展，`scheduler` 通过 MongoDB 租约选主。
+- Docker Compose、systemd、单二进制部署；`worker` 可水平扩展，`scheduler` 通过 PostgreSQL 租约选主。
 
 ## 架构
 
 ```text
                      ┌──────────────────────────────────────┐
-  Browser / API ────▶│ web                                  │────▶ MongoDB
+  Browser / API ────▶│ web                                  │────▶ PostgreSQL 18
                      │ SPA · REST · SSE · OpenAPI · metrics │
                      └───────────────┬──────────────────────┘
                                      │ outbox
@@ -59,13 +59,13 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
                      │ 扫描步骤：DNS / 端口 / HTTP / 指纹 / PoC │
                      └──────────────────────────────────────┘
 
-  scheduler ── MongoDB lease ──▶ 到期的 monitor / schedule
+  scheduler ── PostgreSQL lease ──▶ 到期的 monitor / schedule
   可选：Neo4j（关系图）、MaxMind GeoIP（地图）、ICP_Query sidecar
 ```
 
-- **web**：无状态，除 MongoDB 外不保存会话；提供控制台、API、SSE、健康检查和指标。
+- **web**：无状态，除 PostgreSQL 外不保存会话；提供控制台、API、SSE、健康检查和指标。
 - **worker**：消费 Redis Streams，执行单个任务步骤；可并发运行多个实例。
-- **scheduler**：通过 MongoDB 租约保证同一时间只有一个实例派发定时任务。
+- **scheduler**：通过 PostgreSQL 租约保证同一时间只有一个实例派发定时任务。
 - **all / dev**：本地开发模式，在一个进程里运行三种角色，可配合内存队列。
 
 更完整的设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧版功能对照见 [docs/PARITY.md](docs/PARITY.md)。
@@ -78,17 +78,18 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 | --- | --- | --- |
 | Go | 1.27+ | 构建后端 |
 | Node.js | 22.12+ | 仅构建前端 |
-| MongoDB | 8.0 | 业务数据与租约 |
+| PostgreSQL | 18+ | 业务数据、任务租约与 outbox |
 | Redis | 7.0+ | 多进程/生产队列；本地单进程可用内存队列 |
 | Chromium | 可选 | 站点截图 |
 
 ### 方式一：Docker Compose
 
-先修改 `deploy/config.docker.yaml`，至少替换 `auth.accessSecret`、`auth.apiKeyPepper`、`bootstrapPassword` 和 `redis.url` 里的密码。示例配置中的默认密码**只能用于本地试用**。
+先修改 `deploy/config.docker.yaml`，至少替换 `auth.accessSecret`、`auth.apiKeyPepper`、`bootstrapPassword`，并通过 `POSTGRES_PASSWORD` / `REDIS_PASSWORD` 设置基础设施密码。示例配置中的默认密码**只能用于本地试用**。
 
 ```bash
-# 自定义 Redis 密码时，同步修改 config.docker.yaml 中 redis.url 的密码
-export REDIS_PASSWORD='<strong-password>'
+# 自定义 Redis/PostgreSQL 密码时，Compose 会同步注入连接串
+export REDIS_PASSWORD='<strong-redis-password>'
+export POSTGRES_PASSWORD='<strong-postgres-password>'
 
 docker compose -f deploy/compose.yaml up -d --build
 
@@ -118,7 +119,7 @@ export ARL_COOKIE_SECURE=false
 ./arl all --config config.yaml
 ```
 
-MongoDB 需要先运行。生产环境建议拆分为三个角色：
+PostgreSQL 需要先运行；启动角色会在 advisory lock 保护下执行幂等 AutoMigrate。生产环境建议拆分为三个角色：
 
 ```bash
 ./arl web --config config.yaml
@@ -147,7 +148,10 @@ docker compose --env-file deploy/.env.easm \
 | --- | --- | --- |
 | `server.listen` | `ARL_SERVER_LISTEN` | 监听地址，默认 `:5003` |
 | `server.publicURL` | `ARL_SERVER_PUBLIC_URL` | 对外访问地址 |
-| `mongo.uri` | `ARL_MONGO_URI` | MongoDB 连接串 |
+| `postgres.dsn` | `ARL_POSTGRES_DSN` | PostgreSQL 连接串 |
+| `postgres.maxOpenConns` | `ARL_POSTGRES_MAX_OPEN_CONNS` | 最大连接数，默认 25 |
+| `postgres.maxIdleConns` | `ARL_POSTGRES_MAX_IDLE_CONNS` | 空闲连接数，默认 10 |
+| `postgres.connMaxLifetime` | `ARL_POSTGRES_CONN_MAX_LIFETIME` | 连接生命周期，默认 `30m` |
 | `redis.url` | `ARL_REDIS_URL` | Redis 连接串 |
 | `queue.driver` | `ARL_QUEUE_DRIVER` | `redis` 或 `memory` |
 | `auth.accessSecret` | `ARL_AUTH_ACCESS_SECRET` | 访问令牌签名密钥，必填 |
@@ -162,7 +166,9 @@ docker compose --env-file deploy/.env.easm \
 | `github.token` | `ARL_GITHUB_TOKEN` | GitHub 搜索/监控所需 |
 | `neo4j.uri` | `ARL_NEO4J_URI` | 启用关系图时配置 |
 
-完整配置见 [config.example.yaml](config.example.yaml)。修改配置后运行 `./arl doctor --config config.yaml`，可检查配置、MongoDB、Redis、GeoIP、Neo4j、DNS 与模板状态。
+完整配置见 [config.example.yaml](config.example.yaml)。修改配置后运行 `./arl doctor --config config.yaml`，可检查配置、PostgreSQL、Redis、GeoIP、Neo4j、DNS 与模板状态。
+
+生产环境的 `postgres.dsn` 应启用 TLS（如 `sslmode=require` 或 `verify-full`），并通过密钥管理系统注入密码。
 
 **不要提交真实密钥。** `deploy/config.docker.yaml` 中的默认值只用于本地演示，部署前必须替换。
 
@@ -172,19 +178,20 @@ docker compose --env-file deploy/.env.easm \
 | --- | --- |
 | `arl web` | API、SSE、OpenAPI 与嵌入式控制台 |
 | `arl worker` | 消费 Redis Streams 任务，可加 `--queues` 限定队列 |
-| `arl scheduler` | 监控器与计划任务调度（MongoDB 租约选主） |
+| `arl scheduler` | 监控器与计划任务调度（PostgreSQL 租约选主） |
 | `arl all` / `arl dev` | 开发模式，同时运行 web、worker、scheduler |
-| `arl migrate` | 创建索引、默认策略、管理员与 PoC 插件元数据 |
+| `arl migrate` | 执行 PostgreSQL AutoMigrate、写入默认策略并同步 PoC 插件元数据 |
 | `arl doctor` | 检查配置、依赖、队列、资源与 DNS |
 | `arl health` | 容器健康检查，例如 `--url http://127.0.0.1:5003/healthz` |
 | `arl admin create-user` | 创建用户，可指定 `--role viewer/operator/admin` |
 | `arl admin reset-password` | 重置密码 |
-| `arl poc sync` | 将插件元数据同步到 MongoDB |
+| `arl poc sync` | 将插件元数据同步到 PostgreSQL |
 | `arl graph rebuild` | 重建 Neo4j 关系投影（启用关系图时） |
 | `arl version` | 打印版本 |
 
 ### 部署与运维
 
+- PostgreSQL 迁移从空库开始：旧版 MongoDB 数据不会自动导入；启用 Neo4j 时升级后执行一次 `./arl graph rebuild`。
 - systemd：`sudo ./deploy/install.sh` 安装到 `/opt/arl`，配置到 `/etc/arl`，数据目录为 `/var/lib/arl`。
 - Redis 切换/升级前运行 `./scripts/redis-preflight.sh --config config.yaml`，检查连通性、版本、AOF、内存策略、队列深度并执行 `arl doctor`；迁移切换可加 `--require-empty`。
 - EASM 在线冒烟使用 `./scripts/easm-live-smoke.sh`；默认只做只读检查，设置 `EASM_LIVE_SCAN=1` 才会发起有界扫描。
@@ -243,7 +250,7 @@ CI 会构建前端、运行 Go 测试（含 race）、构建镜像，并检查�
 cmd/arl                CLI 入口与角色分发
 internal/app           依赖装配
 internal/httpapi       REST / SSE / OpenAPI / 鉴权
-internal/store         MongoDB 仓储、索引与迁移
+internal/store         PostgreSQL/GORM 仓储、索引与迁移
 internal/modules       discovery、webintel、poc、tasking、monitoring、
                        github、reporting、identity、easm、system
 internal/platform      config、日志、队列、netsafe、通知、ProjectDiscovery 适配
@@ -257,7 +264,7 @@ scripts/               Redis 预检、EASM 在线冒烟
 
 ## 已知限制与有意差异
 
-- 3.0 是重写而非原地升级：**不迁移旧版 MongoDB 数据，也不兼容旧 `/api`**。
+- 3.0 是重写而非原地升级：**不迁移旧版 MongoDB 数据，也不兼容旧 `/api`**；升级后业务主库为 PostgreSQL 18。
 - OS 识别仅使用 naabu 服务元数据，无法获得 OS 类型时省略。
 - 截图依赖 Chromium；未安装浏览器时截图步骤会失败并被标记为可选步骤，不影响其他扫描。
 - 96 个插件中，RDP、CobaltStrike、Shiro CBC/GCM 等仍为注册扩展点，协议实现尚需补充。

@@ -6,73 +6,164 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"gorm.io/gorm"
 )
+
+type TaskPatch struct {
+	Status         *domain.TaskStatus
+	Error          *string
+	Progress       *int
+	Warnings       *[]string
+	Statistics     *domain.TaskStatistics
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
+	LastScreenshot *string
+}
+
+func (p TaskPatch) updates() map[string]any {
+	out := map[string]any{}
+	if p.Status != nil {
+		out["status"] = *p.Status
+	}
+	if p.Error != nil {
+		out["error"] = *p.Error
+	}
+	if p.Progress != nil {
+		out["progress"] = *p.Progress
+	}
+	if p.Warnings != nil {
+		out["warnings"] = jsonbExpr(*p.Warnings)
+	}
+	if p.Statistics != nil {
+		out["statistics"] = jsonbExpr(*p.Statistics)
+	}
+	if p.StartedAt != nil {
+		out["started_at"] = *p.StartedAt
+	}
+	if p.FinishedAt != nil {
+		out["finished_at"] = *p.FinishedAt
+	}
+	if p.LastScreenshot != nil {
+		out["last_screenshot"] = *p.LastScreenshot
+	}
+	return out
+}
+
+type StepPatch struct {
+	Status     *domain.StepStatus
+	Progress   *int
+	Attempts   *int
+	Message    *string
+	Error      *string
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+func (p StepPatch) updates() map[string]any {
+	out := map[string]any{"updated_at": time.Now().UTC()}
+	if p.Status != nil {
+		out["status"] = *p.Status
+	}
+	if p.Progress != nil {
+		out["progress"] = *p.Progress
+	}
+	if p.Attempts != nil {
+		out["attempts"] = *p.Attempts
+	}
+	if p.Message != nil {
+		out["message"] = *p.Message
+	}
+	if p.Error != nil {
+		out["error"] = *p.Error
+	}
+	if p.StartedAt != nil {
+		out["started_at"] = *p.StartedAt
+	}
+	if p.FinishedAt != nil {
+		out["finished_at"] = *p.FinishedAt
+	}
+	return out
+}
+
+type ResultSet struct {
+	ID        string    `gorm:"primaryKey;size:24" json:"id"`
+	Kind      string    `json:"kind"`
+	Items     []string  `gorm:"type:jsonb;serializer:json" json:"items"`
+	Total     int       `json:"total"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (ResultSet) TableName() string { return "result_sets" }
 
 func (s *Store) CreateTask(ctx context.Context, t *domain.Task) error {
 	now := time.Now().UTC()
 	t.CreatedAt, t.SchemaVersion = now, domain.SchemaVersion
-	if t.ID.IsZero() {
-		t.ID = bson.NewObjectID()
+	if t.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		t.ID = id
 	}
-	_, err := s.C(ColTasks).InsertOne(ctx, t)
-	return err
+	return s.db.WithContext(ctx).Create(t).Error
 }
 
-func (s *Store) GetTask(ctx context.Context, id bson.ObjectID) (*domain.Task, error) {
+func (s *Store) GetTask(ctx context.Context, id string) (*domain.Task, error) {
 	var t domain.Task
-	err := s.C(ColTasks).FindOne(ctx, bson.M{"_id": id}).Decode(&t)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&t).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &t, err
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 func (s *Store) ListTasks(ctx context.Context, q PageQuery, status, kind string) ([]domain.Task, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.Task{})
 	if status != "" {
-		filter["status"] = status
+		db = db.Where("status = ?", status)
 	}
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
 	if q.Search != "" {
-		filter["$or"] = []bson.M{
-			{"name": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"target": bson.M{"$regex": q.Search, "$options": "i"}},
-		}
+		pattern := ilike(q.Search)
+		db = db.Where(`(name ILIKE ? ESCAPE '\' OR target ILIKE ? ESCAPE '\')`, pattern, pattern)
 	}
-	total, err := s.C(ColTasks).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColTasks).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.Task
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }
 
 func (s *Store) UpdateTask(ctx context.Context, t *domain.Task) error {
-	_, err := s.C(ColTasks).ReplaceOne(ctx, bson.M{"_id": t.ID}, t)
-	return err
+	return s.db.WithContext(ctx).Save(t).Error
 }
 
-func (s *Store) UpdateTaskFields(ctx context.Context, id bson.ObjectID, fields bson.M) error {
-	_, err := s.C(ColTasks).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": fields})
-	return err
+func (s *Store) UpdateTaskFields(ctx context.Context, id string, patch TaskPatch) error {
+	updates := patch.updates()
+	if len(updates) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Model(&domain.Task{}).Where("id = ?", id).Updates(updates).Error
 }
 
-func (s *Store) DeleteTask(ctx context.Context, id bson.ObjectID) error {
-	_, err := s.C(ColTasks).DeleteOne(ctx, bson.M{"_id": id})
-	return err
+func (s *Store) DeleteTask(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("task_id = ?", id).Delete(&domain.TaskStep{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("task_id = ?", id).Delete(&domain.TaskEvent{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&domain.Task{}).Error
+	})
 }
 
 func (s *Store) CreateSteps(ctx context.Context, steps []domain.TaskStep) error {
@@ -80,218 +171,223 @@ func (s *Store) CreateSteps(ctx context.Context, steps []domain.TaskStep) error 
 		return nil
 	}
 	now := time.Now().UTC()
-	docs := make([]any, 0, len(steps))
 	for i := range steps {
 		steps[i].CreatedAt, steps[i].UpdatedAt = now, now
-		if steps[i].ID.IsZero() {
-			steps[i].ID = bson.NewObjectID()
+		steps[i].SchemaVersion = domain.SchemaVersion
+		if steps[i].ID == "" {
+			id, err := domain.NewID()
+			if err != nil {
+				return err
+			}
+			steps[i].ID = id
 		}
-		docs = append(docs, steps[i])
 	}
-	_, err := s.C(ColTaskSteps).InsertMany(ctx, docs)
-	return err
+	return s.db.WithContext(ctx).Create(&steps).Error
 }
 
-func (s *Store) ListSteps(ctx context.Context, taskID bson.ObjectID) ([]domain.TaskStep, error) {
-	cur, err := s.C(ColTaskSteps).Find(ctx, bson.M{"taskId": taskID}, options.Find().SetSort(bson.D{{Key: "sequence", Value: 1}}))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
+func (s *Store) ListSteps(ctx context.Context, taskID string) ([]domain.TaskStep, error) {
 	var out []domain.TaskStep
-	err = cur.All(ctx, &out)
+	err := s.db.WithContext(ctx).Where("task_id = ?", taskID).Order("sequence ASC").Find(&out).Error
 	return out, err
 }
 
-func (s *Store) GetStep(ctx context.Context, id bson.ObjectID) (*domain.TaskStep, error) {
+func (s *Store) GetStep(ctx context.Context, id string) (*domain.TaskStep, error) {
 	var step domain.TaskStep
-	err := s.C(ColTaskSteps).FindOne(ctx, bson.M{"_id": id}).Decode(&step)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&step).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &step, err
+	if err != nil {
+		return nil, err
+	}
+	return &step, nil
 }
 
-func (s *Store) UpdateStepFields(ctx context.Context, id bson.ObjectID, fields bson.M) error {
-	fields["updatedAt"] = time.Now().UTC()
-	_, err := s.C(ColTaskSteps).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": fields})
-	return err
+func (s *Store) UpdateStepFields(ctx context.Context, id string, patch StepPatch) error {
+	updates := patch.updates()
+	return s.db.WithContext(ctx).Model(&domain.TaskStep{}).Where("id = ?", id).Updates(updates).Error
 }
 
-func (s *Store) GetNextStep(ctx context.Context, taskID bson.ObjectID, sequence int) (*domain.TaskStep, error) {
+func (s *Store) GetNextStep(ctx context.Context, taskID string, sequence int) (*domain.TaskStep, error) {
 	var step domain.TaskStep
-	err := s.C(ColTaskSteps).FindOne(ctx, bson.M{"taskId": taskID, "sequence": bson.M{"$gt": sequence}}, options.FindOne().SetSort(bson.D{{Key: "sequence", Value: 1}})).Decode(&step)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("task_id = ? AND sequence > ?", taskID, sequence).Order("sequence ASC").First(&step).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &step, err
+	if err != nil {
+		return nil, err
+	}
+	return &step, nil
 }
 
 func (s *Store) AppendTaskEvent(ctx context.Context, e *domain.TaskEvent) error {
 	e.CreatedAt = time.Now().UTC()
-	if e.Sequence == 0 {
-		last := struct {
-			Sequence int64 `bson:"sequence"`
-		}{}
-		opts := options.FindOne().SetSort(bson.D{{Key: "sequence", Value: -1}})
-		_ = s.C(ColTaskEvents).FindOne(ctx, bson.M{"taskId": e.TaskID}, opts).Decode(&last)
-		e.Sequence = last.Sequence + 1
+	if e.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		e.ID = id
 	}
-	if e.ID.IsZero() {
-		e.ID = bson.NewObjectID()
-	}
-	_, err := s.C(ColTaskEvents).InsertOne(ctx, e)
-	return err
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if e.Sequence == 0 {
+			var seq int64
+			if err := tx.Raw(`UPDATE tasks SET event_seq = event_seq + 1 WHERE id = ? RETURNING event_seq`, e.TaskID).Row().Scan(&seq); err != nil {
+				return err
+			}
+			e.Sequence = seq
+		}
+		return tx.Create(e).Error
+	})
 }
 
-func (s *Store) ListTaskEvents(ctx context.Context, taskID bson.ObjectID, after int64, limit int) ([]domain.TaskEvent, error) {
+func (s *Store) ListTaskEvents(ctx context.Context, taskID string, after int64, limit int) ([]domain.TaskEvent, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	cur, err := s.C(ColTaskEvents).Find(ctx,
-		bson.M{"taskId": taskID, "sequence": bson.M{"$gt": after}},
-		options.Find().SetSort(bson.D{{Key: "sequence", Value: 1}}).SetLimit(int64(limit)),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.TaskEvent
-	err = cur.All(ctx, &out)
+	err := s.db.WithContext(ctx).
+		Where("task_id = ? AND sequence > ?", taskID, after).
+		Order("sequence ASC").Limit(limit).Find(&out).Error
 	return out, err
 }
 
 func (s *Store) AddOutbox(ctx context.Context, routingKey string, payload []byte) error {
 	now := time.Now().UTC()
+	id, err := domain.NewID()
+	if err != nil {
+		return err
+	}
 	msg := domain.OutboxMessage{
-		ID: bson.NewObjectID(), RoutingKey: routingKey, Payload: payload, Status: "pending",
+		ID: id, RoutingKey: routingKey, Payload: payload, Status: "pending",
 		AvailableAt: now, CreatedAt: now,
 	}
-	_, err := s.C(ColOutbox).InsertOne(ctx, msg)
-	return err
+	return s.db.WithContext(ctx).Create(&msg).Error
 }
 
 func (s *Store) PendingOutbox(ctx context.Context, limit int) ([]domain.OutboxMessage, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	cur, err := s.C(ColOutbox).Find(ctx,
-		bson.M{"status": "pending", "availableAt": bson.M{"$lte": time.Now().UTC()}},
-		options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}}).SetLimit(int64(limit)),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.OutboxMessage
-	err = cur.All(ctx, &out)
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		stale := now.Add(-5 * time.Minute)
+		var ids []string
+		if err := tx.Raw(`
+SELECT id FROM outbox
+WHERE (status = 'pending' AND available_at <= ?)
+   OR (status = 'processing' AND processing_at < ?)
+ORDER BY created_at ASC
+LIMIT ?
+FOR UPDATE SKIP LOCKED`, now, stale, limit).Scan(&ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := tx.Model(&domain.OutboxMessage{}).Where("id IN ?", ids).Updates(map[string]any{
+			"status": "processing", "processing_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id IN ?", ids).Order("created_at ASC").Find(&out).Error
+	})
 	return out, err
 }
 
-func (s *Store) MarkOutbox(ctx context.Context, id bson.ObjectID, status string, attempts int) error {
-	fields := bson.M{"status": status, "attempts": attempts}
+func (s *Store) MarkOutbox(ctx context.Context, id, status string, attempts int) error {
+	fields := map[string]any{"status": status, "attempts": attempts, "processing_at": nil}
 	if status == "published" {
-		fields["publishedAt"] = time.Now().UTC()
+		fields["published_at"] = time.Now().UTC()
 	} else {
-		fields["availableAt"] = time.Now().UTC().Add(time.Duration(attempts*attempts) * time.Second)
+		fields["available_at"] = time.Now().UTC().Add(time.Duration(attempts*attempts) * time.Second)
 	}
-	_, err := s.C(ColOutbox).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": fields})
-	return err
+	return s.db.WithContext(ctx).Model(&domain.OutboxMessage{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (s *Store) CountTasksByStatus(ctx context.Context) (map[string]int64, error) {
-	cur, err := s.C(ColTasks).Aggregate(ctx, mongo.Pipeline{
-		{{Key: "$group", Value: bson.M{"_id": "$status", "count": bson.M{"$sum": 1}}}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var rows []struct {
-		ID    string `bson:"_id"`
-		Count int64  `bson:"count"`
+		Status string
+		Count  int64
 	}
-	if err := cur.All(ctx, &rows); err != nil {
+	if err := s.db.WithContext(ctx).Model(&domain.Task{}).Select("status, count(*) AS count").Group("status").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[string]int64{}
-	for _, r := range rows {
-		out[r.ID] = r.Count
+	for _, row := range rows {
+		out[row.Status] = row.Count
 	}
 	return out, nil
 }
 
 func (s *Store) AcquireLease(ctx context.Context, name, owner string, ttl time.Duration) (bool, error) {
 	now := time.Now().UTC()
-	filter := bson.M{
-		"_id": name,
-		"$or": []bson.M{
-			{"expiresAt": bson.M{"$lt": now}},
-			{"owner": owner},
-		},
+	expires := now.Add(ttl)
+	var got string
+	err := s.db.WithContext(ctx).Raw(`
+INSERT INTO leases (id, owner, expires_at) VALUES (?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET owner = EXCLUDED.owner, expires_at = EXCLUDED.expires_at
+WHERE leases.expires_at < ? OR leases.owner = ?
+RETURNING id`, name, owner, expires, now, owner).Scan(&got).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
 	}
-	update := bson.M{"$set": bson.M{"owner": owner, "expiresAt": now.Add(ttl)}}
-	res, err := s.C(ColLeases).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
 	if err != nil {
 		return false, err
 	}
-	return res.UpsertedID != nil || res.ModifiedCount > 0 || res.MatchedCount > 0, nil
+	return got != "", nil
 }
 
 func (s *Store) ReleaseLease(ctx context.Context, name, owner string) error {
-	_, err := s.C(ColLeases).DeleteOne(ctx, bson.M{"_id": name, "owner": owner})
-	return err
+	return s.db.WithContext(ctx).Where("id = ? AND owner = ?", name, owner).Delete(&domain.Lease{}).Error
 }
 
-func (s *Store) CreateResultSet(ctx context.Context, kind string, items []string) (bson.ObjectID, error) {
-	id := bson.NewObjectID()
-	_, err := s.C(ColResultSets).InsertOne(ctx, bson.M{
-		"_id": id, "kind": kind, "items": items, "total": len(items), "createdAt": time.Now().UTC(),
-	})
-	return id, err
-}
-
-func (s *Store) GetResultSet(ctx context.Context, id bson.ObjectID) ([]string, error) {
-	var doc struct {
-		Items []string `bson:"items"`
+func (s *Store) CreateResultSet(ctx context.Context, kind string, items []string) (string, error) {
+	id, err := domain.NewID()
+	if err != nil {
+		return "", err
 	}
-	err := s.C(ColResultSets).FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	rs := ResultSet{ID: id, Kind: kind, Items: items, Total: len(items), CreatedAt: time.Now().UTC()}
+	if err := s.db.WithContext(ctx).Create(&rs).Error; err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) GetResultSet(ctx context.Context, id string) ([]string, error) {
+	var rs ResultSet
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&rs).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return doc.Items, err
+	if err != nil {
+		return nil, err
+	}
+	return rs.Items, nil
 }
 
 func (s *Store) ListEASMTasks(ctx context.Context, organizationID, status, kind string, q PageQuery) ([]domain.Task, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{"origin": domain.TaskOriginEASM}
+	db := s.db.WithContext(ctx).Model(&domain.Task{}).Where("origin = ?", domain.TaskOriginEASM)
 	if organizationID != "" {
-		filter["organizationId"] = organizationID
+		db = db.Where("organization_id = ?", organizationID)
 	}
 	if status != "" {
-		filter["status"] = status
+		db = db.Where("status = ?", status)
 	}
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
 	if q.Search != "" {
-		filter["$or"] = []bson.M{
-			{"name": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"target": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"rootDomain": bson.M{"$regex": q.Search, "$options": "i"}},
-		}
+		pattern := ilike(q.Search)
+		db = db.Where(`(name ILIKE ? ESCAPE '\' OR target ILIKE ? ESCAPE '\' OR root_domain ILIKE ? ESCAPE '\')`, pattern, pattern, pattern)
 	}
-	total, err := s.C(ColTasks).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColTasks).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.Task
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }

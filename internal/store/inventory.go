@@ -2,238 +2,209 @@ package store
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *Store) UpsertAsset(ctx context.Context, kind domain.AssetKind, key string, data map[string]any, taskID string, scopeID string) (*domain.Asset, error) {
 	now := time.Now().UTC()
-	scopeIDs := []string{}
-	if scopeID != "" {
-		scopeIDs = append(scopeIDs, scopeID)
-	}
-	filter := bson.M{"kind": kind, "key": key}
-	update := bson.M{
-		"$set": bson.M{
-			"data": data, "lastSeen": now, "lastTaskId": taskID, "schemaVersion": domain.SchemaVersion,
-		},
-		"$setOnInsert": bson.M{"firstSeen": now},
-	}
-	if scopeID != "" {
-		update["$addToSet"] = bson.M{"scopeIds": scopeID}
-	} else {
-		update["$setOnInsert"].(bson.M)["scopeIds"] = scopeIDs
-	}
-	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
-	var asset domain.Asset
-	err := s.C(ColAssets).FindOneAndUpdate(ctx, filter, update, opts).Decode(&asset)
+	id, err := domain.NewID()
 	if err != nil {
 		return nil, err
 	}
-	_ = s.AppendGraphOutbox(ctx, "asset", asset.ID.Hex(), domain.OutboxOpUpsert)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	scopeIDs := []string{}
+	if scopeID != "" {
+		scopeIDs = []string{scopeID}
+	}
+	scopeJSON, err := json.Marshal(scopeIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Exec(`
+INSERT INTO assets (id, kind, key, data, scope_ids, first_seen, last_seen, last_task_id, schema_version)
+VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
+ON CONFLICT (kind, key) DO UPDATE SET
+  data = EXCLUDED.data,
+  last_seen = EXCLUDED.last_seen,
+  last_task_id = EXCLUDED.last_task_id,
+  scope_ids = (
+    SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+    FROM jsonb_array_elements_text(COALESCE(assets.scope_ids, '[]'::jsonb) || COALESCE(EXCLUDED.scope_ids, '[]'::jsonb)) AS item
+  )`, id, kind, key, string(raw), string(scopeJSON), now, now, taskID, domain.SchemaVersion).Error; err != nil {
+		return nil, err
+	}
+	var asset domain.Asset
+	if err := s.db.WithContext(ctx).Where("kind = ? AND key = ?", kind, key).First(&asset).Error; err != nil {
+		return nil, err
+	}
+	_ = s.AppendGraphOutbox(ctx, "asset", asset.ID, domain.OutboxOpUpsert)
 	return &asset, nil
 }
 
-func (s *Store) ObserveAsset(ctx context.Context, taskID bson.ObjectID, asset *domain.Asset, source string, snapshot map[string]any) error {
+func (s *Store) ObserveAsset(ctx context.Context, taskID string, asset *domain.Asset, source string, snapshot map[string]any) error {
+	id, err := domain.NewID()
+	if err != nil {
+		return err
+	}
 	obs := domain.AssetObservation{
-		ID: bson.NewObjectID(), TaskID: taskID, AssetID: asset.ID, Kind: asset.Kind, Key: asset.Key,
+		ID: id, TaskID: taskID, AssetID: asset.ID, Kind: asset.Kind, Key: asset.Key,
 		Source: source, Snapshot: snapshot, ObservedAt: time.Now().UTC(), SchemaVersion: domain.SchemaVersion,
 	}
-	_, err := s.C(ColObservations).InsertOne(ctx, obs)
-	return err
+	return s.db.WithContext(ctx).Create(&obs).Error
 }
 
 func (s *Store) AddFinding(ctx context.Context, f *domain.Finding) (bool, error) {
 	f.CreatedAt = time.Now().UTC()
 	f.SchemaVersion = domain.SchemaVersion
-	if f.ID.IsZero() {
-		f.ID = bson.NewObjectID()
+	if f.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return false, err
+		}
+		f.ID = id
 	}
-	_, err := s.C(ColFindings).InsertOne(ctx, f)
-	if mongo.IsDuplicateKeyError(err) {
+	err := s.db.WithContext(ctx).Create(f).Error
+	if isDuplicate(err) {
 		return false, nil
 	}
-	if err == nil {
-		_ = s.AppendGraphOutbox(ctx, "finding", f.ID.Hex(), domain.OutboxOpUpsert)
+	if err != nil {
+		return false, err
 	}
-	return err == nil, err
+	_ = s.AppendGraphOutbox(ctx, "finding", f.ID, domain.OutboxOpUpsert)
+	return true, nil
 }
 
 func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q PageQuery) ([]domain.Asset, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.Asset{})
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
 	if taskID != "" {
-		ids, err := s.assetIDsForTask(ctx, taskID)
-		if err != nil {
-			return nil, 0, err
-		}
-		filter["_id"] = bson.M{"$in": ids}
+		db = db.Where("id IN (?)", s.db.Model(&domain.AssetObservation{}).Select("asset_id").Where("task_id = ?", taskID))
 	}
 	if scopeID != "" {
-		filter["scopeIds"] = scopeID
+		db = db.Where("id IN (?)", s.db.Model(&domain.ScopeAssetLink{}).Select("asset_id").Where("scope_id = ?", scopeID))
 	}
 	if q.Search != "" {
-		filter["$or"] = []bson.M{
-			{"key": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"data.title": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"data.url": bson.M{"$regex": q.Search, "$options": "i"}},
-		}
+		pattern := ilike(q.Search)
+		db = db.Where(`(key ILIKE ? ESCAPE '\' OR data->>'title' ILIKE ? ESCAPE '\' OR data->>'url' ILIKE ? ESCAPE '\')`, pattern, pattern, pattern)
 	}
-	total, err := s.C(ColAssets).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColAssets).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.Asset
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }
 
-func (s *Store) assetIDsForTask(ctx context.Context, taskID string) ([]bson.ObjectID, error) {
-	id, err := ObjectID(taskID)
-	if err != nil {
-		return nil, err
-	}
-	cur, err := s.C(ColObservations).Find(ctx, bson.M{"taskId": id}, options.Find().SetProjection(bson.M{"assetId": 1}))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
-	seen := map[bson.ObjectID]bool{}
-	var ids []bson.ObjectID
-	for cur.Next(ctx) {
-		var row struct {
-			AssetID bson.ObjectID `bson:"assetId"`
-		}
-		if err := cur.Decode(&row); err != nil {
-			return nil, err
-		}
-		if !seen[row.AssetID] {
-			seen[row.AssetID] = true
-			ids = append(ids, row.AssetID)
-		}
-	}
-	return ids, cur.Err()
+func (s *Store) assetIDsForTask(ctx context.Context, taskID string) ([]string, error) {
+	var ids []string
+	err := s.db.WithContext(ctx).Model(&domain.AssetObservation{}).
+		Where("task_id = ?", taskID).Distinct("asset_id").Pluck("asset_id", &ids).Error
+	return ids, err
 }
 
-func (s *Store) ListTaskObservations(ctx context.Context, taskID bson.ObjectID, kind string, q PageQuery) ([]domain.AssetObservation, int64, error) {
+func (s *Store) ListTaskObservations(ctx context.Context, taskID string, kind string, q PageQuery) ([]domain.AssetObservation, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{"taskId": taskID}
+	db := s.db.WithContext(ctx).Model(&domain.AssetObservation{}).Where("task_id = ?", taskID)
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
 	if q.Search != "" {
-		filter["key"] = bson.M{"$regex": q.Search, "$options": "i"}
+		db = db.Where(`key ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
-	total, err := s.C(ColObservations).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(bson.D{{Key: "observedAt", Value: -1}}).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColObservations).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.AssetObservation
-	err = cur.All(ctx, &out)
+	err := db.Order("observed_at DESC, id DESC").Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }
 
 func (s *Store) ListFindings(ctx context.Context, kind, taskID, scopeID string, q PageQuery) ([]domain.Finding, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.Finding{})
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
 	if taskID != "" {
-		id, err := ObjectID(taskID)
-		if err != nil {
-			return nil, 0, err
-		}
-		filter["taskId"] = id
+		db = db.Where("task_id = ?", taskID)
 	}
 	if scopeID != "" {
-		filter["scopeId"] = scopeID
+		db = db.Where("scope_id = ?", scopeID)
 	}
 	if q.Search != "" {
-		filter["$or"] = []bson.M{
-			{"title": bson.M{"$regex": q.Search, "$options": "i"}},
-			{"target": bson.M{"$regex": q.Search, "$options": "i"}},
-		}
+		pattern := ilike(q.Search)
+		db = db.Where(`(title ILIKE ? ESCAPE '\' OR target ILIKE ? ESCAPE '\')`, pattern, pattern)
 	}
-	total, err := s.C(ColFindings).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColFindings).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.Finding
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }
 
-func (s *Store) TaskStatistics(ctx context.Context, taskID bson.ObjectID) (domain.TaskStatistics, error) {
+func (s *Store) TaskStatistics(ctx context.Context, taskID string) (domain.TaskStatistics, error) {
 	var st domain.TaskStatistics
-	countObs := func(kind domain.AssetKind) (int, error) {
-		n, err := s.C(ColObservations).CountDocuments(ctx, bson.M{"taskId": taskID, "kind": kind})
-		return int(n), err
+	var obsRows []struct {
+		Kind  string
+		Count int64
 	}
-	countFind := func(kind domain.FindingKind) (int, error) {
-		n, err := s.C(ColFindings).CountDocuments(ctx, bson.M{"taskId": taskID, "kind": kind})
-		return int(n), err
-	}
-	var err error
-	if st.Domains, err = countObs(domain.AssetDomain); err != nil {
+	if err := s.db.WithContext(ctx).Model(&domain.AssetObservation{}).
+		Select("kind, count(*) AS count").Where("task_id = ?", taskID).Group("kind").Scan(&obsRows).Error; err != nil {
 		return st, err
 	}
-	if st.IPs, err = countObs(domain.AssetIP); err != nil {
+	for _, row := range obsRows {
+		switch domain.AssetKind(row.Kind) {
+		case domain.AssetDomain:
+			st.Domains = int(row.Count)
+		case domain.AssetIP:
+			st.IPs = int(row.Count)
+		case domain.AssetSite:
+			st.Sites = int(row.Count)
+		case domain.AssetURL:
+			st.URLs = int(row.Count)
+		case domain.AssetCert:
+			st.Certs = int(row.Count)
+		case domain.AssetService:
+			st.Services = int(row.Count)
+		}
+	}
+	var findingRows []struct {
+		Kind  string
+		Count int64
+	}
+	if err := s.db.WithContext(ctx).Model(&domain.Finding{}).
+		Select("kind, count(*) AS count").Where("task_id = ?", taskID).Group("kind").Scan(&findingRows).Error; err != nil {
 		return st, err
 	}
-	if st.Sites, err = countObs(domain.AssetSite); err != nil {
-		return st, err
-	}
-	if st.URLs, err = countObs(domain.AssetURL); err != nil {
-		return st, err
-	}
-	if st.Certs, err = countObs(domain.AssetCert); err != nil {
-		return st, err
-	}
-	if st.Services, err = countObs(domain.AssetService); err != nil {
-		return st, err
-	}
-	if st.Vulns, err = countFind(domain.FindingVuln); err != nil {
-		return st, err
-	}
-	if st.Nuclei, err = countFind(domain.FindingNuclei); err != nil {
-		return st, err
-	}
-	if st.WIH, err = countFind(domain.FindingWIH); err != nil {
-		return st, err
-	}
-	if st.FileLeaks, err = countFind(domain.FindingFileLeak); err != nil {
-		return st, err
-	}
-	if st.Protocols, err = countFind(domain.FindingProtocol); err != nil {
-		return st, err
+	for _, row := range findingRows {
+		switch domain.FindingKind(row.Kind) {
+		case domain.FindingVuln:
+			st.Vulns = int(row.Count)
+		case domain.FindingNuclei:
+			st.Nuclei = int(row.Count)
+		case domain.FindingWIH:
+			st.WIH = int(row.Count)
+		case domain.FindingFileLeak:
+			st.FileLeaks = int(row.Count)
+		case domain.FindingProtocol:
+			st.Protocols = int(row.Count)
+		}
 	}
 	return st, nil
 }
@@ -241,206 +212,213 @@ func (s *Store) TaskStatistics(ctx context.Context, taskID bson.ObjectID) (domai
 func (s *Store) CreateScope(ctx context.Context, sc *domain.Scope) error {
 	now := time.Now().UTC()
 	sc.CreatedAt, sc.UpdatedAt, sc.SchemaVersion = now, now, domain.SchemaVersion
-	if sc.ID.IsZero() {
-		sc.ID = bson.NewObjectID()
+	if sc.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		sc.ID = id
 	}
-	_, err := s.C(ColScopes).InsertOne(ctx, sc)
-	return err
+	return s.db.WithContext(ctx).Create(sc).Error
 }
 
-func (s *Store) GetScope(ctx context.Context, id bson.ObjectID) (*domain.Scope, error) {
+func (s *Store) GetScope(ctx context.Context, id string) (*domain.Scope, error) {
 	var sc domain.Scope
-	err := s.C(ColScopes).FindOne(ctx, bson.M{"_id": id}).Decode(&sc)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&sc).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &sc, err
+	if err != nil {
+		return nil, err
+	}
+	return &sc, nil
 }
 
 func (s *Store) ListScopes(ctx context.Context, q PageQuery) ([]domain.Scope, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.Scope{})
 	if q.Search != "" {
-		filter["name"] = bson.M{"$regex": q.Search, "$options": "i"}
+		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
-	total, err := s.C(ColScopes).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColScopes).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.Scope
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }
 
 func (s *Store) UpdateScope(ctx context.Context, sc *domain.Scope) error {
 	sc.UpdatedAt = time.Now().UTC()
-	_, err := s.C(ColScopes).ReplaceOne(ctx, bson.M{"_id": sc.ID}, sc)
-	return err
+	return s.db.WithContext(ctx).Save(sc).Error
 }
 
-func (s *Store) DeleteScope(ctx context.Context, id bson.ObjectID) error {
-	_, err := s.C(ColScopes).DeleteOne(ctx, bson.M{"_id": id})
-	if err == nil {
-		_, _ = s.C(ColScopeAssets).DeleteMany(ctx, bson.M{"scopeId": id})
-	}
-	return err
+func (s *Store) DeleteScope(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("scope_id = ?", id).Delete(&domain.ScopeAssetLink{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&domain.Scope{}).Error
+	})
 }
 
-func (s *Store) LinkAssetToScope(ctx context.Context, scopeID bson.ObjectID, asset *domain.Asset, tags []string) error {
+func (s *Store) LinkAssetToScope(ctx context.Context, scopeID string, asset *domain.Asset, tags []string) error {
 	now := time.Now().UTC()
-	filter := bson.M{"scopeId": scopeID, "assetId": asset.ID}
-	update := bson.M{
-		"$set":         bson.M{"kind": asset.Kind, "lastSeen": now, "schemaVersion": domain.SchemaVersion},
-		"$setOnInsert": bson.M{"firstSeen": now},
+	id, err := domain.NewID()
+	if err != nil {
+		return err
 	}
-	if len(tags) > 0 {
-		update["$addToSet"] = bson.M{"tags": bson.M{"$each": tags}}
+	if tags == nil {
+		tags = []string{}
 	}
-	_, err := s.C(ColScopeAssets).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
-	return err
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Exec(`
+INSERT INTO scope_asset_links (id, scope_id, asset_id, kind, tags, first_seen, last_seen, schema_version)
+VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+ON CONFLICT (scope_id, asset_id) DO UPDATE SET
+  kind = EXCLUDED.kind,
+  last_seen = EXCLUDED.last_seen,
+  schema_version = EXCLUDED.schema_version,
+  tags = (
+    SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+    FROM jsonb_array_elements_text(COALESCE(scope_asset_links.tags, '[]'::jsonb) || COALESCE(EXCLUDED.tags, '[]'::jsonb)) AS item
+  )`,
+		id, scopeID, asset.ID, asset.Kind, string(tagsJSON), now, now, domain.SchemaVersion).Error
 }
 
-func (s *Store) ListScopeAssets(ctx context.Context, scopeID bson.ObjectID, kind string, q PageQuery) ([]map[string]any, int64, error) {
+func (s *Store) ListScopeAssets(ctx context.Context, scopeID string, kind string, q PageQuery) ([]map[string]any, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{"scopeId": scopeID}
+	db := s.db.WithContext(ctx).Model(&domain.ScopeAssetLink{}).Where("scope_id = ?", scopeID)
 	if kind != "" {
-		filter["kind"] = kind
+		db = db.Where("kind = ?", kind)
 	}
-	total, err := s.C(ColScopeAssets).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$sort", Value: bson.D{{Key: "lastSeen", Value: -1}}}},
-		{{Key: "$skip", Value: int64((q.Page - 1) * q.PageSize)}},
-		{{Key: "$limit", Value: int64(q.PageSize)}},
-		{{Key: "$lookup", Value: bson.M{"from": ColAssets, "localField": "assetId", "foreignField": "_id", "as": "asset"}}},
-		{{Key: "$unwind", Value: "$asset"}},
-		{{Key: "$project", Value: bson.M{"_id": 0, "kind": 1, "tags": 1, "firstSeen": 1, "lastSeen": 1, "asset": 1}}},
-	}
-	cur, err := s.C(ColScopeAssets).Aggregate(ctx, pipeline)
-	if err != nil {
+	var links []domain.ScopeAssetLink
+	if err := db.Order("last_seen DESC, id DESC").Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&links).Error; err != nil {
 		return nil, 0, err
 	}
-	defer cur.Close(ctx)
-	var out []map[string]any
-	err = cur.All(ctx, &out)
-	return out, total, err
+	if len(links) == 0 {
+		return []map[string]any{}, total, nil
+	}
+	ids := make([]string, 0, len(links))
+	for _, link := range links {
+		ids = append(ids, link.AssetID)
+	}
+	var assets []domain.Asset
+	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&assets).Error; err != nil {
+		return nil, 0, err
+	}
+	byID := make(map[string]domain.Asset, len(assets))
+	for _, asset := range assets {
+		byID[asset.ID] = asset
+	}
+	out := make([]map[string]any, 0, len(links))
+	for _, link := range links {
+		asset, ok := byID[link.AssetID]
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"kind": link.Kind, "tags": link.Tags,
+			"firstSeen": link.FirstSeen, "lastSeen": link.LastSeen, "asset": asset,
+		})
+	}
+	return out, total, nil
 }
 
 func (s *Store) SearchHistoryDomains(ctx context.Context, base string, limit int) ([]string, error) {
 	if limit <= 0 {
 		limit = 5000
 	}
-	filter := bson.M{"kind": domain.AssetDomain, "key": bson.M{"$regex": strings.ToLower(base) + "$", "$options": "i"}}
-	cur, err := s.C(ColAssets).Find(ctx, filter, options.Find().SetLimit(int64(limit)).SetProjection(bson.M{"key": 1}))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(strings.TrimSpace(base)))
 	var out []string
-	for cur.Next(ctx) {
-		var row struct {
-			Key string `bson:"key"`
-		}
-		if err := cur.Decode(&row); err != nil {
-			return nil, err
-		}
-		out = append(out, row.Key)
-	}
-	return out, cur.Err()
+	err := s.db.WithContext(ctx).Model(&domain.Asset{}).
+		Where(`kind = ? AND key ILIKE ? ESCAPE '\'`, domain.AssetDomain, pattern).
+		Order("key ASC").Limit(limit).Pluck("key", &out).Error
+	return out, err
 }
 
 func (s *Store) CountAssets(ctx context.Context) (map[string]int64, error) {
-	cur, err := s.C(ColAssets).Aggregate(ctx, mongo.Pipeline{
-		{{Key: "$group", Value: bson.M{"_id": "$kind", "count": bson.M{"$sum": 1}}}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var rows []struct {
-		ID    string `bson:"_id"`
-		Count int64  `bson:"count"`
+		Kind  string
+		Count int64
 	}
-	if err := cur.All(ctx, &rows); err != nil {
+	if err := s.db.WithContext(ctx).Model(&domain.Asset{}).Select("kind, count(*) AS count").Group("kind").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[string]int64{}
-	for _, r := range rows {
-		out[r.ID] = r.Count
+	for _, row := range rows {
+		out[row.Kind] = row.Count
 	}
 	return out, nil
 }
 
 type FingerprintRule struct {
-	ID        bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name      string        `bson:"name" json:"name"`
-	Rule      string        `bson:"rule" json:"rule"`
-	CreatedAt time.Time     `bson:"createdAt" json:"createdAt"`
-	UpdatedAt time.Time     `bson:"updatedAt" json:"updatedAt"`
+	ID        string    `gorm:"primaryKey;size:24" json:"id"`
+	Name      string    `json:"name"`
+	Rule      string    `json:"rule"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+func (FingerprintRule) TableName() string { return "fingerprints" }
 
 func (s *Store) CreateFingerprint(ctx context.Context, r *FingerprintRule) error {
 	now := time.Now().UTC()
 	r.CreatedAt, r.UpdatedAt = now, now
-	if r.ID.IsZero() {
-		r.ID = bson.NewObjectID()
+	if r.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		r.ID = id
 	}
-	_, err := s.C(ColFingerprints).InsertOne(ctx, r)
-	return err
+	return s.db.WithContext(ctx).Create(r).Error
 }
 
 func (s *Store) ListFingerprints(ctx context.Context) ([]FingerprintRule, error) {
-	cur, err := s.C(ColFingerprints).Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var out []FingerprintRule
-	err = cur.All(ctx, &out)
+	err := s.db.WithContext(ctx).Order("name ASC").Find(&out).Error
 	return out, err
 }
 
-func (s *Store) DeleteFingerprint(ctx context.Context, id bson.ObjectID) error {
-	_, err := s.C(ColFingerprints).DeleteOne(ctx, bson.M{"_id": id})
-	return err
+func (s *Store) DeleteFingerprint(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Delete(&FingerprintRule{}, "id = ?", id).Error
 }
 
 func (s *Store) UpsertPOCPlugin(ctx context.Context, p *domain.PocPlugin) error {
 	now := time.Now().UTC()
 	p.CreatedAt, p.UpdatedAt, p.SchemaVersion = now, now, domain.SchemaVersion
-	_, err := s.C(ColPOCPlugins).UpdateOne(ctx,
-		bson.M{"name": p.Name},
-		bson.M{"$set": p},
-		options.UpdateOne().SetUpsert(true),
-	)
-	return err
+	if p.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		p.ID = id
+	}
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "name"}},
+		DoUpdates: clause.AssignmentColumns([]string{"type", "app_name", "vul_name", "category", "schemes", "description", "enabled", "updated_at", "schema_version"}),
+	}).Create(p).Error
 }
 
 func (s *Store) ListPOCPlugins(ctx context.Context, kind string) ([]domain.PocPlugin, error) {
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.PocPlugin{})
 	if kind != "" {
-		filter["type"] = kind
+		db = db.Where("type = ?", kind)
 	}
-	cur, err := s.C(ColPOCPlugins).Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "type", Value: 1}, {Key: "name", Value: 1}}))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.PocPlugin
-	err = cur.All(ctx, &out)
+	err := db.Order("type ASC, name ASC").Find(&out).Error
 	return out, err
 }
 
 func (s *Store) DeletePOCPlugin(ctx context.Context, name string) error {
-	_, err := s.C(ColPOCPlugins).DeleteOne(ctx, bson.M{"name": name})
-	return err
+	return s.db.WithContext(ctx).Delete(&domain.PocPlugin{}, "name = ?", name).Error
 }

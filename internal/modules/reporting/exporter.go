@@ -12,7 +12,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/store"
 	"github.com/xuri/excelize/v2"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Exporter struct {
@@ -20,7 +19,7 @@ type Exporter struct {
 	Dir   string
 }
 
-func (e *Exporter) ExportTask(ctx context.Context, taskID bson.ObjectID, format string) (string, error) {
+func (e *Exporter) ExportTask(ctx context.Context, taskID string, format string) (string, error) {
 	task, err := e.Store.GetTask(ctx, taskID)
 	if err != nil || task == nil {
 		return "", fmt.Errorf("task not found")
@@ -36,7 +35,7 @@ func (e *Exporter) ExportTask(ctx context.Context, taskID bson.ObjectID, format 
 	if err := os.MkdirAll(e.Dir, 0o750); err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("ARL_%s_%d.%s", task.ID.Hex(), time.Now().Unix(), format)
+	name := fmt.Sprintf("ARL_%s_%d.%s", task.ID, time.Now().Unix(), format)
 	path := filepath.Join(e.Dir, name)
 	switch format {
 	case "csv":
@@ -53,7 +52,7 @@ func (e *Exporter) ExportTask(ctx context.Context, taskID bson.ObjectID, format 
 	return path, nil
 }
 
-func (e *Exporter) allObservations(ctx context.Context, taskID bson.ObjectID) ([]domain.AssetObservation, error) {
+func (e *Exporter) allObservations(ctx context.Context, taskID string) ([]domain.AssetObservation, error) {
 	var out []domain.AssetObservation
 	for page := 1; ; page++ {
 		items, total, err := e.Store.ListTaskObservations(ctx, taskID, "", store.PageQuery{Page: page, PageSize: 200})
@@ -68,10 +67,10 @@ func (e *Exporter) allObservations(ctx context.Context, taskID bson.ObjectID) ([
 	return out, nil
 }
 
-func (e *Exporter) allFindings(ctx context.Context, taskID bson.ObjectID) ([]domain.Finding, error) {
+func (e *Exporter) allFindings(ctx context.Context, taskID string) ([]domain.Finding, error) {
 	var out []domain.Finding
 	for page := 1; ; page++ {
-		items, total, err := e.Store.ListFindings(ctx, "", taskID.Hex(), "", store.PageQuery{Page: page, PageSize: 200})
+		items, total, err := e.Store.ListFindings(ctx, "", taskID, "", store.PageQuery{Page: page, PageSize: 200})
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +106,7 @@ func writeXLSX(path string, task *domain.Task, obs []domain.AssetObservation, fi
 	summary := f.GetSheetName(0)
 	_ = f.SetSheetName(summary, "Summary")
 	rows := [][]any{
-		{"ID", task.ID.Hex()}, {"Name", task.Name}, {"Target", task.Target}, {"Status", task.Status},
+		{"ID", task.ID}, {"Name", task.Name}, {"Target", task.Target}, {"Status", task.Status},
 		{"Domains", task.Statistics.Domains}, {"IPs", task.Statistics.IPs}, {"Sites", task.Statistics.Sites},
 		{"Vulns", task.Statistics.Vulns}, {"Nuclei", task.Statistics.Nuclei}, {"WIH", task.Statistics.WIH},
 	}

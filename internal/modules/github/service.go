@@ -15,7 +15,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/security"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Service struct {
@@ -98,7 +97,7 @@ func (s *Service) CreateTask(ctx context.Context, keyword, monitorID string) (*d
 	return t, nil
 }
 
-func (s *Service) RunTask(ctx context.Context, id bson.ObjectID) error {
+func (s *Service) RunTask(ctx context.Context, id string) error {
 	t, err := s.Store.GetGitHubTask(ctx, id)
 	if err != nil || t == nil {
 		return fmt.Errorf("github task not found")
@@ -124,7 +123,7 @@ func (s *Service) RunTask(ctx context.Context, id bson.ObjectID) error {
 		}
 		hash := security.SHA256Hex(item.Repository.FullName + "/" + item.Path)
 		added, err := s.Store.AddGitHubFinding(ctx, &domain.GitHubFinding{
-			TaskID: t.ID.Hex(), MonitorID: t.MonitorID, Keyword: t.Keyword,
+			TaskID: t.ID, MonitorID: t.MonitorID, Keyword: t.Keyword,
 			Repo: item.Repository.FullName, Path: item.Path, HTMLURL: item.HTMLURL,
 			GitURL: item.GitURL, HashMD5: hash, HumanContent: humanContent(content, t.Keyword),
 		})
@@ -177,7 +176,7 @@ func humanContent(content, keyword string) string {
 }
 
 func (s *Service) RunMonitor(ctx context.Context, m domain.GitHubMonitor) error {
-	t, err := s.CreateTask(ctx, m.Keyword, m.ID.Hex())
+	t, err := s.CreateTask(ctx, m.Keyword, m.ID)
 	if err != nil {
 		return err
 	}

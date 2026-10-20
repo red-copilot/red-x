@@ -8,7 +8,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/platform/httpx"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func (s *Server) handleUpdateOrganization(w http.ResponseWriter, r *http.Request) {
@@ -50,9 +49,9 @@ func (s *Server) handleUpdateOrganization(w http.ResponseWriter, r *http.Request
 		httpx.WriteProblem(w, r, http.StatusConflict, "organization_update_failed", err.Error())
 		return
 	}
-	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
+	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID, domain.OutboxOpUpsert)
 	p := principalFrom(r.Context())
-	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "easm.organization_update", Resource: org.ID.Hex(), Detail: map[string]any{"name": org.CanonicalName}})
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "easm.organization_update", Resource: org.ID, Detail: map[string]any{"name": org.CanonicalName}})
 	httpx.WriteJSON(w, http.StatusOK, org)
 }
 
@@ -88,7 +87,7 @@ func (s *Server) handleImportOrganizations(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			result["created"] = result["created"].(int) + 1
-			_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
+			_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID, domain.OutboxOpUpsert)
 		} else {
 			org.Aliases = uniqueNonEmpty(append(org.Aliases, row.Aliases...))
 			if row.Region != "" {
@@ -102,7 +101,7 @@ func (s *Server) handleImportOrganizations(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			result["updated"] = result["updated"].(int) + 1
-			_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID.Hex(), domain.OutboxOpUpsert)
+			_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID, domain.OutboxOpUpsert)
 		}
 		for _, root := range row.RootDomains {
 			od := &domain.OrganizationDomain{OrganizationID: org.ID, RootDomain: root, Source: "manual", Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate}
@@ -142,8 +141,8 @@ func (s *Server) handleRejectOrganizationDomain(w http.ResponseWriter, r *http.R
 		httpx.WriteProblem(w, r, http.StatusConflict, "domain_reject_failed", err.Error())
 		return
 	}
-	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reject", Resource: domainID.Hex(), Detail: map[string]any{"organizationId": orgID.Hex(), "reason": req.Reason}})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": domainID.Hex(), "status": domain.DomainStatusRejected})
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reject", Resource: domainID, Detail: map[string]any{"organizationId": orgID, "reason": req.Reason}})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": domainID, "status": domain.DomainStatusRejected})
 }
 
 func (s *Server) handleReassignOrganizationDomain(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +161,7 @@ func (s *Server) handleReassignOrganizationDomain(w http.ResponseWriter, r *http
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	targetID, err := bson.ObjectIDFromHex(req.TargetOrganizationID)
+	targetID, err := domain.ParseID(req.TargetOrganizationID)
 	if err != nil {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_org_id", "invalid target organization id")
 		return
@@ -181,7 +180,7 @@ func (s *Server) handleReassignOrganizationDomain(w http.ResponseWriter, r *http
 		httpx.WriteProblem(w, r, http.StatusConflict, "domain_reassign_failed", err.Error())
 		return
 	}
-	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reassign", Resource: domainID.Hex(), Detail: map[string]any{"fromOrganizationId": orgID.Hex(), "targetOrganizationId": targetID.Hex(), "newId": moved.ID.Hex(), "reason": req.Reason}})
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: principalFrom(r.Context()).Username, Action: "easm.domain_reassign", Resource: domainID, Detail: map[string]any{"fromOrganizationId": orgID, "targetOrganizationId": targetID, "newId": moved.ID, "reason": req.Reason}})
 	httpx.WriteJSON(w, http.StatusOK, moved)
 }
 

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
-	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/httpx/runner"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
+	"github.com/red-copilot/red-x/internal/platform/pdtools"
 )
 
 type HTTPXProbe struct {

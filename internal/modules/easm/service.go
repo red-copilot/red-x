@@ -13,7 +13,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/geoip"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -25,7 +24,7 @@ var (
 
 type Repository interface {
 	ListOrganizations(ctx context.Context, query string, limit int) ([]domain.Organization, error)
-	GetOrganization(ctx context.Context, id bson.ObjectID) (*domain.Organization, error)
+	GetOrganization(ctx context.Context, id string) (*domain.Organization, error)
 	ListAllOrganizationDomains(ctx context.Context, status string) ([]domain.OrganizationDomain, error)
 	ListDomainAssetsUnderRoots(ctx context.Context, roots []string) ([]domain.Asset, error)
 	ListAssetsByKindKeys(ctx context.Context, kind domain.AssetKind, keys []string) ([]domain.Asset, error)
@@ -196,7 +195,7 @@ func (s *Service) Health(ctx context.Context) Health {
 	return h
 }
 
-func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*MapSnapshot, error) {
+func (s *Service) Map(ctx context.Context, orgID *string, risk string) (*MapSnapshot, error) {
 	if s.Repo == nil {
 		return nil, errors.New("EASM repository is not configured")
 	}
@@ -222,12 +221,12 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 	}
 	orgByID := make(map[string]domain.Organization, len(orgs))
 	for _, org := range orgs {
-		orgByID[org.ID.Hex()] = org
+		orgByID[org.ID] = org
 	}
 	orgRoots := make(map[string][]string)
 	rootToOrg := make(map[string]string)
 	for _, od := range domains {
-		oid := od.OrganizationID.Hex()
+		oid := od.OrganizationID
 		if _, ok := orgByID[oid]; !ok {
 			continue
 		}
@@ -353,7 +352,7 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 	minRank := RiskRank(risk)
 	keep := make(map[string]bool, len(orgs))
 	for _, org := range orgs {
-		oid := org.ID.Hex()
+		oid := org.ID
 		if minRank == 0 || RiskRank(orgRisk[oid]) >= minRank {
 			keep[oid] = true
 		}
@@ -398,13 +397,13 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 			continue
 		}
 		snapshot.Points = append(snapshot.Points, MapPoint{
-			AssetID: asset.ID.Hex(), Key: asset.Key, Kind: "ip",
+			AssetID: asset.ID, Key: asset.Key, Kind: "ip",
 			Lat: loc.Lat, Lon: loc.Lon, Risk: riskByKey[asset.Key],
 			CDN: ipCDN[asset.Key], CDNName: ipCDNName[asset.Key], OrgIDs: orgIDs,
 		})
 	}
 	for _, org := range orgs {
-		oid := org.ID.Hex()
+		oid := org.ID
 		if !keep[oid] {
 			continue
 		}
@@ -440,7 +439,7 @@ func (s *Service) Map(ctx context.Context, orgID *bson.ObjectID, risk string) (*
 	return snapshot, nil
 }
 
-func (s *Service) Graph(ctx context.Context, orgID bson.ObjectID, depth, limit int) (*GraphSnapshot, error) {
+func (s *Service) Graph(ctx context.Context, orgID string, depth, limit int) (*GraphSnapshot, error) {
 	if depth <= 0 {
 		depth = 2
 	}
@@ -456,7 +455,7 @@ func (s *Service) Graph(ctx context.Context, orgID bson.ObjectID, depth, limit i
 	if s.GraphReader == nil {
 		return nil, ErrGraphUnavailable
 	}
-	nodes, edges, truncated, err := s.GraphReader.ReadOrganizationGraph(ctx, orgID.Hex(), depth, limit)
+	nodes, edges, truncated, err := s.GraphReader.ReadOrganizationGraph(ctx, orgID, depth, limit)
 	if err != nil {
 		s.setHealth("neo4j", "unavailable")
 		return nil, err

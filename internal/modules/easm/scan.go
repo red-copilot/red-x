@@ -8,7 +8,6 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/tasking"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 var ErrDomainNotConfirmed = errors.New("domain is not confirmed for organization")
@@ -22,7 +21,7 @@ type ScanError struct {
 	Error      string `json:"error"`
 }
 
-func (s *Service) CreateScans(ctx context.Context, orgID bson.ObjectID, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []ScanError, error) {
+func (s *Service) CreateScans(ctx context.Context, orgID string, rootDomains []string, options domain.TaskOptions, policyID, scopeID, actor string) ([]domain.Task, []ScanError, error) {
 	if s.Store == nil {
 		return nil, nil, ErrOrganizationNotFound
 	}
@@ -70,7 +69,7 @@ func (s *Service) CreateScans(ctx context.Context, orgID bson.ObjectID, rootDoma
 		created, err := s.Submitter.Submit(ctx, tasking.SubmitInput{
 			Name: "EASM " + org.CanonicalName + " " + root, Kind: domain.TaskDomain,
 			Target: root, Options: options, PolicyID: policyID, ScopeID: scopeID,
-			OrganizationID: orgID.Hex(), RootDomain: root, Origin: domain.TaskOriginEASM,
+			OrganizationID: orgID, RootDomain: root, Origin: domain.TaskOriginEASM,
 			CreatedBy: actor,
 		})
 		if err != nil {
@@ -80,7 +79,7 @@ func (s *Service) CreateScans(ctx context.Context, orgID bson.ObjectID, rootDoma
 		tasks = append(tasks, created...)
 	}
 	if len(tasks) > 0 {
-		s.audit(ctx, actor, "easm.scan_create", orgID.Hex(), map[string]any{
+		s.audit(ctx, actor, "easm.scan_create", orgID, map[string]any{
 			"domains": normalized, "tasks": len(tasks), "errors": len(scanErrs),
 		})
 	}

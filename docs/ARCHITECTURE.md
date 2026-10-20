@@ -4,9 +4,9 @@
 
 The `arl` binary has three production roles:
 
-1. `web`: serves the embedded SPA, `/api/v1`, OpenAPI, SSE and metrics. It is stateless apart from MongoDB.
+1. `web`: serves the embedded SPA, `/api/v1`, OpenAPI, SSE and metrics. It is stateless apart from PostgreSQL.
 2. `worker`: consumes Redis Streams and executes task steps. Multiple workers can run concurrently.
-3. `scheduler`: wins a MongoDB lease and enqueues due monitors/schedules. Only one scheduler is active at a time.
+3. `scheduler`: wins a PostgreSQL lease and enqueues due monitors/schedules. Only one scheduler is active at a time.
 
 `arl all` is a development convenience that runs all three roles with the in-memory queue.
 
@@ -21,7 +21,7 @@ The `arl` binary has three production roles:
 | `internal/modules/monitoring` | Monitors, schedules, leader lease                                                                               |
 | `internal/modules/github`     | GitHub search and monitoring                                                                                    |
 | `internal/modules/reporting`  | CSV/XLSX reports                                                                                                |
-| `internal/store`              | MongoDB repositories and indexes                                                                                |
+| `internal/store`              | PostgreSQL/GORM repositories, AutoMigrate and indexes                                                                                |
 | `internal/platform`           | Config, logging, Redis Streams, auth primitives, network safety, notifications and ProjectDiscovery SDK helpers |
 
 Modules share the domain model but do not reach into another module's private
@@ -79,7 +79,7 @@ statistics) fail the task.
 
 ## Assets
 
-- `assets`: canonical `(kind, key)` documents.
+- `assets`: canonical `(kind, key)` rows with JSONB scan data.
 - `asset_observations`: per-task snapshots for historical task views and reports.
 - `scope_asset_links`: many-to-many membership with first/last seen and tags.
 
@@ -98,8 +98,8 @@ The EASM surface is organization-first. `/easm` keeps the world map and graph
 overview; `/easm/organizations` handles organization and domain review,
 `/easm/organizations/:id` exposes assets, current findings, tasks and reports,
 and `/easm/assets`, `/easm/findings`, `/easm/tasks` provide cross-organization
-views. MongoDB remains the source of truth; Neo4j is rebuilt from the outbox
-and `arl graph rebuild`.
+views. PostgreSQL remains the source of truth; Neo4j is rebuilt from the outbox
+and `arl graph rebuild` after the `mongoId` → `entityId` projection rename.
 
 ICP attribution uses the Chinaz domain page plus its signed permit endpoint for
 domain → organization. Organization → filed domains uses the external

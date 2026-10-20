@@ -14,7 +14,6 @@ import (
 	"github.com/red-copilot/red-x/internal/modules/webintel"
 	"github.com/red-copilot/red-x/internal/platform/pdtools"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func (e *Engine) executeStep(ctx context.Context, task *domain.Task, step *domain.TaskStep) error {
@@ -40,7 +39,7 @@ func (e *Engine) executeStep(ctx context.Context, task *domain.Task, step *domai
 		if err != nil {
 			return err
 		}
-		return e.Store.UpdateTaskFields(ctx, task.ID, bson.M{"statistics": stats})
+		return e.Store.UpdateTaskFields(ctx, task.ID, store.TaskPatch{Statistics: &stats})
 	default:
 		return fmt.Errorf("unknown step %q", step.Kind)
 	}
@@ -92,7 +91,7 @@ func (e *Engine) stepDNS(ctx context.Context, task *domain.Task, step *domain.Ta
 			if total > 0 {
 				p = done * 100 / total
 			}
-			_ = e.Store.UpdateStepFields(ctx, step.ID, mapToBson(map[string]any{"progress": p, "message": fmt.Sprintf("DNS %d/%d", done, total)}))
+			_ = e.Store.UpdateStepFields(ctx, step.ID, store.StepPatch{Progress: &p, Message: ptr(fmt.Sprintf("DNS %d/%d", done, total))})
 		})
 		for _, r := range results {
 			e.observeDomain(ctx, task, r, "domain_brute")
@@ -186,11 +185,11 @@ func (e *Engine) observeDomain(ctx context.Context, task *domain.Task, res disco
 	}
 	data := map[string]any{
 		"domain": res.Domain, "type": res.Type, "record": res.Records, "ips": res.IPs,
-		"source": source, "taskId": task.ID.Hex(), "ttl": res.TTL, "resolver": res.Resolver,
+		"source": source, "taskId": task.ID, "ttl": res.TTL, "resolver": res.Resolver,
 		"cname": res.CNAME, "cdn": res.CDN, "cdnName": res.CDNName, "cdnType": res.CDNType,
 		"engine": "projectdiscovery/dnsx", "engineVersion": pdtools.DNSXVersion,
 	}
-	asset, err := e.Store.UpsertAsset(ctx, domain.AssetDomain, res.Domain, data, task.ID.Hex(), task.ScopeID)
+	asset, err := e.Store.UpsertAsset(ctx, domain.AssetDomain, res.Domain, data, task.ID, task.ScopeID)
 	if err != nil {
 		return
 	}
@@ -198,7 +197,7 @@ func (e *Engine) observeDomain(ctx context.Context, task *domain.Task, res disco
 	e.linkScope(ctx, task, asset)
 	for _, ip := range res.IPs {
 		ipData := map[string]any{"ip": ip, "ipType": "PUBLIC", "ports": []any{}, "domains": []string{res.Domain}}
-		ipAsset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, ip, ipData, task.ID.Hex(), task.ScopeID)
+		ipAsset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, ip, ipData, task.ID, task.ScopeID)
 		if err == nil {
 			_ = e.Store.ObserveAsset(ctx, task.ID, ipAsset, source, ipData)
 			e.linkScope(ctx, task, ipAsset)
@@ -217,12 +216,12 @@ func (e *Engine) recordDNSLimit(ctx context.Context, task *domain.Task, kind, me
 func (e *Engine) recordDNSIssue(ctx context.Context, task *domain.Task, kind, message, status, logMessage string) {
 	task.Warnings = append(task.Warnings, message)
 	if e.Log != nil {
-		e.Log.Warn(logMessage, "taskId", task.ID.Hex(), "warning", message)
+		e.Log.Warn(logMessage, "taskId", task.ID, "warning", message)
 	}
 	if e.Store == nil {
 		return
 	}
-	_ = e.Store.UpdateTaskFields(ctx, task.ID, bson.M{"warnings": task.Warnings})
+	_ = e.Store.UpdateTaskFields(ctx, task.ID, store.TaskPatch{Warnings: ptr(task.Warnings)})
 	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 		TaskID: task.ID, Type: "task.warning", Message: message,
 		Payload: map[string]any{"kind": kind, "status": status},
@@ -235,7 +234,7 @@ func (e *Engine) recordDNSDiscovery(ctx context.Context, task *domain.Task, step
 	}
 	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 		TaskID: task.ID, Type: "step.status", Message: fmt.Sprintf("subfinder 发现 %d 个子域候选", count),
-		Payload: map[string]any{"stepId": step.ID.Hex(), "kind": step.Kind, "status": "running", "discovery": "subfinder", "count": count},
+		Payload: map[string]any{"stepId": step.ID, "kind": step.Kind, "status": "running", "discovery": "subfinder", "count": count},
 	})
 }
 
@@ -269,7 +268,7 @@ func (e *Engine) stepPort(ctx context.Context, task *domain.Task, step *domain.T
 		if total > 0 {
 			p = done * 100 / total
 		}
-		_ = e.Store.UpdateStepFields(ctx, step.ID, mapToBson(map[string]any{"progress": p, "message": fmt.Sprintf("端口扫描 %d/%d", done, total)}))
+		_ = e.Store.UpdateStepFields(ctx, step.ID, store.StepPatch{Progress: &p, Message: ptr(fmt.Sprintf("端口扫描 %d/%d", done, total))})
 	})
 	for _, ipRes := range results {
 		data := map[string]any{
@@ -278,7 +277,7 @@ func (e *Engine) stepPort(ctx context.Context, task *domain.Task, step *domain.T
 			"cdnName": ipRes.CDNName, "cdnType": ipRes.CDNType, "asn": ipRes.ASN,
 			"domains": ipRes.Domains, "engine": "projectdiscovery/naabu", "engineVersion": pdtools.NaabuVersion,
 		}
-		asset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, ipRes.IP, data, task.ID.Hex(), task.ScopeID)
+		asset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, ipRes.IP, data, task.ID, task.ScopeID)
 		if err != nil {
 			continue
 		}
@@ -292,7 +291,7 @@ func (e *Engine) stepPort(ctx context.Context, task *domain.Task, step *domain.T
 				"engine": "projectdiscovery/naabu", "engineVersion": pdtools.NaabuVersion,
 			}
 			key := fmt.Sprintf("%s:%d/%s", ipRes.IP, port.PortID, port.Protocol)
-			svc, err := e.Store.UpsertAsset(ctx, domain.AssetService, key, svcData, task.ID.Hex(), task.ScopeID)
+			svc, err := e.Store.UpsertAsset(ctx, domain.AssetService, key, svcData, task.ID, task.ScopeID)
 			if err == nil {
 				_ = e.Store.ObserveAsset(ctx, task.ID, svc, "service_detection", svcData)
 				e.linkScope(ctx, task, svc)
@@ -311,7 +310,7 @@ func (e *Engine) stepPort(ctx context.Context, task *domain.Task, step *domain.T
 					cd["engine"] = "projectdiscovery/tlsx"
 					cd["engineVersion"] = pdtools.TLSXVersion
 					ck := fmt.Sprintf("%s:%d", cert.IP, cert.Port)
-					ca, err := e.Store.UpsertAsset(ctx, domain.AssetCert, ck, cd, task.ID.Hex(), task.ScopeID)
+					ca, err := e.Store.UpsertAsset(ctx, domain.AssetCert, ck, cd, task.ID, task.ScopeID)
 					if err == nil {
 						_ = e.Store.ObserveAsset(ctx, task.ID, ca, "tls_cert", cd)
 						e.linkScope(ctx, task, ca)
@@ -352,7 +351,7 @@ func (e *Engine) stepHTTP(ctx context.Context, task *domain.Task, step *domain.T
 	sites, probeErrs := e.HTTP.Probe(ctx, candidates)
 	for _, err := range probeErrs {
 		if e.Log != nil {
-			e.Log.Warn("http probe failed", "taskId", task.ID.Hex(), "error", err)
+			e.Log.Warn("http probe failed", "taskId", task.ID, "error", err)
 		}
 	}
 	var firstErr error
@@ -374,7 +373,7 @@ func (e *Engine) stepHTTP(ctx context.Context, task *domain.Task, step *domain.T
 			"finalUrl": site.FinalURL, "tls": site.TLS,
 			"engine": "projectdiscovery/httpx", "engineVersion": pdtools.HTTPXVersion,
 		}
-		asset, err := e.Store.UpsertAsset(ctx, domain.AssetSite, site.Site, data, task.ID.Hex(), task.ScopeID)
+		asset, err := e.Store.UpsertAsset(ctx, domain.AssetSite, site.Site, data, task.ID, task.ScopeID)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -406,8 +405,8 @@ func (e *Engine) stepWebIntel(ctx context.Context, task *domain.Task, step *doma
 			if raw == "" {
 				continue
 			}
-			if path, err := e.Screenshot.Capture(ctx, raw, task.ID.Hex()); err == nil {
-				_ = e.Store.UpdateTaskFields(ctx, task.ID, mapToBson(map[string]any{"lastScreenshot": path}))
+			if path, err := e.Screenshot.Capture(ctx, raw, task.ID); err == nil {
+				_ = e.Store.UpdateTaskFields(ctx, task.ID, store.TaskPatch{LastScreenshot: &path})
 			}
 		}
 	}
@@ -419,11 +418,11 @@ func (e *Engine) stepWebIntel(ctx context.Context, task *domain.Task, step *doma
 			}
 			urls, err := e.Spider.Crawl(ctx, raw)
 			if err != nil && e.Log != nil {
-				e.Log.Warn("katana crawl failed", "taskId", task.ID.Hex(), "site", raw, "error", err)
+				e.Log.Warn("katana crawl failed", "taskId", task.ID, "site", raw, "error", err)
 			}
 			for _, u := range urls {
 				data := map[string]any{"site": raw, "url": u, "source": "site_spider"}
-				asset, err := e.Store.UpsertAsset(ctx, domain.AssetURL, u, data, task.ID.Hex(), task.ScopeID)
+				asset, err := e.Store.UpsertAsset(ctx, domain.AssetURL, u, data, task.ID, task.ScopeID)
 				if err == nil {
 					_ = e.Store.ObserveAsset(ctx, task.ID, asset, "site_spider", data)
 					e.linkScope(ctx, task, asset)
@@ -636,7 +635,7 @@ func (e *Engine) stepFofa(ctx context.Context, task *domain.Task, step *domain.T
 				continue
 			}
 			data := map[string]any{"ip": target.Host, "source": "fofa", "ports": []any{}}
-			asset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, target.Host, data, task.ID.Hex(), task.ScopeID)
+			asset, err := e.Store.UpsertAsset(ctx, domain.AssetIP, target.Host, data, task.ID, task.ScopeID)
 			if err == nil {
 				_ = e.Store.ObserveAsset(ctx, task.ID, asset, "fofa", data)
 				e.linkScope(ctx, task, asset)
@@ -664,14 +663,14 @@ func (e *Engine) linkScope(ctx context.Context, task *domain.Task, asset *domain
 	if scopeID == "" {
 		return
 	}
-	id, err := store.ObjectID(scopeID)
+	id, err := domain.ParseID(scopeID)
 	if err != nil {
 		return
 	}
 	_ = e.Store.LinkAssetToScope(ctx, id, asset, nil)
 }
 
-func (e *Engine) taskAssetKeys(ctx context.Context, taskID bson.ObjectID, kind domain.AssetKind) ([]string, error) {
+func (e *Engine) taskAssetKeys(ctx context.Context, taskID string, kind domain.AssetKind) ([]string, error) {
 	var out []string
 	page := 1
 	for {
@@ -690,7 +689,7 @@ func (e *Engine) taskAssetKeys(ctx context.Context, taskID bson.ObjectID, kind d
 	return unique(out), nil
 }
 
-func (e *Engine) taskSiteSnapshots(ctx context.Context, taskID bson.ObjectID) ([]map[string]any, error) {
+func (e *Engine) taskSiteSnapshots(ctx context.Context, taskID string) ([]map[string]any, error) {
 	var out []map[string]any
 	page := 1
 	for {
@@ -709,7 +708,7 @@ func (e *Engine) taskSiteSnapshots(ctx context.Context, taskID bson.ObjectID) ([
 	return out, nil
 }
 
-func (e *Engine) sitesForIP(ctx context.Context, taskID bson.ObjectID, ip string) ([]string, error) {
+func (e *Engine) sitesForIP(ctx context.Context, taskID string, ip string) ([]string, error) {
 	ports, err := e.portsForIP(ctx, taskID, ip)
 	if err != nil {
 		return nil, err
@@ -731,8 +730,8 @@ func (e *Engine) sitesForIP(ctx context.Context, taskID bson.ObjectID, ip string
 	return out, nil
 }
 
-func (e *Engine) portsForIP(ctx context.Context, taskID bson.ObjectID, ip string) ([]int, error) {
-	assets, _, err := e.Store.ListAssets(ctx, string(domain.AssetIP), taskID.Hex(), "", store.PageQuery{Page: 1, PageSize: 200})
+func (e *Engine) portsForIP(ctx context.Context, taskID string, ip string) ([]int, error) {
+	assets, _, err := e.Store.ListAssets(ctx, string(domain.AssetIP), taskID, "", store.PageQuery{Page: 1, PageSize: 200})
 	if err != nil {
 		return nil, err
 	}
@@ -793,14 +792,6 @@ func unique(in []string) []string {
 		}
 		seen[s] = true
 		out = append(out, s)
-	}
-	return out
-}
-
-func mapToBson(m map[string]any) bson.M {
-	out := bson.M{}
-	for k, v := range m {
-		out[k] = v
 	}
 	return out
 }

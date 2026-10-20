@@ -7,16 +7,15 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type fakeProjectionStore struct {
 	events   []domain.GraphOutbox
-	marked   []bson.ObjectID
-	orgs     map[bson.ObjectID]*domain.Organization
-	ods      map[bson.ObjectID]*domain.OrganizationDomain
-	assets   map[bson.ObjectID]*domain.Asset
-	findings map[bson.ObjectID]*domain.Finding
+	marked   []string
+	orgs     map[string]*domain.Organization
+	ods      map[string]*domain.OrganizationDomain
+	assets   map[string]*domain.Asset
+	findings map[string]*domain.Finding
 	cleared  bool
 }
 
@@ -25,20 +24,20 @@ func (f *fakeProjectionStore) ClaimGraphOutbox(context.Context, int) ([]domain.G
 	f.events = nil
 	return out, nil
 }
-func (f *fakeProjectionStore) MarkGraphOutboxProcessed(_ context.Context, ids []bson.ObjectID) error {
+func (f *fakeProjectionStore) MarkGraphOutboxProcessed(_ context.Context, ids []string) error {
 	f.marked = append(f.marked, ids...)
 	return nil
 }
-func (f *fakeProjectionStore) GetAssetByID(_ context.Context, id bson.ObjectID) (*domain.Asset, error) {
+func (f *fakeProjectionStore) GetAssetByID(_ context.Context, id string) (*domain.Asset, error) {
 	return f.assets[id], nil
 }
-func (f *fakeProjectionStore) GetFindingByID(_ context.Context, id bson.ObjectID) (*domain.Finding, error) {
+func (f *fakeProjectionStore) GetFindingByID(_ context.Context, id string) (*domain.Finding, error) {
 	return f.findings[id], nil
 }
-func (f *fakeProjectionStore) GetOrganizationDomainByID(_ context.Context, id bson.ObjectID) (*domain.OrganizationDomain, error) {
+func (f *fakeProjectionStore) GetOrganizationDomainByID(_ context.Context, id string) (*domain.OrganizationDomain, error) {
 	return f.ods[id], nil
 }
-func (f *fakeProjectionStore) GetOrganization(_ context.Context, id bson.ObjectID) (*domain.Organization, error) {
+func (f *fakeProjectionStore) GetOrganization(_ context.Context, id string) (*domain.Organization, error) {
 	return f.orgs[id], nil
 }
 func (f *fakeProjectionStore) ListAllOrganizations(context.Context) ([]domain.Organization, error) {
@@ -108,7 +107,7 @@ func (f *fakeGraphWriter) MergeAsset(_ context.Context, a domain.Asset) error {
 	return nil
 }
 func (f *fakeGraphWriter) MergeFinding(_ context.Context, x domain.Finding) error {
-	f.calls = append(f.calls, "merge:finding:"+x.ID.Hex())
+	f.calls = append(f.calls, "merge:finding:"+x.ID)
 	f.finders = append(f.finders, x)
 	return nil
 }
@@ -119,16 +118,16 @@ func (f *fakeGraphWriter) DeleteEntityEdges(_ context.Context, entityType, entit
 func (f *fakeGraphWriter) Reset(context.Context) error { f.reset = true; return nil }
 
 func TestProcessBatchMergesAssetAndFinding(t *testing.T) {
-	assetID, findingID := bson.NewObjectID(), bson.NewObjectID()
+	assetID, findingID := domain.MustID(), domain.MustID()
 	st := &fakeProjectionStore{
 		events: []domain.GraphOutbox{
-			{ID: bson.NewObjectID(), EntityType: "asset", EntityID: assetID.Hex(), Op: domain.OutboxOpUpsert},
-			{ID: bson.NewObjectID(), EntityType: "finding", EntityID: findingID.Hex(), Op: domain.OutboxOpUpsert},
+			{ID: domain.MustID(), EntityType: "asset", EntityID: assetID, Op: domain.OutboxOpUpsert},
+			{ID: domain.MustID(), EntityType: "finding", EntityID: findingID, Op: domain.OutboxOpUpsert},
 		},
-		assets:   map[bson.ObjectID]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
-		findings: map[bson.ObjectID]*domain.Finding{findingID: {ID: findingID, Title: "test"}},
-		orgs:     map[bson.ObjectID]*domain.Organization{},
-		ods:      map[bson.ObjectID]*domain.OrganizationDomain{},
+		assets:   map[string]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
+		findings: map[string]*domain.Finding{findingID: {ID: findingID, Title: "test"}},
+		orgs:     map[string]*domain.Organization{},
+		ods:      map[string]*domain.OrganizationDomain{},
 	}
 	w := &fakeGraphWriter{}
 	p := NewProjector(st, w, nil)
@@ -145,30 +144,30 @@ func TestProcessBatchMergesAssetAndFinding(t *testing.T) {
 }
 
 func TestProcessBatchDeletesStaleEdgesBeforeMerge(t *testing.T) {
-	assetID := bson.NewObjectID()
+	assetID := domain.MustID()
 	st := &fakeProjectionStore{
-		events:   []domain.GraphOutbox{{ID: bson.NewObjectID(), EntityType: "asset", EntityID: assetID.Hex(), Op: domain.OutboxOpUpsert}},
-		assets:   map[bson.ObjectID]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
-		findings: map[bson.ObjectID]*domain.Finding{},
-		orgs:     map[bson.ObjectID]*domain.Organization{},
-		ods:      map[bson.ObjectID]*domain.OrganizationDomain{},
+		events:   []domain.GraphOutbox{{ID: domain.MustID(), EntityType: "asset", EntityID: assetID, Op: domain.OutboxOpUpsert}},
+		assets:   map[string]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
+		findings: map[string]*domain.Finding{},
+		orgs:     map[string]*domain.Organization{},
+		ods:      map[string]*domain.OrganizationDomain{},
 	}
 	w := &fakeGraphWriter{}
 	if _, err := NewProjector(st, w, nil).ProcessBatch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(w.calls) < 2 || w.calls[0] != "delete:asset:"+assetID.Hex() || w.calls[1] != "merge:example.com" {
+	if len(w.calls) < 2 || w.calls[0] != "delete:asset:"+assetID || w.calls[1] != "merge:example.com" {
 		t.Fatalf("unexpected call order: %v", w.calls)
 	}
 }
 
 func TestProcessBatchDeleteEventOnlyDeletes(t *testing.T) {
 	st := &fakeProjectionStore{
-		events:   []domain.GraphOutbox{{ID: bson.NewObjectID(), EntityType: "asset", EntityID: bson.NewObjectID().Hex(), Op: domain.OutboxOpDelete}},
-		assets:   map[bson.ObjectID]*domain.Asset{},
-		findings: map[bson.ObjectID]*domain.Finding{},
-		orgs:     map[bson.ObjectID]*domain.Organization{},
-		ods:      map[bson.ObjectID]*domain.OrganizationDomain{},
+		events:   []domain.GraphOutbox{{ID: domain.MustID(), EntityType: "asset", EntityID: domain.MustID(), Op: domain.OutboxOpDelete}},
+		assets:   map[string]*domain.Asset{},
+		findings: map[string]*domain.Finding{},
+		orgs:     map[string]*domain.Organization{},
+		ods:      map[string]*domain.OrganizationDomain{},
 	}
 	w := &fakeGraphWriter{}
 	if _, err := NewProjector(st, w, nil).ProcessBatch(context.Background()); err != nil {
@@ -180,12 +179,12 @@ func TestProcessBatchDeleteEventOnlyDeletes(t *testing.T) {
 }
 
 func TestRebuildClearsAndReplaysAllEntities(t *testing.T) {
-	orgID, odID, assetID, findingID := bson.NewObjectID(), bson.NewObjectID(), bson.NewObjectID(), bson.NewObjectID()
+	orgID, odID, assetID, findingID := domain.MustID(), domain.MustID(), domain.MustID(), domain.MustID()
 	st := &fakeProjectionStore{
-		orgs:     map[bson.ObjectID]*domain.Organization{orgID: {ID: orgID, CanonicalName: "某单位"}},
-		ods:      map[bson.ObjectID]*domain.OrganizationDomain{odID: {ID: odID, OrganizationID: orgID, RootDomain: "example.com", Status: domain.DomainStatusConfirmed}},
-		assets:   map[bson.ObjectID]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
-		findings: map[bson.ObjectID]*domain.Finding{findingID: {ID: findingID, Title: "test"}},
+		orgs:     map[string]*domain.Organization{orgID: {ID: orgID, CanonicalName: "某单位"}},
+		ods:      map[string]*domain.OrganizationDomain{odID: {ID: odID, OrganizationID: orgID, RootDomain: "example.com", Status: domain.DomainStatusConfirmed}},
+		assets:   map[string]*domain.Asset{assetID: {ID: assetID, Kind: domain.AssetDomain, Key: "example.com"}},
+		findings: map[string]*domain.Finding{findingID: {ID: findingID, Title: "test"}},
 	}
 	w := &fakeGraphWriter{}
 	if err := NewProjector(st, w, nil).Rebuild(context.Background()); err != nil {

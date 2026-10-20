@@ -46,11 +46,16 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, version strin
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("create data directories: %w", err)
 	}
-	st, err := store.Open(ctx, cfg.Mongo.URI, cfg.Mongo.Database)
+	st, err := store.Open(ctx, store.Options{
+		DSN:             cfg.Postgres.DSN,
+		MaxOpenConns:    cfg.Postgres.MaxOpenConns,
+		MaxIdleConns:    cfg.Postgres.MaxIdleConns,
+		ConnMaxLifetime: cfg.PostgresConnMaxLifetime(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := st.EnsureIndexes(ctx); err != nil {
+	if err := st.Migrate(ctx); err != nil {
 		_ = st.Close(context.Background())
 		return nil, err
 	}

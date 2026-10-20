@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/red-copilot/red-x/internal/modules/discovery"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
 	"gopkg.in/yaml.v3"
 )
 

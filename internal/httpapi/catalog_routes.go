@@ -161,7 +161,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	if origin == "surface" {
 		filter := ""
 		if orgID != nil {
-			filter = orgID.Hex()
+			filter = *orgID
 		}
 		items, total, err = s.Store.ListEASMTasks(r.Context(), filter, status, kind, q)
 	} else {
@@ -198,7 +198,7 @@ func (s *Server) handleFindingHistory(w http.ResponseWriter, r *http.Request) {
 
 func assetItemFromDomain(item domain.Asset) easm.AssetItem {
 	return easm.AssetItem{
-		ID: item.ID.Hex(), Kind: string(item.Kind), Key: item.Key,
+		ID: item.ID, Kind: string(item.Kind), Key: item.Key,
 		Title: stringValue(item.Data["title"]), FirstSeen: item.FirstSeen, LastSeen: item.LastSeen,
 		Data: item.Data,
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/easm"
 	"github.com/red-copilot/red-x/internal/modules/identity"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type fakeEASM struct {
@@ -42,39 +41,39 @@ type fakeEASM struct {
 func (f *fakeEASM) LookupDomain(context.Context, string, string) (*easm.LookupResult, error) {
 	return f.lookup, f.lookupErr
 }
-func (f *fakeEASM) EnqueueRefresh(context.Context, bson.ObjectID, string) (*domain.ICPJob, error) {
+func (f *fakeEASM) EnqueueRefresh(context.Context, string, string) (*domain.ICPJob, error) {
 	return f.job, nil
 }
-func (f *fakeEASM) GetICPJob(context.Context, bson.ObjectID) (*domain.ICPJob, error) {
+func (f *fakeEASM) GetICPJob(context.Context, string) (*domain.ICPJob, error) {
 	return f.job, nil
 }
-func (f *fakeEASM) ConfirmDomains(_ context.Context, _ bson.ObjectID, domains []string, _ string) (int, error) {
+func (f *fakeEASM) ConfirmDomains(_ context.Context, _ string, domains []string, _ string) (int, error) {
 	f.confirmed = domains
 	return f.confirmN, f.confirmErr
 }
-func (f *fakeEASM) Map(context.Context, *bson.ObjectID, string) (*easm.MapSnapshot, error) {
+func (f *fakeEASM) Map(context.Context, *string, string) (*easm.MapSnapshot, error) {
 	return f.mapSnap, nil
 }
-func (f *fakeEASM) Graph(context.Context, bson.ObjectID, int, int) (*easm.GraphSnapshot, error) {
+func (f *fakeEASM) Graph(context.Context, string, int, int) (*easm.GraphSnapshot, error) {
 	return f.graphSnap, f.graphErr
 }
 func (f *fakeEASM) Health(context.Context) easm.Health { return f.health }
-func (f *fakeEASM) Summary(context.Context, bson.ObjectID) (*easm.OrganizationSummary, error) {
+func (f *fakeEASM) Summary(context.Context, string) (*easm.OrganizationSummary, error) {
 	return f.summary, nil
 }
-func (f *fakeEASM) Assets(context.Context, *bson.ObjectID, easm.AssetFilter) (*easm.AssetPage, error) {
+func (f *fakeEASM) Assets(context.Context, *string, easm.AssetFilter) (*easm.AssetPage, error) {
 	return f.assets, nil
 }
-func (f *fakeEASM) Asset(context.Context, *bson.ObjectID, bson.ObjectID) (*easm.AssetItem, error) {
+func (f *fakeEASM) Asset(context.Context, *string, string) (*easm.AssetItem, error) {
 	return f.asset, nil
 }
-func (f *fakeEASM) Findings(context.Context, *bson.ObjectID, easm.FindingFilter) (*easm.FindingPage, error) {
+func (f *fakeEASM) Findings(context.Context, *string, easm.FindingFilter) (*easm.FindingPage, error) {
 	return f.findings, nil
 }
-func (f *fakeEASM) FindingHistory(context.Context, bson.ObjectID, bson.ObjectID) ([]domain.Finding, error) {
+func (f *fakeEASM) FindingHistory(context.Context, string, string) ([]domain.Finding, error) {
 	return f.history, nil
 }
-func (f *fakeEASM) CreateScans(context.Context, bson.ObjectID, []string, domain.TaskOptions, string, string, string) ([]domain.Task, []easm.ScanError, error) {
+func (f *fakeEASM) CreateScans(context.Context, string, []string, domain.TaskOptions, string, string, string) ([]domain.Task, []easm.ScanError, error) {
 	return f.tasks, nil, f.scanErr
 }
 
@@ -105,13 +104,13 @@ func TestEASMMapShape(t *testing.T) {
 }
 
 func TestEASMGraphShape(t *testing.T) {
-	id := bson.NewObjectID()
+	id := domain.MustID()
 	s := &Server{EASM: &fakeEASM{graphSnap: &easm.GraphSnapshot{
 		Nodes: []easm.GraphNode{{ID: "n1", Type: "domain", Label: "example.com"}},
 		Edges: []easm.GraphEdge{{ID: "e1", Type: "OWNS", Source: "o1", Target: "n1"}},
 	}}}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/easm/graph?orgId="+id.Hex()+"&depth=2&limit=300", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/easm/graph?orgId="+id+"&depth=2&limit=300", nil)
 	s.handleEASMGraph(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
@@ -150,14 +149,14 @@ func TestEASMLookupRejectsInvalidDomain(t *testing.T) {
 }
 
 func TestEASMConfirmRequiresWrite(t *testing.T) {
-	id := bson.NewObjectID()
+	id := domain.MustID()
 	fake := &fakeEASM{confirmN: 1}
 	s := &Server{EASM: fake}
 	router := chi.NewRouter()
 	router.Post("/organizations/{id}/domains/confirm", s.requireWrite(s.handleConfirmDomains))
 
 	body := `{"domains":["guc.edu.cn"]}`
-	req := httptest.NewRequest(http.MethodPost, "/organizations/"+id.Hex()+"/domains/confirm", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/organizations/"+id+"/domains/confirm", strings.NewReader(body))
 	req = withPrincipal(req, domain.RoleViewer)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -165,7 +164,7 @@ func TestEASMConfirmRequiresWrite(t *testing.T) {
 		t.Fatalf("viewer status = %d", rec.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/organizations/"+id.Hex()+"/domains/confirm", strings.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/organizations/"+id+"/domains/confirm", strings.NewReader(body))
 	req = withPrincipal(req, domain.RoleOperator)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -190,11 +189,11 @@ func TestEASMHealthShape(t *testing.T) {
 }
 
 func TestEASMConfirmConflictMaps409(t *testing.T) {
-	id := bson.NewObjectID()
+	id := domain.MustID()
 	s := &Server{EASM: &fakeEASM{confirmErr: domain.ErrDomainAlreadyConfirmed}}
 	router := chi.NewRouter()
 	router.Post("/organizations/{id}/domains/confirm", s.requireWrite(s.handleConfirmDomains))
-	req := httptest.NewRequest(http.MethodPost, "/organizations/"+id.Hex()+"/domains/confirm", strings.NewReader(`{"domains":["guc.edu.cn"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/organizations/"+id+"/domains/confirm", strings.NewReader(`{"domains":["guc.edu.cn"]}`))
 	req = withPrincipal(req, domain.RoleOperator)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -207,21 +206,21 @@ func TestEASMConfirmConflictMaps409(t *testing.T) {
 }
 
 func TestEASMOrganizationSummaryAndAssetsShape(t *testing.T) {
-	orgID := bson.NewObjectID()
+	orgID := domain.MustID()
 	s := &Server{EASM: &fakeEASM{
-		summary: &easm.OrganizationSummary{OrganizationID: orgID.Hex(), ConfirmedDomains: 2},
-		assets:  &easm.AssetPage{Items: []easm.AssetItem{{ID: bson.NewObjectID().Hex(), Kind: "domain", Key: "example.com"}}, Total: 1, Page: 1, PageSize: 20},
+		summary: &easm.OrganizationSummary{OrganizationID: orgID, ConfirmedDomains: 2},
+		assets:  &easm.AssetPage{Items: []easm.AssetItem{{ID: domain.MustID(), Kind: "domain", Key: "example.com"}}, Total: 1, Page: 1, PageSize: 20},
 	}}
 	for _, tc := range []struct {
 		path    string
 		handler http.HandlerFunc
 		want    string
 	}{
-		{"/api/v1/easm/organizations/" + orgID.Hex() + "/summary", s.handleEASMOrganizationSummary, `"confirmedDomains":2`},
-		{"/api/v1/easm/organizations/" + orgID.Hex() + "/assets?kind=domain", s.handleEASMOrganizationAssets, `"key":"example.com"`},
+		{"/api/v1/easm/organizations/" + orgID + "/summary", s.handleEASMOrganizationSummary, `"confirmedDomains":2`},
+		{"/api/v1/easm/organizations/" + orgID + "/assets?kind=domain", s.handleEASMOrganizationAssets, `"key":"example.com"`},
 	} {
 		rec := httptest.NewRecorder()
-		req := withChiParam(httptest.NewRequest(http.MethodGet, tc.path, nil), "id", orgID.Hex())
+		req := withChiParam(httptest.NewRequest(http.MethodGet, tc.path, nil), "id", orgID)
 		tc.handler(rec, req)
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) {
 			t.Fatalf("%s status=%d body=%s", tc.path, rec.Code, rec.Body.String())
@@ -230,20 +229,20 @@ func TestEASMOrganizationSummaryAndAssetsShape(t *testing.T) {
 }
 
 func TestEASMFindingsShapeAndHistory(t *testing.T) {
-	orgID, findingID := bson.NewObjectID(), bson.NewObjectID()
+	orgID, findingID := domain.MustID(), domain.MustID()
 	s := &Server{EASM: &fakeEASM{
 		findings: &easm.FindingPage{Items: []easm.FindingItem{{Finding: domain.Finding{ID: findingID, Title: "漏洞", Target: "example.com"}, Occurrences: 2}}, Total: 1},
 		history:  []domain.Finding{{ID: findingID, Title: "漏洞"}},
 	}}
 	rec := httptest.NewRecorder()
-	req := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID.Hex()+"/findings", nil), "id", orgID.Hex())
+	req := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID+"/findings", nil), "id", orgID)
 	s.handleEASMOrganizationFindings(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"occurrences":2`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID.Hex()+"/findings/"+findingID.Hex()+"/history", nil)
-	req = withChiParam(withChiParam(req, "id", orgID.Hex()), "findingId", findingID.Hex())
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/easm/organizations/"+orgID+"/findings/"+findingID+"/history", nil)
+	req = withChiParam(withChiParam(req, "id", orgID), "findingId", findingID)
 	s.handleEASMFindingHistory(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"title":"漏洞"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -260,18 +259,18 @@ func withChiParam(r *http.Request, name, value string) *http.Request {
 }
 
 func TestEASMCreateScansShapeAndValidation(t *testing.T) {
-	orgID := bson.NewObjectID()
-	s := &Server{EASM: &fakeEASM{tasks: []domain.Task{{ID: bson.NewObjectID(), OrganizationID: orgID.Hex(), RootDomain: "a.edu.cn", Origin: domain.TaskOriginEASM}}}}
+	orgID := domain.MustID()
+	s := &Server{EASM: &fakeEASM{tasks: []domain.Task{{ID: domain.MustID(), OrganizationID: orgID, RootDomain: "a.edu.cn", Origin: domain.TaskOriginEASM}}}}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID.Hex()+"/scans", strings.NewReader(`{"rootDomains":["a.edu.cn"],"options":{"portScan":true}}`))
-	req = withPrincipal(withChiParam(req, "id", orgID.Hex()), domain.RoleOperator)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID+"/scans", strings.NewReader(`{"rootDomains":["a.edu.cn"],"options":{"portScan":true}}`))
+	req = withPrincipal(withChiParam(req, "id", orgID), domain.RoleOperator)
 	s.handleCreateEASMScans(rec, req)
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"origin":"easm"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID.Hex()+"/scans", strings.NewReader(`{"rootDomains":["candidate.edu.cn"]}`))
-	req = withPrincipal(withChiParam(req, "id", orgID.Hex()), domain.RoleOperator)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/easm/organizations/"+orgID+"/scans", strings.NewReader(`{"rootDomains":["candidate.edu.cn"]}`))
+	req = withPrincipal(withChiParam(req, "id", orgID), domain.RoleOperator)
 	s.EASM = &fakeEASM{scanErr: easm.ErrDomainNotConfirmed}
 	s.handleCreateEASMScans(rec, req)
 	if rec.Code != http.StatusBadRequest {

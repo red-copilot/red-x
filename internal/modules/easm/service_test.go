@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type fakeRepo struct {
@@ -23,7 +22,7 @@ type fakeRepo struct {
 func (f *fakeRepo) ListOrganizations(context.Context, string, int) ([]domain.Organization, error) {
 	return f.orgs, nil
 }
-func (f *fakeRepo) GetOrganization(_ context.Context, id bson.ObjectID) (*domain.Organization, error) {
+func (f *fakeRepo) GetOrganization(_ context.Context, id string) (*domain.Organization, error) {
 	for _, o := range f.orgs {
 		if o.ID == id {
 			return &o, nil
@@ -113,8 +112,8 @@ func (f *fakeGraphReader) ReadOrganizationGraph(_ context.Context, _ string, dep
 	return f.nodes, f.edges, f.truncated, nil
 }
 
-func baseRepo() (*fakeRepo, bson.ObjectID, bson.ObjectID) {
-	orgA, orgB := bson.NewObjectID(), bson.NewObjectID()
+func baseRepo() (*fakeRepo, string, string) {
+	orgA, orgB := domain.MustID(), domain.MustID()
 	f := &fakeRepo{
 		orgs: []domain.Organization{
 			{ID: orgA, CanonicalName: "单位A"},
@@ -125,12 +124,12 @@ func baseRepo() (*fakeRepo, bson.ObjectID, bson.ObjectID) {
 			{OrganizationID: orgB, RootDomain: "example.org", Status: domain.DomainStatusConfirmed},
 		},
 		domainAssets: []domain.Asset{
-			{ID: bson.NewObjectID(), Kind: domain.AssetDomain, Key: "example.com", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
-			{ID: bson.NewObjectID(), Kind: domain.AssetDomain, Key: "sub.example.com", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
-			{ID: bson.NewObjectID(), Kind: domain.AssetDomain, Key: "example.org", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
+			{ID: domain.MustID(), Kind: domain.AssetDomain, Key: "example.com", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
+			{ID: domain.MustID(), Kind: domain.AssetDomain, Key: "sub.example.com", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
+			{ID: domain.MustID(), Kind: domain.AssetDomain, Key: "example.org", Data: map[string]any{"ips": []any{"1.1.1.1"}}},
 		},
 		ipAssets: []domain.Asset{
-			{ID: bson.NewObjectID(), Kind: domain.AssetIP, Key: "1.1.1.1", Data: map[string]any{}},
+			{ID: domain.MustID(), Kind: domain.AssetIP, Key: "1.1.1.1", Data: map[string]any{}},
 		},
 		locations: []domain.IPLocation{{IP: "1.1.1.1", Lat: 39.9, Lon: 116.4}},
 	}
@@ -178,7 +177,7 @@ func TestClosureMarksCDN(t *testing.T) {
 
 func TestClosureExcludesUnreachableIPs(t *testing.T) {
 	repo, _, _ := baseRepo()
-	repo.ipAssets = append(repo.ipAssets, domain.Asset{ID: bson.NewObjectID(), Kind: domain.AssetIP, Key: "2.2.2.2"})
+	repo.ipAssets = append(repo.ipAssets, domain.Asset{ID: domain.MustID(), Kind: domain.AssetIP, Key: "2.2.2.2"})
 	repo.locations = append(repo.locations, domain.IPLocation{IP: "2.2.2.2", Lat: 1, Lon: 2})
 	s := &Service{Repo: repo}
 	snap, err := s.Map(context.Background(), nil, "")
@@ -194,10 +193,10 @@ func TestRiskUsesLatestFindingPerDedupeKey(t *testing.T) {
 	repo, _, _ := baseRepo()
 	now := time.Now().UTC()
 	repo.findings = []domain.Finding{
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "a", Severity: "high", CreatedAt: now.Add(-time.Hour)},
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "a", Severity: "low", CreatedAt: now},
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "b", Severity: "critical", CreatedAt: now.Add(-2 * time.Hour)},
-		{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "c", Severity: "medium", CreatedAt: now},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "a", Severity: "high", CreatedAt: now.Add(-time.Hour)},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "a", Severity: "low", CreatedAt: now},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "b", Severity: "critical", CreatedAt: now.Add(-2 * time.Hour)},
+		{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "c", Severity: "medium", CreatedAt: now},
 	}
 	s := &Service{Repo: repo}
 	snap, err := s.Map(context.Background(), nil, "")
@@ -220,7 +219,7 @@ func TestRiskUsesLatestFindingPerDedupeKey(t *testing.T) {
 func TestMapCountsUnlocatedAndUnlinked(t *testing.T) {
 	repo, _, _ := baseRepo()
 	repo.locations = nil
-	repo.findings = []domain.Finding{{ID: bson.NewObjectID(), Target: "unrelated.net", DedupeKey: "x", Severity: "high", CreatedAt: time.Now()}}
+	repo.findings = []domain.Finding{{ID: domain.MustID(), Target: "unrelated.net", DedupeKey: "x", Severity: "high", CreatedAt: time.Now()}}
 	s := &Service{Repo: repo}
 	snap, err := s.Map(context.Background(), nil, "")
 	if err != nil {
@@ -236,7 +235,7 @@ func TestMapCountsUnlocatedAndUnlinked(t *testing.T) {
 
 func TestMapFilterByRisk(t *testing.T) {
 	repo, _, _ := baseRepo()
-	repo.findings = []domain.Finding{{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "x", Severity: "high", CreatedAt: time.Now()}}
+	repo.findings = []domain.Finding{{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "x", Severity: "high", CreatedAt: time.Now()}}
 	s := &Service{Repo: repo}
 	snap, err := s.Map(context.Background(), nil, "high")
 	if err != nil {
@@ -256,7 +255,7 @@ func TestMapFilterByRisk(t *testing.T) {
 
 func TestGraphRejectsDepthOver3(t *testing.T) {
 	s := &Service{Repo: &fakeRepo{}, GraphReader: &fakeGraphReader{}}
-	if _, err := s.Graph(context.Background(), bson.NewObjectID(), 4, 100); !errors.Is(err, ErrInvalidDepth) {
+	if _, err := s.Graph(context.Background(), domain.MustID(), 4, 100); !errors.Is(err, ErrInvalidDepth) {
 		t.Fatalf("expected ErrInvalidDepth, got %v", err)
 	}
 }
@@ -264,7 +263,7 @@ func TestGraphRejectsDepthOver3(t *testing.T) {
 func TestGraphCapsLimitAt500(t *testing.T) {
 	reader := &fakeGraphReader{}
 	s := &Service{Repo: &fakeRepo{}, GraphReader: reader}
-	if _, err := s.Graph(context.Background(), bson.NewObjectID(), 2, 1000); err != nil {
+	if _, err := s.Graph(context.Background(), domain.MustID(), 2, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if reader.limit != 500 || reader.depth != 2 {

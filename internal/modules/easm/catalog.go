@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 var ErrAssetNotFound = errors.New("asset not found")
@@ -110,7 +109,7 @@ type closure struct {
 	unlinkedCount int
 }
 
-func (s *Service) closure(ctx context.Context, orgID *bson.ObjectID) (*closure, error) {
+func (s *Service) closure(ctx context.Context, orgID *string) (*closure, error) {
 	if s.Repo == nil {
 		return nil, errors.New("EASM repository is not configured")
 	}
@@ -133,7 +132,7 @@ func (s *Service) closure(ctx context.Context, orgID *bson.ObjectID) (*closure, 
 	}
 	active := make(map[string]bool, len(orgs))
 	for _, org := range orgs {
-		active[org.ID.Hex()] = true
+		active[org.ID] = true
 	}
 	allDomains, err := s.Repo.ListAllOrganizationDomains(ctx, "")
 	if err != nil {
@@ -147,7 +146,7 @@ func (s *Service) closure(ctx context.Context, orgID *bson.ObjectID) (*closure, 
 		unlocatedIPs: map[string]bool{},
 	}
 	for _, od := range allDomains {
-		oid := od.OrganizationID.Hex()
+		oid := od.OrganizationID
 		if !active[oid] {
 			continue
 		}
@@ -168,10 +167,10 @@ func (s *Service) closure(ctx context.Context, orgID *bson.ObjectID) (*closure, 
 	}
 	seenDomain := map[string]bool{}
 	for _, asset := range c.domains {
-		if seenDomain[asset.ID.Hex()] {
+		if seenDomain[asset.ID] {
 			continue
 		}
-		seenDomain[asset.ID.Hex()] = true
+		seenDomain[asset.ID] = true
 		for oid, orgRoots := range c.rootByOrg {
 			for _, root := range orgRoots {
 				if assetBelongsToRoot(asset.Key, root) {
@@ -271,14 +270,14 @@ func (c *closure) rootsForTarget(target string) []string {
 	return append([]string(nil), c.targetRoots[target]...)
 }
 
-func (s *Service) Summary(ctx context.Context, orgID bson.ObjectID) (*OrganizationSummary, error) {
+func (s *Service) Summary(ctx context.Context, orgID string) (*OrganizationSummary, error) {
 	c, err := s.closure(ctx, &orgID)
 	if err != nil {
 		return nil, err
 	}
 	current, _, _ := currentFindings(c.findings, c)
 	summary := &OrganizationSummary{
-		OrganizationID: orgID.Hex(), ConfirmedDomains: len(c.rootByOrg[orgID.Hex()]),
+		OrganizationID: orgID, ConfirmedDomains: len(c.rootByOrg[orgID]),
 		CandidateDomains: len(c.candidates), DomainAssets: len(c.domains), IPAssets: len(c.ips),
 		Services: len(c.services), HistoryFindings: len(c.findings),
 	}
@@ -314,7 +313,7 @@ func (s *Service) Summary(ctx context.Context, orgID bson.ObjectID) (*Organizati
 		}
 	}
 	if lister, ok := s.Repo.(TaskSummaryRepository); ok {
-		n, last, err := lister.SummaryTasks(ctx, orgID.Hex())
+		n, last, err := lister.SummaryTasks(ctx, orgID)
 		if err == nil {
 			summary.LinkedTasks, summary.LastScanAt = n, last
 		}
@@ -326,7 +325,7 @@ type TaskSummaryRepository interface {
 	SummaryTasks(ctx context.Context, organizationID string) (int, *time.Time, error)
 }
 
-func (s *Service) Assets(ctx context.Context, orgID *bson.ObjectID, filter AssetFilter) (*AssetPage, error) {
+func (s *Service) Assets(ctx context.Context, orgID *string, filter AssetFilter) (*AssetPage, error) {
 	c, err := s.closure(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -340,7 +339,7 @@ func (s *Service) Assets(ctx context.Context, orgID *bson.ObjectID, filter Asset
 				continue
 			}
 			item := AssetItem{
-				ID: asset.ID.Hex(), Kind: string(kind), Key: asset.Key,
+				ID: asset.ID, Kind: string(kind), Key: asset.Key,
 				Title: stringValue(asset.Data["title"]), Risk: risks[asset.Key],
 				FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen,
 				OrganizationIDs: oidList, RootDomains: roots, Data: asset.Data,
@@ -370,7 +369,7 @@ func (s *Service) Assets(ctx context.Context, orgID *bson.ObjectID, filter Asset
 	return &AssetPage{Items: items[start:end], Total: len(items), Page: page, PageSize: pageSize, Truncated: c.truncated, UnlocatedAssets: len(c.unlocatedIPs)}, nil
 }
 
-func (s *Service) Asset(ctx context.Context, orgID *bson.ObjectID, id bson.ObjectID) (*AssetItem, error) {
+func (s *Service) Asset(ctx context.Context, orgID *string, id string) (*AssetItem, error) {
 	c, err := s.closure(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -378,23 +377,23 @@ func (s *Service) Asset(ctx context.Context, orgID *bson.ObjectID, id bson.Objec
 	risks := assetRisks(c)
 	for _, asset := range c.domains {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID.Hex(), Kind: string(asset.Kind), Key: asset.Key, Title: stringValue(asset.Data["title"]), Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Title: stringValue(asset.Data["title"]), Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
 		}
 	}
 	for _, asset := range c.ips {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID.Hex(), Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
 		}
 	}
 	for _, asset := range c.services {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID.Hex(), Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
 		}
 	}
 	return nil, ErrAssetNotFound
 }
 
-func (s *Service) Findings(ctx context.Context, orgID *bson.ObjectID, filter FindingFilter) (*FindingPage, error) {
+func (s *Service) Findings(ctx context.Context, orgID *string, filter FindingFilter) (*FindingPage, error) {
 	c, err := s.closure(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -432,7 +431,7 @@ func (s *Service) Findings(ctx context.Context, orgID *bson.ObjectID, filter Fin
 	return &FindingPage{Items: items[start:end], Total: len(items), Page: page, PageSize: pageSize, Unlinked: c.unlinkedCount}, nil
 }
 
-func (s *Service) FindingHistory(ctx context.Context, orgID bson.ObjectID, findingID bson.ObjectID) ([]domain.Finding, error) {
+func (s *Service) FindingHistory(ctx context.Context, orgID string, findingID string) ([]domain.Finding, error) {
 	c, err := s.closure(ctx, &orgID)
 	if err != nil {
 		return nil, err
@@ -482,7 +481,7 @@ func currentFindings(all []domain.Finding, c *closure) ([]domain.Finding, map[st
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].ID.Hex() < out[j].ID.Hex()
+			return out[i].ID < out[j].ID
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})

@@ -36,7 +36,7 @@ The registry contains the legacy counts: 40 POC, 28 sniffer and 28 brute plugins
 
 ## Deliberate differences
 
-- No legacy MongoDB migration and no old `/api` compatibility; `/dashboard` and `/easm/*` API/page aliases are intentionally removed.
+- No legacy MongoDB data import and no old `/api` compatibility; PostgreSQL is the only application database; `/dashboard` and `/easm/*` API/page aliases are intentionally removed.
 - The console uses a direct JSON response contract with RFC 7807 problem errors instead of the old `{data: ...}` success envelope.
 - OS detection is limited to the OS metadata returned by naabu service probes.
 - Screenshots require a browser runtime.

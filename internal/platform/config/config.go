@@ -14,7 +14,7 @@ import (
 
 type Config struct {
 	Server      ServerConfig       `yaml:"server"`
-	Mongo       MongoConfig        `yaml:"mongo"`
+	Postgres    PostgresConfig     `yaml:"postgres"`
 	Redis       RedisConfig        `yaml:"redis"`
 	Queue       QueueConfig        `yaml:"queue"`
 	Auth        AuthConfig         `yaml:"auth"`
@@ -39,9 +39,11 @@ type ServerConfig struct {
 	Debug     bool   `yaml:"debug"`
 }
 
-type MongoConfig struct {
-	URI      string `yaml:"uri"`
-	Database string `yaml:"database"`
+type PostgresConfig struct {
+	DSN             string `yaml:"dsn"`
+	MaxOpenConns    int    `yaml:"maxOpenConns"`
+	MaxIdleConns    int    `yaml:"maxIdleConns"`
+	ConnMaxLifetime string `yaml:"connMaxLifetime"`
 }
 
 type RedisConfig struct {
@@ -228,9 +230,11 @@ func Default() Config {
 			Listen:    ":5003",
 			PublicURL: "https://localhost:5003",
 		},
-		Mongo: MongoConfig{
-			URI:      "mongodb://127.0.0.1:27017",
-			Database: "arl",
+		Postgres: PostgresConfig{
+			DSN:             "postgres://arl:arlpassword@127.0.0.1:5432/arl?sslmode=disable",
+			MaxOpenConns:    25,
+			MaxIdleConns:    10,
+			ConnMaxLifetime: "30m",
 		},
 		Redis: RedisConfig{
 			URL: "redis://127.0.0.1:6379/0",
@@ -319,8 +323,8 @@ func applyEnv(c *Config) {
 	set("ARL_SERVER_PUBLIC_URL", &c.Server.PublicURL)
 	set("ARL_SERVER_TLS_CERT", &c.Server.TLSCert)
 	set("ARL_SERVER_TLS_KEY", &c.Server.TLSKey)
-	set("ARL_MONGO_URI", &c.Mongo.URI)
-	set("ARL_MONGO_DATABASE", &c.Mongo.Database)
+	set("ARL_POSTGRES_DSN", &c.Postgres.DSN)
+	set("ARL_POSTGRES_CONN_MAX_LIFETIME", &c.Postgres.ConnMaxLifetime)
 	set("ARL_REDIS_URL", &c.Redis.URL)
 	set("ARL_QUEUE_DRIVER", &c.Queue.Driver)
 	set("ARL_AUTH_ACCESS_SECRET", &c.Auth.AccessSecret)
@@ -353,6 +357,12 @@ func applyEnv(c *Config) {
 	if v := os.Getenv("ARL_COOKIE_SECURE"); v != "" {
 		c.Auth.CookieSecure, _ = strconv.ParseBool(v)
 	}
+	if v := os.Getenv("ARL_POSTGRES_MAX_OPEN_CONNS"); v != "" {
+		c.Postgres.MaxOpenConns, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("ARL_POSTGRES_MAX_IDLE_CONNS"); v != "" {
+		c.Postgres.MaxIdleConns, _ = strconv.Atoi(v)
+	}
 	if v := os.Getenv("ARL_ALLOW_PRIVATE"); v != "" {
 		c.Scan.AllowPrivate, _ = strconv.ParseBool(v)
 	}
@@ -369,8 +379,19 @@ func applyEnv(c *Config) {
 
 func (c Config) Validate() error {
 	var errs []string
-	if c.Mongo.URI == "" || c.Mongo.Database == "" {
-		errs = append(errs, "mongo.uri and mongo.database are required")
+	if strings.TrimSpace(c.Postgres.DSN) == "" {
+		errs = append(errs, "postgres.dsn is required")
+	}
+	if c.Postgres.MaxOpenConns < 0 || c.Postgres.MaxIdleConns < 0 {
+		errs = append(errs, "postgres pool sizes must not be negative")
+	}
+	if c.Postgres.MaxOpenConns > 0 && c.Postgres.MaxIdleConns > c.Postgres.MaxOpenConns {
+		errs = append(errs, "postgres.maxIdleConns must not exceed maxOpenConns")
+	}
+	if c.Postgres.ConnMaxLifetime == "" {
+		errs = append(errs, "postgres.connMaxLifetime is required")
+	} else if _, err := time.ParseDuration(c.Postgres.ConnMaxLifetime); err != nil {
+		errs = append(errs, "postgres.connMaxLifetime is invalid: "+err.Error())
 	}
 	if c.Queue.Driver != "memory" && c.Queue.Driver != "redis" {
 		errs = append(errs, "queue.driver must be memory or redis")
@@ -451,4 +472,9 @@ func (c Config) EnsureDirs() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) PostgresConnMaxLifetime() time.Duration {
+	d, _ := time.ParseDuration(c.Postgres.ConnMaxLifetime)
+	return d
 }

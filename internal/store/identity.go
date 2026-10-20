@@ -2,180 +2,180 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
-	return s.C(ColUsers).CountDocuments(ctx, bson.M{})
+	var n int64
+	err := s.db.WithContext(ctx).Model(&domain.User{}).Count(&n).Error
+	return n, err
 }
 
 func (s *Store) CreateUser(ctx context.Context, u *domain.User) error {
 	now := time.Now().UTC()
 	u.CreatedAt, u.UpdatedAt, u.SchemaVersion = now, now, domain.SchemaVersion
-	if u.ID.IsZero() {
-		u.ID = bson.NewObjectID()
+	if u.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		u.ID = id
 	}
-	_, err := s.C(ColUsers).InsertOne(ctx, u)
-	return err
+	return s.db.WithContext(ctx).Create(u).Error
 }
 
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	var u domain.User
-	err := s.C(ColUsers).FindOne(ctx, bson.M{"username": strings.TrimSpace(username)}).Decode(&u)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("username = ?", strings.TrimSpace(username)).First(&u).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &u, err
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
-func (s *Store) GetUserByID(ctx context.Context, id bson.ObjectID) (*domain.User, error) {
+func (s *Store) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
 	var u domain.User
-	err := s.C(ColUsers).FindOne(ctx, bson.M{"_id": id}).Decode(&u)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &u, err
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 func (s *Store) UpdateUser(ctx context.Context, u *domain.User) error {
 	u.UpdatedAt = time.Now().UTC()
-	_, err := s.C(ColUsers).ReplaceOne(ctx, bson.M{"_id": u.ID}, u)
-	return err
+	return s.db.WithContext(ctx).Save(u).Error
 }
 
 func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int64, error) {
 	q = q.Normalized()
-	filter := bson.M{}
+	db := s.db.WithContext(ctx).Model(&domain.User{})
 	if q.Search != "" {
-		filter["username"] = bson.M{"$regex": q.Search, "$options": "i"}
+		db = db.Where(`username ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
-	total, err := s.C(ColUsers).CountDocuments(ctx, filter)
-	if err != nil {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColUsers).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.User
-	if err := cur.All(ctx, &out); err != nil {
-		return nil, 0, err
-	}
-	return out, total, nil
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
+	return out, total, err
 }
 
-func (s *Store) DeleteUser(ctx context.Context, id bson.ObjectID) error {
-	_, err := s.C(ColUsers).DeleteOne(ctx, bson.M{"_id": id})
-	return err
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Delete(&domain.User{}, "id = ?", id).Error
 }
 
 func (s *Store) CreateSession(ctx context.Context, sess *domain.Session) error {
-	if sess.ID.IsZero() {
-		sess.ID = bson.NewObjectID()
+	if sess.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		sess.ID = id
 	}
 	sess.CreatedAt = time.Now().UTC()
 	sess.SchemaVersion = domain.SchemaVersion
-	_, err := s.C(ColSessions).InsertOne(ctx, sess)
-	return err
+	return s.db.WithContext(ctx).Create(sess).Error
 }
 
 func (s *Store) GetSessionByHash(ctx context.Context, hash string) (*domain.Session, error) {
 	var sess domain.Session
-	err := s.C(ColSessions).FindOne(ctx, bson.M{"refreshHash": hash}).Decode(&sess)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("refresh_hash = ?", hash).First(&sess).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &sess, err
+	if err != nil {
+		return nil, err
+	}
+	return &sess, nil
 }
 
-func (s *Store) RotateSession(ctx context.Context, id bson.ObjectID, newHash string, expires time.Time) error {
+func (s *Store) RotateSession(ctx context.Context, id, newHash string, expires time.Time) error {
 	now := time.Now().UTC()
-	_, err := s.C(ColSessions).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
-		"refreshHash": newHash, "expiresAt": expires, "rotatedAt": now,
-	}})
-	return err
+	return s.db.WithContext(ctx).Model(&domain.Session{}).Where("id = ?", id).Updates(map[string]any{
+		"refresh_hash": newHash, "expires_at": expires, "rotated_at": now,
+	}).Error
 }
 
-func (s *Store) RevokeSession(ctx context.Context, id bson.ObjectID) error {
-	now := time.Now().UTC()
-	_, err := s.C(ColSessions).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"revokedAt": now}})
-	return err
+func (s *Store) RevokeSession(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Model(&domain.Session{}).Where("id = ?", id).Update("revoked_at", time.Now().UTC()).Error
 }
 
-func (s *Store) RevokeUserSessions(ctx context.Context, userID bson.ObjectID) error {
-	now := time.Now().UTC()
-	_, err := s.C(ColSessions).UpdateMany(ctx, bson.M{"userId": userID, "revokedAt": bson.M{"$exists": false}}, bson.M{"$set": bson.M{"revokedAt": now}})
-	return err
+func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
+	return s.db.WithContext(ctx).Model(&domain.Session{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update("revoked_at", time.Now().UTC()).Error
 }
 
 func (s *Store) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
-	if key.ID.IsZero() {
-		key.ID = bson.NewObjectID()
+	if key.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		key.ID = id
 	}
 	key.CreatedAt = time.Now().UTC()
 	key.SchemaVersion = domain.SchemaVersion
-	_, err := s.C(ColAPIKeys).InsertOne(ctx, key)
-	return err
+	return s.db.WithContext(ctx).Create(key).Error
 }
 
 func (s *Store) GetAPIKeyByHash(ctx context.Context, hash string) (*domain.APIKey, error) {
 	var key domain.APIKey
-	err := s.C(ColAPIKeys).FindOne(ctx, bson.M{"keyHash": hash, "revokedAt": bson.M{"$exists": false}}).Decode(&key)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	err := s.db.WithContext(ctx).Where("key_hash = ? AND revoked_at IS NULL", hash).First(&key).Error
+	if isNotFound(err) {
 		return nil, nil
 	}
-	return &key, err
-}
-
-func (s *Store) TouchAPIKey(ctx context.Context, id bson.ObjectID) {
-	now := time.Now().UTC()
-	_, _ = s.C(ColAPIKeys).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"lastUsedAt": now}})
-}
-
-func (s *Store) ListAPIKeys(ctx context.Context) ([]domain.APIKey, error) {
-	cur, err := s.C(ColAPIKeys).Find(ctx, bson.M{"revokedAt": bson.M{"$exists": false}})
 	if err != nil {
 		return nil, err
 	}
-	defer cur.Close(ctx)
+	return &key, nil
+}
+
+func (s *Store) TouchAPIKey(ctx context.Context, id string) {
+	_ = s.db.WithContext(ctx).Model(&domain.APIKey{}).Where("id = ?", id).Update("last_used_at", time.Now().UTC()).Error
+}
+
+func (s *Store) ListAPIKeys(ctx context.Context) ([]domain.APIKey, error) {
 	var out []domain.APIKey
-	err = cur.All(ctx, &out)
+	err := s.db.WithContext(ctx).Where("revoked_at IS NULL").Order("created_at DESC, id DESC").Find(&out).Error
 	return out, err
 }
 
-func (s *Store) RevokeAPIKey(ctx context.Context, id bson.ObjectID) error {
-	now := time.Now().UTC()
-	_, err := s.C(ColAPIKeys).UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"revokedAt": now}})
-	return err
+func (s *Store) RevokeAPIKey(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Model(&domain.APIKey{}).Where("id = ?", id).Update("revoked_at", time.Now().UTC()).Error
 }
 
 func (s *Store) AddAudit(ctx context.Context, e domain.AuditEvent) {
 	e.CreatedAt = time.Now().UTC()
-	_, _ = s.C(ColAudit).InsertOne(ctx, e)
+	if e.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return
+		}
+		e.ID = id
+	}
+	_ = s.db.WithContext(ctx).Create(&e).Error
 }
 
 func (s *Store) ListAudit(ctx context.Context, q PageQuery) ([]domain.AuditEvent, int64, error) {
 	q = q.Normalized()
-	total, err := s.C(ColAudit).CountDocuments(ctx, bson.M{})
-	if err != nil {
+	db := s.db.WithContext(ctx).Model(&domain.AuditEvent{})
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	opts := options.Find().SetSort(SortDocument(q.Sort)).SetSkip(int64((q.Page - 1) * q.PageSize)).SetLimit(int64(q.PageSize))
-	cur, err := s.C(ColAudit).Find(ctx, bson.M{}, opts)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.AuditEvent
-	err = cur.All(ctx, &out)
+	err := db.Order(OrderClause(q.Sort)).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&out).Error
 	return out, total, err
 }

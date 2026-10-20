@@ -114,3 +114,43 @@ auth:
 		t.Fatalf("redis url = %q", cfg.Redis.URL)
 	}
 }
+
+func TestPostgresEnvironmentOverrides(t *testing.T) {
+	t.Setenv("ARL_POSTGRES_DSN", "postgres://arl:secret@db.example:5432/arl?sslmode=require")
+	t.Setenv("ARL_POSTGRES_MAX_OPEN_CONNS", "42")
+	t.Setenv("ARL_POSTGRES_MAX_IDLE_CONNS", "7")
+	t.Setenv("ARL_POSTGRES_CONN_MAX_LIFETIME", "45m")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("auth:\n  accessSecret: test-secret\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Postgres.DSN != "postgres://arl:secret@db.example:5432/arl?sslmode=require" {
+		t.Fatalf("postgres dsn = %q", cfg.Postgres.DSN)
+	}
+	if cfg.Postgres.MaxOpenConns != 42 || cfg.Postgres.MaxIdleConns != 7 {
+		t.Fatalf("postgres pool = %d/%d", cfg.Postgres.MaxOpenConns, cfg.Postgres.MaxIdleConns)
+	}
+	if cfg.PostgresConnMaxLifetime().Minutes() != 45 {
+		t.Fatalf("postgres lifetime = %v", cfg.PostgresConnMaxLifetime())
+	}
+}
+
+func TestPostgresValidation(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.AccessSecret = "test-secret"
+	cfg.Postgres.DSN = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "postgres.dsn is required") {
+		t.Fatalf("error = %v", err)
+	}
+	cfg = Default()
+	cfg.Auth.AccessSecret = "test-secret"
+	cfg.Postgres.ConnMaxLifetime = "invalid"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "postgres.connMaxLifetime is invalid") {
+		t.Fatalf("error = %v", err)
+	}
+}

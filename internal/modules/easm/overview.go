@@ -92,7 +92,7 @@ func (s *Service) Overview(ctx context.Context, since time.Time) (*Overview, err
 
 	orgByID := make(map[string]domain.Organization, len(c.orgs))
 	for _, org := range c.orgs {
-		orgByID[org.ID.Hex()] = org
+		orgByID[org.ID] = org
 	}
 	riskByOrg := make(map[string]string, len(c.orgs))
 	findingsByOrg := make(map[string]int, len(c.orgs))
@@ -194,18 +194,18 @@ func (s *Service) Search(ctx context.Context, query string, limit int) (*SearchR
 	}
 	orgByID := make(map[string]domain.Organization, len(c.orgs))
 	for _, org := range c.orgs {
-		orgByID[org.ID.Hex()] = org
+		orgByID[org.ID] = org
 		if containsSearch(query, org.CanonicalName, strings.Join(org.Aliases, " "), org.USCC) {
 			out.Organizations = appendLimited(out.Organizations, SearchHit{
-				Type: "organization", ID: org.ID.Hex(), Label: org.CanonicalName, Detail: org.Region,
+				Type: "organization", ID: org.ID, Label: org.CanonicalName, Detail: org.Region,
 			}, limit)
 		}
 	}
 	for _, d := range c.confirmed {
 		if containsSearch(query, d.RootDomain, d.SiteName) {
 			out.Domains = appendLimited(out.Domains, SearchHit{
-				Type: "domain", ID: d.ID.Hex(), Label: d.RootDomain, Detail: d.SiteName,
-				OrganizationID: d.OrganizationID.Hex(),
+				Type: "domain", ID: d.ID, Label: d.RootDomain, Detail: d.SiteName,
+				OrganizationID: d.OrganizationID,
 			}, limit)
 		}
 	}
@@ -219,7 +219,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int) (*SearchR
 					orgID = orgIDs[0]
 				}
 				out.Assets = appendLimited(out.Assets, SearchHit{
-					Type: string(asset.Kind), ID: asset.ID.Hex(), Label: asset.Key,
+					Type: string(asset.Kind), ID: asset.ID, Label: asset.Key,
 					Detail: stringValue(asset.Data["title"]), Risk: risks[asset.Key], OrganizationID: orgID,
 				}, limit)
 			}
@@ -234,7 +234,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int) (*SearchR
 				orgID = orgIDs[0]
 			}
 			out.Findings = appendLimited(out.Findings, SearchHit{
-				Type: "finding", ID: finding.ID.Hex(), Label: finding.Title,
+				Type: "finding", ID: finding.ID, Label: finding.Title,
 				Detail: finding.Target, Risk: strings.ToLower(finding.Severity), OrganizationID: orgID,
 			}, limit)
 		}

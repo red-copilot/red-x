@@ -8,7 +8,6 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type GraphWriter interface {
@@ -22,11 +21,11 @@ type GraphWriter interface {
 
 type ProjectionStore interface {
 	ClaimGraphOutbox(ctx context.Context, limit int) ([]domain.GraphOutbox, error)
-	MarkGraphOutboxProcessed(ctx context.Context, ids []bson.ObjectID) error
-	GetAssetByID(ctx context.Context, id bson.ObjectID) (*domain.Asset, error)
-	GetFindingByID(ctx context.Context, id bson.ObjectID) (*domain.Finding, error)
-	GetOrganizationDomainByID(ctx context.Context, id bson.ObjectID) (*domain.OrganizationDomain, error)
-	GetOrganization(ctx context.Context, id bson.ObjectID) (*domain.Organization, error)
+	MarkGraphOutboxProcessed(ctx context.Context, ids []string) error
+	GetAssetByID(ctx context.Context, id string) (*domain.Asset, error)
+	GetFindingByID(ctx context.Context, id string) (*domain.Finding, error)
+	GetOrganizationDomainByID(ctx context.Context, id string) (*domain.OrganizationDomain, error)
+	GetOrganization(ctx context.Context, id string) (*domain.Organization, error)
 	ListAllOrganizations(ctx context.Context) ([]domain.Organization, error)
 	ListAllOrganizationDomains(ctx context.Context, status string) ([]domain.OrganizationDomain, error)
 	ListAssets(ctx context.Context, kind, taskID, scopeID string, q store.PageQuery) ([]domain.Asset, int64, error)
@@ -78,7 +77,7 @@ func (p *Projector) ProcessBatch(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	processed := make([]bson.ObjectID, 0, len(events))
+	processed := make([]string, 0, len(events))
 	var firstErr error
 	for _, ev := range events {
 		if err := p.process(ctx, ev); err != nil {
@@ -104,7 +103,7 @@ func (p *Projector) process(ctx context.Context, ev domain.GraphOutbox) error {
 	if ev.Op == domain.OutboxOpDelete {
 		return nil
 	}
-	id, err := store.ObjectID(ev.EntityID)
+	id, err := domain.ParseID(ev.EntityID)
 	if err != nil {
 		return err
 	}
@@ -138,7 +137,7 @@ func (p *Projector) process(ctx context.Context, ev domain.GraphOutbox) error {
 	}
 }
 
-// Rebuild clears the projection and replays every entity from MongoDB.
+// Rebuild clears the projection and replays every entity from PostgreSQL.
 func (p *Projector) Rebuild(ctx context.Context) error {
 	if p.Store == nil || p.Writer == nil {
 		return errors.New("graph projector is not configured")

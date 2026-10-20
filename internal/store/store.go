@@ -2,174 +2,205 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	stdlog "log"
+	"os"
+	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/red-copilot/red-x/internal/domain"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
-const (
-	ColUsers               = "users"
-	ColSessions            = "sessions"
-	ColAPIKeys             = "api_keys"
-	ColAudit               = "audit_events"
-	ColPolicies            = "policies"
-	ColScopes              = "scopes"
-	ColResultSets          = "result_sets"
-	ColTasks               = "tasks"
-	ColTaskSteps           = "task_steps"
-	ColTaskEvents          = "task_events"
-	ColWorkItems           = "task_work_items"
-	ColOutbox              = "outbox"
-	ColLeases              = "leases"
-	ColAssets              = "assets"
-	ColObservations        = "asset_observations"
-	ColScopeAssets         = "scope_asset_links"
-	ColFindings            = "findings"
-	ColFingerprints        = "fingerprints"
-	ColMonitors            = "monitors"
-	ColSchedules           = "schedules"
-	ColMonitorRuns         = "monitor_runs"
-	ColGitHubTasks         = "github_tasks"
-	ColGitHubMonitors      = "github_monitors"
-	ColGitHubFindings      = "github_findings"
-	ColGitHubSeen          = "github_seen"
-	ColExports             = "exports"
-	ColPOCPlugins          = "poc_plugins"
-	ColStats               = "stats"
-	ColOrganizations       = "organizations"
-	ColOrganizationDomains = "organization_domains"
-	ColICPEvidence         = "icp_evidence"
-	ColIPLocations         = "ip_locations"
-	ColICPJobs             = "icp_jobs"
-	ColGraphOutbox         = "graph_outbox"
-)
+const schemaLockID int64 = 0x41524c5047 // "ARLPG"
+
+type Options struct {
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
 
 type Store struct {
-	client *mongo.Client
-	db     *mongo.Database
+	db    *gorm.DB
+	sqlDB *sql.DB
 }
 
-func Open(ctx context.Context, uri, database string) (*Store, error) {
-	client, err := mongo.Connect(options.Client().ApplyURI(uri).SetServerSelectionTimeout(8 * time.Second))
-	if err != nil {
-		return nil, fmt.Errorf("connect mongo: %w", err)
+func Open(ctx context.Context, opts Options) (*Store, error) {
+	if strings.TrimSpace(opts.DSN) == "" {
+		return nil, errors.New("postgres dsn is required")
 	}
-	st := &Store{client: client, db: client.Database(database)}
+	gormLogger := logger.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags), logger.Config{
+		SlowThreshold:             time.Second,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  false,
+	})
+	db, err := gorm.Open(postgres.Open(opts.DSN), &gorm.Config{
+		TranslateError: true,
+		Logger:         gormLogger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("postgres sql pool: %w", err)
+	}
+	if opts.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(opts.MaxOpenConns)
+	}
+	if opts.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(opts.MaxIdleConns)
+	}
+	if opts.ConnMaxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(opts.ConnMaxLifetime)
+	}
 	pingCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if err := client.Ping(pingCtx, readpref.Primary()); err != nil {
-		_ = client.Disconnect(context.Background())
-		return nil, fmt.Errorf("ping mongo: %w", err)
+	if err := sqlDB.PingContext(pingCtx); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	return st, nil
+	return &Store{db: db.WithContext(ctx), sqlDB: sqlDB}, nil
 }
 
-func (s *Store) Close(ctx context.Context) error {
-	if s == nil || s.client == nil {
+func (s *Store) Close(context.Context) error {
+	if s == nil || s.sqlDB == nil {
 		return nil
 	}
-	return s.client.Disconnect(ctx)
+	return s.sqlDB.Close()
 }
 
 func (s *Store) Ping(ctx context.Context) error {
-	if s == nil || s.client == nil {
+	if s == nil || s.sqlDB == nil {
 		return errors.New("store is not open")
 	}
-	return s.client.Ping(ctx, readpref.Primary())
+	return s.sqlDB.PingContext(ctx)
 }
 
-func (s *Store) DB() *mongo.Database { return s.db }
-
-func (s *Store) C(name string) *mongo.Collection { return s.db.Collection(name) }
-
-func (s *Store) EnsureIndexes(ctx context.Context) error {
-	type spec struct {
-		collection string
-		indexes    []mongo.IndexModel
+// Migrate applies the idempotent GORM schema and PostgreSQL-specific indexes.
+// The advisory lock serializes concurrent role starts against the same database.
+func (s *Store) Migrate(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return errors.New("store is not open")
 	}
-	unique := func(keys ...string) mongo.IndexModel {
-		d := bson.D{}
-		for _, k := range keys {
-			d = append(d, bson.E{Key: k, Value: 1})
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(?)`, schemaLockID).Error; err != nil {
+			return fmt.Errorf("acquire schema lock: %w", err)
 		}
-		return mongo.IndexModel{Keys: d, Options: options.Index().SetUnique(true)}
-	}
-	plain := func(keys ...string) mongo.IndexModel {
-		d := bson.D{}
-		for _, k := range keys {
-			d = append(d, bson.E{Key: k, Value: 1})
+		if err := tx.AutoMigrate(
+			&domain.User{}, &domain.Session{}, &domain.APIKey{}, &domain.AuditEvent{},
+			&domain.Policy{}, &domain.Scope{},
+			&domain.Task{}, &domain.TaskStep{}, &domain.TaskEvent{},
+			&domain.OutboxMessage{}, &domain.Lease{}, &ResultSet{},
+			&domain.Asset{}, &domain.AssetObservation{}, &domain.ScopeAssetLink{}, &domain.Finding{},
+			&FingerprintRule{}, &domain.PocPlugin{},
+			&domain.Monitor{}, &domain.Schedule{}, &domain.MonitorRun{},
+			&domain.GitHubTask{}, &domain.GitHubMonitor{}, &domain.GitHubFinding{}, &domain.ExportJob{},
+			&domain.Organization{}, &domain.OrganizationDomain{}, &domain.ICPEvidence{},
+			&domain.IPLocation{}, &domain.ICPJob{}, &domain.GraphOutbox{},
+		); err != nil {
+			return fmt.Errorf("automigrate postgres: %w", err)
 		}
-		return mongo.IndexModel{Keys: d}
-	}
-	desc := func(keys ...string) mongo.IndexModel {
-		d := bson.D{}
-		for _, k := range keys {
-			d = append(d, bson.E{Key: k, Value: -1})
+		if err := tx.Exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public`).Error; err != nil {
+			return fmt.Errorf("enable pg_trgm: %w", err)
 		}
-		return mongo.IndexModel{Keys: d}
-	}
-	ttl := func(field string, seconds int32) mongo.IndexModel {
-		return mongo.IndexModel{
-			Keys:    bson.D{{Key: field, Value: 1}},
-			Options: options.Index().SetExpireAfterSeconds(seconds),
+		var trgmSchema string
+		if err := tx.Raw(`SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pg_trgm'`).Scan(&trgmSchema).Error; err != nil {
+			return fmt.Errorf("locate pg_trgm schema: %w", err)
 		}
-	}
-	specs := []spec{
-		{ColUsers, []mongo.IndexModel{unique("username")}},
-		{ColSessions, []mongo.IndexModel{unique("refreshHash"), plain("userId"), ttl("expiresAt", 0)}},
-		{ColAPIKeys, []mongo.IndexModel{unique("keyHash"), plain("revokedAt")}},
-		{ColAudit, []mongo.IndexModel{plain("actorId"), ttl("createdAt", 180*24*3600)}},
-		{ColPolicies, []mongo.IndexModel{unique("name")}},
-		{ColScopes, []mongo.IndexModel{plain("name"), plain("type")}},
-		{ColTasks, []mongo.IndexModel{plain("status"), desc("createdAt"), plain("kind"), plain("scopeId"), plain("organizationId", "createdAt"), plain("rootDomain", "createdAt"), plain("origin")}},
-		{ColTaskSteps, []mongo.IndexModel{unique("taskId", "sequence"), plain("taskId", "status")}},
-		{ColTaskEvents, []mongo.IndexModel{plain("taskId", "sequence"), ttl("createdAt", 90*24*3600)}},
-		{ColWorkItems, []mongo.IndexModel{plain("taskId", "status"), plain("leaseUntil")}},
-		{ColOutbox, []mongo.IndexModel{plain("status", "availableAt")}},
-		{ColLeases, []mongo.IndexModel{ttl("expiresAt", 0)}},
-		{ColAssets, []mongo.IndexModel{unique("kind", "key"), plain("kind", "lastSeen"), plain("scopeIds")}},
-		{ColObservations, []mongo.IndexModel{plain("taskId", "kind"), plain("taskId", "observedAt"), plain("assetId")}},
-		{ColScopeAssets, []mongo.IndexModel{unique("scopeId", "assetId"), plain("scopeId", "kind", "lastSeen")}},
-		{ColFindings, []mongo.IndexModel{unique("taskId", "kind", "dedupeKey"), plain("taskId", "kind"), plain("scopeId", "kind"), plain("target", "dedupeKey", "createdAt")}},
-		{ColFingerprints, []mongo.IndexModel{unique("rule")}},
-		{ColMonitors, []mongo.IndexModel{plain("status", "nextRunAt"), plain("scopeId", "kind")}},
-		{ColSchedules, []mongo.IndexModel{plain("status", "nextRunAt")}},
-		{ColMonitorRuns, []mongo.IndexModel{plain("monitorId", "startedAt")}},
-		{ColGitHubTasks, []mongo.IndexModel{desc("createdAt"), plain("status")}},
-		{ColGitHubMonitors, []mongo.IndexModel{plain("status", "nextRunAt")}},
-		{ColGitHubFindings, []mongo.IndexModel{unique("hashMd5"), plain("monitorId", "createdAt"), plain("taskId")}},
-		{ColGitHubSeen, []mongo.IndexModel{unique("hashMd5")}},
-		{ColExports, []mongo.IndexModel{ttl("createdAt", 30*24*3600)}},
-		{ColPOCPlugins, []mongo.IndexModel{unique("name"), plain("type", "category")}},
-		{ColOrganizations, []mongo.IndexModel{unique("canonicalName", "region"), plain("status")}},
-		{ColOrganizationDomains, []mongo.IndexModel{
-			unique("organizationId", "rootDomain"),
-			{Keys: bson.D{{Key: "rootDomain", Value: 1}}, Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"status": "confirmed"}).SetName("uniq_confirmed_root_domain")},
-			plain("status"), plain("organizationId", "status"), plain("rootDomain", "status"),
-		}},
-		{ColICPEvidence, []mongo.IndexModel{plain("provider", "queryType", "queryKey"), ttl("expiresAt", 0)}},
-		{ColIPLocations, []mongo.IndexModel{unique("ip")}},
-		{ColICPJobs, []mongo.IndexModel{plain("status", "createdAt"), ttl("createdAt", 7*24*3600)}},
-		{ColGraphOutbox, []mongo.IndexModel{plain("processedAt", "createdAt"), plain("processingAt")}},
-	}
-	for _, sp := range specs {
-		if len(sp.indexes) == 0 {
-			continue
+		trgmOpclass := pgx.Identifier{trgmSchema}.Sanitize() + ".gin_trgm_ops"
+		for _, stmt := range postgresIndexes {
+			if err := tx.Exec(strings.ReplaceAll(stmt, "__TRGM__", trgmOpclass)).Error; err != nil {
+				return fmt.Errorf("create postgres index: %w", err)
+			}
 		}
-		if _, err := s.C(sp.collection).Indexes().CreateMany(ctx, sp.indexes); err != nil {
-			return fmt.Errorf("create indexes for %s: %w", sp.collection, err)
-		}
-	}
-	_, _ = s.C(ColAssets).Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "data.title", Value: "text"}, {Key: "data.domain", Value: "text"}, {Key: "data.ip", Value: "text"}},
-		Options: options.Index().SetName("asset_text"),
+		return nil
 	})
-	return nil
+}
+
+var postgresIndexes = []string{
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_username ON users (username)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_refresh_hash ON sessions (refresh_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_api_keys_key_hash ON api_keys (key_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (revoked_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_events_actor_id ON audit_events (actor_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events (created_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_policies_name ON policies (name)`,
+	`CREATE INDEX IF NOT EXISTS idx_scopes_name ON scopes (name)`,
+	`CREATE INDEX IF NOT EXISTS idx_scopes_type ON scopes (type)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks (created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_kind ON tasks (kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_scope_id ON tasks (scope_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_org_created ON tasks (organization_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_root_created ON tasks (root_domain, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_origin ON tasks (origin)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_task_steps_task_sequence ON task_steps (task_id, sequence)`,
+	`CREATE INDEX IF NOT EXISTS idx_task_steps_task_status ON task_steps (task_id, status)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_task_events_task_sequence ON task_events (task_id, sequence)`,
+	`CREATE INDEX IF NOT EXISTS idx_task_events_created_at ON task_events (created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox (status, available_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_leases_expires_at ON leases (expires_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_assets_kind_key ON assets (kind, key)`,
+	`CREATE INDEX IF NOT EXISTS idx_assets_kind_last_seen ON assets (kind, last_seen DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_assets_scope_ids ON assets USING gin (scope_ids)`,
+	`CREATE INDEX IF NOT EXISTS idx_asset_observations_task_kind ON asset_observations (task_id, kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_asset_observations_task_time ON asset_observations (task_id, observed_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_asset_observations_asset_id ON asset_observations (asset_id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_scope_asset_links ON scope_asset_links (scope_id, asset_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_scope_asset_links_kind_time ON scope_asset_links (scope_id, kind, last_seen DESC)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_findings_task_kind_dedupe ON findings (task_id, kind, dedupe_key)`,
+	`CREATE INDEX IF NOT EXISTS idx_findings_task_kind ON findings (task_id, kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_findings_scope_kind ON findings (scope_id, kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_findings_target_created ON findings (target, dedupe_key, created_at DESC)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_fingerprints_rule ON fingerprints (rule)`,
+	`CREATE INDEX IF NOT EXISTS idx_poc_plugins_type_category ON poc_plugins (type, category)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_poc_plugins_name ON poc_plugins (name)`,
+	`CREATE INDEX IF NOT EXISTS idx_monitors_status_next_run ON monitors (status, next_run_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_monitors_scope_kind ON monitors (scope_id, kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_schedules_status_next_run ON schedules (status, next_run_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_monitor_runs_monitor_started ON monitor_runs (monitor_id, started_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_github_tasks_created_at ON github_tasks (created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_github_tasks_status ON github_tasks (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_github_monitors_status_next_run ON github_monitors (status, next_run_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_github_findings_hash ON github_findings (hash_md5)`,
+	`CREATE INDEX IF NOT EXISTS idx_github_findings_monitor_created ON github_findings (monitor_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_github_findings_task_id ON github_findings (task_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_exports_created_at ON exports (created_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_organizations_name_region ON organizations (canonical_name, region)`,
+	`CREATE INDEX IF NOT EXISTS idx_organizations_status ON organizations (status)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_organization_domains_org_root ON organization_domains (organization_id, root_domain)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_confirmed_root_domain ON organization_domains (root_domain) WHERE status = 'confirmed'`,
+	`CREATE INDEX IF NOT EXISTS idx_organization_domains_status ON organization_domains (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_organization_domains_org_status ON organization_domains (organization_id, status)`,
+	`CREATE INDEX IF NOT EXISTS idx_organization_domains_root_status ON organization_domains (root_domain, status)`,
+	`CREATE INDEX IF NOT EXISTS idx_icp_evidence_query ON icp_evidence (provider, query_type, query_key)`,
+	`CREATE INDEX IF NOT EXISTS idx_icp_evidence_expires_at ON icp_evidence (expires_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ip_locations_ip ON ip_locations (ip)`,
+	`CREATE INDEX IF NOT EXISTS idx_icp_jobs_status_created ON icp_jobs (status, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_graph_outbox_processed_created ON graph_outbox (processed_at, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_graph_outbox_processing_at ON graph_outbox (processing_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_assets_key_trgm ON assets USING gin (key __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_assets_title_trgm ON assets USING gin ((data->>'title') __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_assets_url_trgm ON assets USING gin ((data->>'url') __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_name_trgm ON tasks USING gin (name __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_target_trgm ON tasks USING gin (target __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_findings_title_trgm ON findings USING gin (title __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_findings_target_trgm ON findings USING gin (target __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_organizations_name_trgm ON organizations USING gin (canonical_name __TRGM__)`,
+	`CREATE INDEX IF NOT EXISTS idx_organizations_aliases ON organizations USING gin (aliases)`,
 }
 
 type PageQuery struct {
@@ -195,36 +226,52 @@ func (p PageQuery) Normalized() PageQuery {
 	return p
 }
 
-func SortDocument(sort string) bson.D {
-	if sort == "" {
-		return bson.D{{Key: "_id", Value: -1}}
+func OrderClause(sort string) string {
+	field, direction := sort, "desc"
+	if i := strings.IndexByte(sort, ':'); i >= 0 {
+		field, direction = sort[:i], strings.ToLower(sort[i+1:])
 	}
-	field, order := sort, "desc"
-	for i, c := range sort {
-		if c == ':' {
-			field, order = sort[:i], sort[i+1:]
-			break
-		}
+	columns := map[string]string{
+		"id": "id", "_id": "id", "createdAt": "created_at", "updatedAt": "updated_at",
+		"lastSeen": "last_seen", "nextRunAt": "next_run_at", "status": "status",
+		"name": "name", "kind": "kind", "progress": "progress",
 	}
-	switch field {
-	case "_id", "createdAt", "updatedAt", "lastSeen", "nextRunAt", "status", "name", "kind", "progress":
-	default:
-		field = "createdAt"
+	column, ok := columns[field]
+	if !ok {
+		column = "created_at"
 	}
-	v := -1
-	if order == "asc" {
-		v = 1
+	if direction != "asc" {
+		direction = "desc"
 	}
-	out := bson.D{{Key: field, Value: v}}
-	if field != "_id" {
-		out = append(out, bson.E{Key: "_id", Value: -1})
+	order := column + " " + strings.ToUpper(direction)
+	if column != "id" {
+		order += ", id DESC"
 	}
-	return out
+	return order
 }
 
-func ObjectID(id string) (bson.ObjectID, error) {
-	if id == "" {
-		return bson.NilObjectID, errors.New("empty object id")
+func ParseID(id string) (string, error) {
+	return domain.ParseID(id)
+}
+
+func ilike(query string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + replacer.Replace(query) + "%"
+}
+
+func isNotFound(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func isDuplicate(err error) bool {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
 	}
-	return bson.ObjectIDFromHex(id)
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func jsonbExpr(v any) clause.Expr {
+	raw, _ := json.Marshal(v)
+	return gorm.Expr("?::jsonb", string(raw))
 }

@@ -251,7 +251,7 @@ func runMigrate(args []string) {
 			count++
 		}
 	}
-	fmt.Printf("indexes ready, default policy ready, %d PoC plugins registered\n", count)
+	fmt.Printf("postgres schema ready, default policy ready, %d PoC plugins registered\n", count)
 }
 
 func runDoctor(args []string) {
@@ -351,10 +351,10 @@ func runDoctor(args []string) {
 	}
 
 	if a, err := app.New(ctx, cfg, logx.New("", cfg.Server.Debug), version); err != nil {
-		fmt.Println("mongo/queue/assets: FAIL:", err)
+		fmt.Println("postgres/queue/assets: FAIL:", err)
 		problems++
 	} else {
-		fmt.Println("mongo: OK")
+		fmt.Println("postgres: OK")
 		if err := a.Queue.Health(ctx); err != nil {
 			fmt.Println("queue: FAIL:", err)
 			problems++

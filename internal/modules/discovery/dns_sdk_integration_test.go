@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
 	mdns "github.com/miekg/dns"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 )
 
 func TestPDDNSResolverQueriesRecords(t *testing.T) {

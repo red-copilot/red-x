@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/jobs"
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"github.com/red-copilot/red-x/internal/store"
 )
 
 type fakeChinaz struct {
@@ -49,25 +48,25 @@ func (q *fakeQueue) Health(context.Context) error                               
 func (q *fakeQueue) Close() error                                               { return nil }
 
 type fakeICPStore struct {
-	orgs     map[bson.ObjectID]*domain.Organization
+	orgs     map[string]*domain.Organization
 	byName   map[string]*domain.Organization
 	domains  map[string]*domain.OrganizationDomain
 	evidence []*domain.ICPEvidence
-	jobs     map[bson.ObjectID]*domain.ICPJob
+	jobs     map[string]*domain.ICPJob
 	audits   []domain.AuditEvent
 	outbox   []string
 }
 
 func newFakeICPStore() *fakeICPStore {
 	return &fakeICPStore{
-		orgs: map[bson.ObjectID]*domain.Organization{}, byName: map[string]*domain.Organization{},
-		domains: map[string]*domain.OrganizationDomain{}, jobs: map[bson.ObjectID]*domain.ICPJob{},
+		orgs: map[string]*domain.Organization{}, byName: map[string]*domain.Organization{},
+		domains: map[string]*domain.OrganizationDomain{}, jobs: map[string]*domain.ICPJob{},
 	}
 }
 
 func (f *fakeICPStore) CreateOrganization(_ context.Context, org *domain.Organization) error {
-	if org.ID.IsZero() {
-		org.ID = bson.NewObjectID()
+	if org.ID == "" {
+		org.ID = domain.MustID()
 	}
 	f.orgs[org.ID] = org
 	f.byName[org.CanonicalName] = org
@@ -89,18 +88,18 @@ func (f *fakeICPStore) FindOrganizationByNameAndRegion(_ context.Context, name, 
 	}
 	return org, nil
 }
-func (f *fakeICPStore) GetOrganization(_ context.Context, id bson.ObjectID) (*domain.Organization, error) {
+func (f *fakeICPStore) GetOrganization(_ context.Context, id string) (*domain.Organization, error) {
 	return f.orgs[id], nil
 }
 func (f *fakeICPStore) UpsertOrganizationDomain(_ context.Context, od *domain.OrganizationDomain) error {
-	key := od.OrganizationID.Hex() + ":" + od.RootDomain
-	if od.ID.IsZero() {
-		od.ID = bson.NewObjectID()
+	key := od.OrganizationID + ":" + od.RootDomain
+	if od.ID == "" {
+		od.ID = domain.MustID()
 	}
 	f.domains[key] = od
 	return nil
 }
-func (f *fakeICPStore) ListOrganizationDomains(_ context.Context, orgID bson.ObjectID, status string) ([]domain.OrganizationDomain, error) {
+func (f *fakeICPStore) ListOrganizationDomains(_ context.Context, orgID string, status string) ([]domain.OrganizationDomain, error) {
 	var out []domain.OrganizationDomain
 	for _, od := range f.domains {
 		if od.OrganizationID == orgID && (status == "" || string(od.Status) == status) {
@@ -109,10 +108,10 @@ func (f *fakeICPStore) ListOrganizationDomains(_ context.Context, orgID bson.Obj
 	}
 	return out, nil
 }
-func (f *fakeICPStore) ConfirmOrganizationDomains(_ context.Context, orgID bson.ObjectID, domains []string) (int, error) {
+func (f *fakeICPStore) ConfirmOrganizationDomains(_ context.Context, orgID string, domains []string, actor string) (int, error) {
 	n := 0
 	for _, root := range domains {
-		od := f.domains[orgID.Hex()+":"+root]
+		od := f.domains[orgID+":"+root]
 		if od != nil && od.Status == domain.DomainStatusCandidate {
 			od.Status = domain.DomainStatusConfirmed
 			n++
@@ -125,33 +124,32 @@ func (f *fakeICPStore) AddICPEvidence(_ context.Context, ev *domain.ICPEvidence)
 	return nil
 }
 func (f *fakeICPStore) CreateICPJob(_ context.Context, job *domain.ICPJob) error {
-	if job.ID.IsZero() {
-		job.ID = bson.NewObjectID()
+	if job.ID == "" {
+		job.ID = domain.MustID()
 	}
 	f.jobs[job.ID] = job
 	return nil
 }
-func (f *fakeICPStore) UpdateICPJob(_ context.Context, id bson.ObjectID, fields bson.M) error {
+func (f *fakeICPStore) UpdateICPJob(_ context.Context, id string, fields store.ICPJobPatch) error {
 	job := f.jobs[id]
 	if job == nil {
 		return errors.New("job not found")
 	}
-	if v, ok := fields["status"]; ok {
-		job.Status = v.(domain.ICPJobStatus)
+	if fields.Status != nil {
+		job.Status = *fields.Status
 	}
-	if v, ok := fields["error"]; ok {
-		job.Error, _ = v.(string)
+	if fields.Error != nil {
+		job.Error = *fields.Error
 	}
-	if v, ok := fields["resultCount"]; ok {
-		job.ResultCount, _ = v.(int)
+	if fields.ResultCount != nil {
+		job.ResultCount = *fields.ResultCount
 	}
-	if v, ok := fields["finishedAt"]; ok {
-		t, _ := v.(time.Time)
-		job.FinishedAt = &t
+	if fields.FinishedAt != nil {
+		job.FinishedAt = fields.FinishedAt
 	}
 	return nil
 }
-func (f *fakeICPStore) GetICPJob(_ context.Context, id bson.ObjectID) (*domain.ICPJob, error) {
+func (f *fakeICPStore) GetICPJob(_ context.Context, id string) (*domain.ICPJob, error) {
 	return f.jobs[id], nil
 }
 func (f *fakeICPStore) AddAudit(_ context.Context, e domain.AuditEvent) {
@@ -242,7 +240,7 @@ func TestHandleJobPersistsCandidatesAndCompletes(t *testing.T) {
 			{Domain: "other.com", UnitName: "其他单位", ServiceLicence: "蜀ICP备2号"},
 		}},
 	}
-	payload, _ := json.Marshal(map[string]string{"jobId": job.ID.Hex()})
+	payload, _ := json.Marshal(map[string]string{"jobId": job.ID})
 	if err := svc.HandleICPJob(context.Background(), jobs.Delivery{Envelope: jobs.Envelope{Payload: payload}}); err != nil {
 		t.Fatal(err)
 	}
@@ -264,14 +262,14 @@ func TestHandleJobProviderFailureKeepsExistingDomains(t *testing.T) {
 	job := &domain.ICPJob{OrganizationID: org.ID, Status: domain.ICPJobQueued}
 	_ = st.CreateICPJob(context.Background(), job)
 	svc := &Service{Store: st, ICPQuery: fakeICPQuery{err: ErrICPUnavailable}}
-	payload, _ := json.Marshal(map[string]string{"jobId": job.ID.Hex()})
+	payload, _ := json.Marshal(map[string]string{"jobId": job.ID})
 	if err := svc.HandleICPJob(context.Background(), jobs.Delivery{Envelope: jobs.Envelope{Payload: payload}}); err != nil {
 		t.Fatal(err)
 	}
 	if st.jobs[job.ID].Status != domain.ICPJobFailed {
 		t.Fatalf("expected failed job, got %s", st.jobs[job.ID].Status)
 	}
-	if st.domains[org.ID.Hex()+":example.com"].Status != domain.DomainStatusConfirmed {
+	if st.domains[org.ID+":example.com"].Status != domain.DomainStatusConfirmed {
 		t.Fatal("existing confirmed domain was modified")
 	}
 }
@@ -290,7 +288,7 @@ func TestConfirmDomainsWritesAuditAndOutbox(t *testing.T) {
 	if n != 1 || len(st.audits) != 1 {
 		t.Fatalf("expected 1 changed and 1 audit, got %d/%d", n, len(st.audits))
 	}
-	if st.domains[org.ID.Hex()+":example.com"].Status != domain.DomainStatusConfirmed {
+	if st.domains[org.ID+":example.com"].Status != domain.DomainStatusConfirmed {
 		t.Fatal("domain was not confirmed")
 	}
 }

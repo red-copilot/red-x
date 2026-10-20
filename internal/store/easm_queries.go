@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func (s *Store) ListDomainAssetsUnderRoots(ctx context.Context, roots []string) ([]domain.Asset, error) {
@@ -15,12 +13,14 @@ func (s *Store) ListDomainAssetsUnderRoots(ctx context.Context, roots []string) 
 	if len(roots) == 0 {
 		return nil, nil
 	}
-	var or []bson.M
+	var patterns []string
 	for _, root := range roots {
-		or = append(or, bson.M{"key": bson.M{"$regex": `(^|\.)` + regexp.QuoteMeta(root) + `$`, "$options": "i"}})
+		patterns = append(patterns, `(^|\.)`+regexp.QuoteMeta(strings.ToLower(root))+`$`)
 	}
-	filter := bson.M{"kind": domain.AssetDomain, "$or": or}
-	return s.findAssets(ctx, filter, 5000)
+	var out []domain.Asset
+	err := s.db.WithContext(ctx).Where("kind = ?", domain.AssetDomain).
+		Where("key ~* ?", strings.Join(patterns, "|")).Limit(5000).Find(&out).Error
+	return out, err
 }
 
 func (s *Store) ListAssetsByKindKeys(ctx context.Context, kind domain.AssetKind, keys []string) ([]domain.Asset, error) {
@@ -28,7 +28,9 @@ func (s *Store) ListAssetsByKindKeys(ctx context.Context, kind domain.AssetKind,
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	return s.findAssets(ctx, bson.M{"kind": kind, "key": bson.M{"$in": keys}}, 5000)
+	var out []domain.Asset
+	err := s.db.WithContext(ctx).Where("kind = ? AND key IN ?", kind, keys).Limit(5000).Find(&out).Error
+	return out, err
 }
 
 func (s *Store) ListServiceAssetsByIPs(ctx context.Context, ips []string) ([]domain.Asset, error) {
@@ -36,7 +38,9 @@ func (s *Store) ListServiceAssetsByIPs(ctx context.Context, ips []string) ([]dom
 	if len(ips) == 0 {
 		return nil, nil
 	}
-	return s.findAssets(ctx, bson.M{"kind": domain.AssetService, "data.ip": bson.M{"$in": ips}}, 5000)
+	var out []domain.Asset
+	err := s.db.WithContext(ctx).Where("kind = ? AND data->>'ip' IN ?", domain.AssetService, ips).Limit(5000).Find(&out).Error
+	return out, err
 }
 
 func (s *Store) ListFindingsByTargets(ctx context.Context, targets []string) ([]domain.Finding, error) {
@@ -53,28 +57,18 @@ func (s *Store) ListFindingsByTargets(ctx context.Context, targets []string) ([]
 		}
 		batch := targets[start:end]
 		escaped := make([]string, 0, len(batch))
-		for _, t := range batch {
-			escaped = append(escaped, regexp.QuoteMeta(t))
+		for _, target := range batch {
+			escaped = append(escaped, regexp.QuoteMeta(target))
 		}
-		re := `(?i)(^|[./])(` + strings.Join(escaped, "|") + `)([:/?#]|$)`
-		filter := bson.M{"$or": []bson.M{
-			{"target": bson.M{"$in": batch}},
-			{"target": bson.M{"$regex": re}},
-		}}
-		cur, err := s.C(ColFindings).Find(ctx, filter, options.Find().SetLimit(5000))
-		if err != nil {
-			return nil, err
-		}
+		pattern := `(?i)(^|[./])(` + strings.Join(escaped, "|") + `)([:/?#]|$)`
 		var items []domain.Finding
-		if err := cur.All(ctx, &items); err != nil {
-			cur.Close(ctx)
+		if err := s.db.WithContext(ctx).Where("target IN ? OR target ~ ?", batch, pattern).Limit(5000).Find(&items).Error; err != nil {
 			return nil, err
 		}
-		_ = cur.Close(ctx)
-		for _, f := range items {
-			if !seen[f.ID.Hex()] {
-				seen[f.ID.Hex()] = true
-				out = append(out, f)
+		for _, finding := range items {
+			if !seen[finding.ID] {
+				seen[finding.ID] = true
+				out = append(out, finding)
 			}
 		}
 	}
@@ -86,41 +80,21 @@ func (s *Store) ListIPLocationsByIPs(ctx context.Context, ips []string) ([]domai
 	if len(ips) == 0 {
 		return nil, nil
 	}
-	cur, err := s.C(ColIPLocations).Find(ctx, bson.M{"ip": bson.M{"$in": ips}})
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
 	var out []domain.IPLocation
-	if err := cur.All(ctx, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (s *Store) findAssets(ctx context.Context, filter bson.M, limit int64) ([]domain.Asset, error) {
-	cur, err := s.C(ColAssets).Find(ctx, filter, options.Find().SetLimit(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(ctx)
-	var out []domain.Asset
-	if err := cur.All(ctx, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	err := s.db.WithContext(ctx).Where("ip IN ?", ips).Find(&out).Error
+	return out, err
 }
 
 func uniqueStrings(in []string) []string {
 	seen := make(map[string]bool, len(in))
 	out := make([]string, 0, len(in))
-	for _, s := range in {
-		s = strings.TrimSpace(s)
-		if s == "" || seen[s] {
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
 			continue
 		}
-		seen[s] = true
-		out = append(out, s)
+		seen[item] = true
+		out = append(out, item)
 	}
 	return out
 }

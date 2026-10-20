@@ -3,8 +3,8 @@ package discovery
 import (
 	"testing"
 
-	"github.com/red-copilot/red-x/internal/platform/netsafe"
 	retryabledns "github.com/projectdiscovery/retryabledns"
+	"github.com/red-copilot/red-x/internal/platform/netsafe"
 )
 
 func TestDomainResultFromDNSData(t *testing.T) {

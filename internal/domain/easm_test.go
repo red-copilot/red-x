@@ -2,8 +2,6 @@ package domain
 
 import (
 	"testing"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestOrganizationValidateRejectsEmptyName(t *testing.T) {
@@ -17,7 +15,7 @@ func TestOrganizationValidateRejectsEmptyName(t *testing.T) {
 
 func TestOrganizationDomainValidateRejectsInvalidStatus(t *testing.T) {
 	od := &OrganizationDomain{
-		OrganizationID: bson.NewObjectID(),
+		OrganizationID: MustID(),
 		RootDomain:     "scitc.edu.cn",
 		Source:         "manual",
 		Confidence:     ConfidenceHigh,
@@ -30,7 +28,7 @@ func TestOrganizationDomainValidateRejectsInvalidStatus(t *testing.T) {
 	if err := od.Validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
-	if err := (&OrganizationDomain{OrganizationID: bson.NewObjectID(), RootDomain: "", Status: DomainStatusCandidate}).Validate(); err == nil {
+	if err := (&OrganizationDomain{OrganizationID: MustID(), RootDomain: "", Status: DomainStatusCandidate}).Validate(); err == nil {
 		t.Fatal("expected empty root domain to be rejected")
 	}
 }

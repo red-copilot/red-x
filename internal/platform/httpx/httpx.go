@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/red-copilot/red-x/internal/store"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/red-copilot/red-x/internal/store"
 )
 
 type Problem struct {

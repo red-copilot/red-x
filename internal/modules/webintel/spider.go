@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/red-copilot/red-x/internal/modules/discovery"
 	"github.com/projectdiscovery/katana/pkg/engine/standard"
 	katanaoutput "github.com/projectdiscovery/katana/pkg/output"
 	katanatypes "github.com/projectdiscovery/katana/pkg/types"
+	"github.com/red-copilot/red-x/internal/modules/discovery"
 )
 
 type Crawler interface {

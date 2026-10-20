@@ -6,16 +6,15 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestOverviewAggregatesCurrentRiskAndCoverage(t *testing.T) {
 	repo, _, _ := catalogRepo()
 	now := time.Now().UTC()
 	repo.findings = []domain.Finding{
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "critical", Severity: "critical", Title: "critical", CreatedAt: now},
-		{ID: bson.NewObjectID(), Target: "1.1.1.1", DedupeKey: "high", Severity: "high", Title: "high", CreatedAt: now.Add(-time.Hour)},
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "old", Severity: "high", Title: "old", CreatedAt: now.Add(-60 * 24 * time.Hour)},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "critical", Severity: "critical", Title: "critical", CreatedAt: now},
+		{ID: domain.MustID(), Target: "1.1.1.1", DedupeKey: "high", Severity: "high", Title: "high", CreatedAt: now.Add(-time.Hour)},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "old", Severity: "high", Title: "old", CreatedAt: now.Add(-60 * 24 * time.Hour)},
 	}
 	svc := &Service{Repo: repo}
 
@@ -45,7 +44,7 @@ func TestSearchGroupsResultsAndHonorsLimit(t *testing.T) {
 	repo.orgs[0].CanonicalName = "Example Org"
 	now := time.Now().UTC()
 	repo.findings = []domain.Finding{
-		{ID: bson.NewObjectID(), Target: "example.com", DedupeKey: "v", Severity: "high", Title: "Example exposed", CreatedAt: now},
+		{ID: domain.MustID(), Target: "example.com", DedupeKey: "v", Severity: "high", Title: "Example exposed", CreatedAt: now},
 	}
 	svc := &Service{Repo: repo}
 

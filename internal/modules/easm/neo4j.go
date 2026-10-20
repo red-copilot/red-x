@@ -13,7 +13,6 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/platform/config"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Neo4jWriter struct {
@@ -62,7 +61,7 @@ func (w *Neo4jWriter) exec(ctx context.Context, query string, params map[string]
 
 func (w *Neo4jWriter) MergeOrganization(ctx context.Context, org domain.Organization) error {
 	return w.exec(ctx, `MERGE (o:Organization {id:$id}) SET o.name=$name`,
-		map[string]any{"id": org.ID.Hex(), "name": org.CanonicalName})
+		map[string]any{"id": org.ID, "name": org.CanonicalName})
 }
 
 func (w *Neo4jWriter) MergeOrganizationDomain(ctx context.Context, od domain.OrganizationDomain) error {
@@ -73,10 +72,10 @@ func (w *Neo4jWriter) MergeOrganizationDomain(ctx context.Context, od domain.Org
 MERGE (o:Organization {id:$orgId})
 MERGE (d:Domain {name:$root})
 SET d.root=$root
-MERGE (o)-[r:OWNS {mongoId:$id}]->(d)
+MERGE (o)-[r:OWNS {entityId:$id}]->(d)
 SET r.source=$source, r.confidence=$confidence, r.status=$status, r.icpNo=$icpNo`,
 		map[string]any{
-			"orgId": od.OrganizationID.Hex(), "root": od.RootDomain, "id": od.ID.Hex(),
+			"orgId": od.OrganizationID, "root": od.RootDomain, "id": od.ID,
 			"source": od.Source, "confidence": string(od.Confidence),
 			"status": string(od.Status), "icpNo": od.ICPNo,
 		})
@@ -93,7 +92,7 @@ func (w *Neo4jWriter) MergeAsset(ctx context.Context, asset domain.Asset) error 
 		cdn, cdnName := cdnOf(asset.Data)
 		return w.exec(ctx, `
 MERGE (d:Domain {name:$key})
-SET d.root=$root, d.mongoId=$id, d.cdn=$cdn
+SET d.root=$root, d.entityId=$id, d.cdn=$cdn
 WITH d
 UNWIND $ips AS ipAddr
 MERGE (ip:IP {addr:ipAddr})
@@ -101,27 +100,27 @@ SET ip.cdn = CASE WHEN ip.cdn THEN true ELSE $cdn END,
     ip.cdnName = CASE WHEN ip.cdnName IS NULL OR ip.cdnName = '' THEN $cdnName ELSE ip.cdnName END
 MERGE (d)-[:RESOLVES_TO]->(ip)`,
 			map[string]any{
-				"key": asset.Key, "root": root, "id": asset.ID.Hex(),
+				"key": asset.Key, "root": root, "id": asset.ID,
 				"cdn": cdn, "cdnName": cdnName, "ips": ips,
 			})
 	case domain.AssetIP:
 		cdn, cdnName := cdnOf(asset.Data)
 		return w.exec(ctx, `MERGE (ip:IP {addr:$key})
-SET ip.mongoId=$id,
+SET ip.entityId=$id,
     ip.cdn = CASE WHEN ip.cdn THEN true ELSE $cdn END,
     ip.cdnName = CASE WHEN ip.cdnName IS NULL OR ip.cdnName = '' THEN $cdnName ELSE ip.cdnName END`,
 			map[string]any{
-				"key": asset.Key, "id": asset.ID.Hex(), "cdn": cdn, "cdnName": cdnName,
+				"key": asset.Key, "id": asset.ID, "cdn": cdn, "cdnName": cdnName,
 			})
 	case domain.AssetService:
 		return w.exec(ctx, `
 MERGE (s:Service {key:$key})
-SET s.mongoId=$id, s.port=$port, s.protocol=$protocol, s.service=$service
+SET s.entityId=$id, s.port=$port, s.protocol=$protocol, s.service=$service
 WITH s
 MERGE (ip:IP {addr:$ip})
 MERGE (ip)-[:EXPOSES]->(s)`,
 			map[string]any{
-				"key": asset.Key, "id": asset.ID.Hex(),
+				"key": asset.Key, "id": asset.ID,
 				"ip": stringValue(asset.Data["ip"]), "port": asset.Data["port"],
 				"protocol": stringValue(asset.Data["protocol"]), "service": stringValue(asset.Data["serviceName"]),
 			})
@@ -135,7 +134,7 @@ func (w *Neo4jWriter) MergeFinding(ctx context.Context, finding domain.Finding) 
 	if target == "" {
 		return w.exec(ctx, `MERGE (f:Finding {id:$id}) SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt`,
 			map[string]any{
-				"id": finding.ID.Hex(), "kind": string(finding.Kind),
+				"id": finding.ID, "kind": string(finding.Kind),
 				"severity": finding.Severity, "title": finding.Title,
 				"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
 			})
@@ -152,7 +151,7 @@ WITH f, ip
 OPTIONAL MATCH (ip)-[:EXPOSES]->(s:Service {port:$port})
 FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END | MERGE (f)-[:FOUND_ON]->(s))`,
 				map[string]any{
-					"id": finding.ID.Hex(), "kind": string(finding.Kind),
+					"id": finding.ID, "kind": string(finding.Kind),
 					"severity": finding.Severity, "title": finding.Title, "target": target,
 					"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt, "port": portNum,
 				})
@@ -165,7 +164,7 @@ WITH f
 MERGE (n:%s {%s:$target})
 MERGE (f)-[:FOUND_ON]->(n)`, label, targetKey(label))
 	return w.exec(ctx, query, map[string]any{
-		"id": finding.ID.Hex(), "kind": string(finding.Kind),
+		"id": finding.ID, "kind": string(finding.Kind),
 		"severity": finding.Severity, "title": finding.Title, "target": target,
 		"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
 	})
@@ -175,7 +174,7 @@ func (w *Neo4jWriter) DeleteEntityEdges(ctx context.Context, entityType, entityI
 	switch entityType {
 	case "asset":
 		return w.exec(ctx, `
-MATCH (n {mongoId:$id})
+MATCH (n {entityId:$id})
 WHERE NOT n:IP
 OPTIONAL MATCH (n)-[r:RESOLVES_TO]->()
 DELETE r
@@ -185,7 +184,7 @@ DELETE r2`, map[string]any{"id": entityID})
 	case "finding":
 		return w.exec(ctx, `MATCH (f:Finding {id:$id}) DETACH DELETE f`, map[string]any{"id": entityID})
 	case "organization_domain":
-		return w.exec(ctx, `MATCH ()-[r:OWNS {mongoId:$id}]->() DELETE r`, map[string]any{"id": entityID})
+		return w.exec(ctx, `MATCH ()-[r:OWNS {entityId:$id}]->() DELETE r`, map[string]any{"id": entityID})
 	case "organization":
 		return w.exec(ctx, `MATCH (o:Organization {id:$id}) DETACH DELETE o`, map[string]any{"id": entityID})
 	default:
@@ -251,14 +250,6 @@ func stringSlice(v any) []string {
 	case []string:
 		return vv
 	case []any:
-		out := make([]string, 0, len(vv))
-		for _, item := range vv {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	case bson.A:
 		out := make([]string, 0, len(vv))
 		for _, item := range vv {
 			if s, ok := item.(string); ok {
