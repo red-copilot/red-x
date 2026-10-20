@@ -1,26 +1,32 @@
-![Red Copilot — AI-Native Offensive Security Engineering](https://raw.githubusercontent.com/red-copilot/.github/main/assets/red-copilot-banner.svg)
+![Red Copilot — Security Engineering for the Agentic Era](https://raw.githubusercontent.com/red-copilot/.github/main/assets/red-copilot-banner.svg)
 
-# ARL · 资产侦察灯塔
+# ARL 3.0 · Asset Reconnaissance Lighthouse
 
 **Authorization-first External Attack Surface Management.**
 
-**授权优先的外部攻击面管理与资产侦察平台。** ARL 3.0 采用 Go 重写，以组织为主线关联域名、资产、风险与任务，并提供可追溯的侦察工作流。
+**授权优先的外部攻击面管理与资产侦察平台。** ARL 3.0 以组织为主线关联域名、资产、风险与任务，构建可追溯的侦察工作流。
 
-**Authorization-first external attack surface management and asset reconnaissance.**
+ARL 3.0 is a Go-based rewrite for authorized asset discovery and external attack surface management. A single `arl` process serves the embedded React console, REST/SSE API, task workers, and scheduler. PostgreSQL stores application data; Redis Streams provides durable asynchronous work.
 
-ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资产侦察平台。它以组织为主线，把域名归属、资产、风险、任务和报告串成一条可追溯的链路；除可选的 Chromium 截图外，所有扫描引擎都在 Go 进程内运行，不需要安装 nmap、massdns 或 ProjectDiscovery CLI。
+ARL 3.0 面向已获授权的资产发现与外部攻击面管理。单个 `arl` 进程承载嵌入式 React 控制台、REST/SSE API、任务 worker 与调度器；PostgreSQL 保存业务数据，Redis Streams 提供持久化异步任务队列。
 
-当前版本是 3.0：一个 Go 二进制以 `arl all` 单节点方式运行，React 控制台构建后直接嵌入二进制；PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务，所有后台处理都在同一进程内完成。
+> **Authorized use only:** Scan only assets, domains, IPs, and sites for which you have explicit permission. Read [Disclaimer.md](Disclaimer.md) before use.
+>
+> **仅限授权使用：** 仅扫描已获得明确授权的资产、域名、IP 与站点。使用前请阅读 [Disclaimer.md](Disclaimer.md)。
 
-> **仅用于已获得明确授权的资产、域名、IP 和站点测试。** 使用前请阅读 [Disclaimer.md](Disclaimer.md)。
+<p>
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/PARITY.md">Feature parity</a> ·
+  <a href="docs/EASM-OPERATIONS.md">EASM operations</a> ·
+  <a href="#api">API</a> ·
+  <a href="#安全模型">Security model / 安全模型</a>
+</p>
 
-**Quick links · 快速导航:** [Architecture](docs/ARCHITECTURE.md) · [Feature parity](docs/PARITY.md) · [EASM operations](docs/EASM-OPERATIONS.md) · [Scanner differences](docs/SCANNER-DIFFERENCES.md) · [API docs](#api) · [Security model](#安全模型)
-
-
-> **与旧版 ARL 的关系：** 3.0 是 Go 重写而非原地升级，不迁移旧版 MongoDB 数据，也不兼容旧 `/api`；当前版本以 PostgreSQL 18 作为唯一业务主库。旧功能与新实现的对照见 [docs/PARITY.md](docs/PARITY.md)。
+> **Compatibility note:** Version 3.0 is a rewrite, not an in-place upgrade. It does not migrate legacy MongoDB data and is not compatible with the old `/api`; PostgreSQL 18 is the application database.
+>
+> **兼容性说明：** 3.0 是重写版本，不会自动迁移旧版 MongoDB 数据，也不兼容旧 `/api`；当前业务主库为 PostgreSQL 18。
 
 ---
-
 ## 功能概览
 
 ### 组织化 EASM
