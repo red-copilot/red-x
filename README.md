@@ -2,9 +2,9 @@
 
 # ARL 3.0 · Asset Reconnaissance Lighthouse
 
-**Authorization-first External Attack Surface Management.**
+**An authorization-first platform for external attack surface management (EASM).**
 
-**授权优先的外部攻击面管理与资产侦察平台。** ARL 3.0 以组织为主线关联域名、资产、风险与任务，构建可追溯的侦察工作流。
+**授权优先的外部攻击面管理（EASM）平台。** ARL 3.0 以组织为主线关联域名、资产、风险与任务，将资产发现组织成可追溯的工作流。
 
 ARL 3.0 is a Go-based rewrite for authorized asset discovery and external attack surface management. A single `arl` process serves the embedded React console, REST/SSE API, task workers, and scheduler. PostgreSQL stores application data; Redis Streams provides durable asynchronous work.
 
@@ -27,23 +27,23 @@ ARL 3.0 面向已获授权的资产发现与外部攻击面管理。单个 `arl`
 > **兼容性说明：** 3.0 是重写版本，不会自动迁移旧版 MongoDB 数据，也不兼容旧 `/api`；当前业务主库为 PostgreSQL 18。
 
 ---
-## 功能概览
+## Capabilities · 功能概览
 
-### 组织化 EASM
+### Organization-Centric EASM · 组织化攻击面管理
 
 - 以 `organization` 组织资产、域名、风险和任务，而不是把扫描结果散落在不同任务里。
 - 域名归属工作流：ICP 查询 → 候选域名 → 人工确认/驳回/转移，保留来源、置信度和原始证据。
 - 组织总览、世界地图、关系图、跨组织资产/风险/任务视图，以及 CSV / XLSX 报告。
 - Neo4j 关系投影、GeoIP 地图和 ICP_Query 查询均为可选组件；缺失时自动降级，不影响资产与列表视图。
 
-### 资产发现
+### Asset Discovery · 资产发现
 
 - 支持域名、子域名、IP、CIDR 等目标，内置黑名单与 SSRF 防护。
 - 进程内 ProjectDiscovery SDK：`subfinder` → `dnsx` → `naabu` → `tlsx` → `httpx` → `katana`。
 - 端口与服务识别、TLS 证书、HTTP 标题/状态/技术栈、站点爬虫、截图（可选 Chromium）。
 - 标准化资产模型：canonical asset + 每次任务的 observation；历史任务可回看，报告按任务快照生成。
 
-### 风险与情报
+### Risk and Intelligence · 风险与情报
 
 - 指纹库与布尔规则 DSL，支持内置与自定义指纹。
 - WIH / JavaScript 敏感信息收集、文件泄漏检测。
@@ -51,14 +51,14 @@ ARL 3.0 面向已获授权的资产发现与外部攻击面管理。单个 `arl`
 - 官方 `nuclei` Go SDK，默认只加载 `assets/nuclei` 下的 HTTP 模板。
 - GitHub 搜索与监控、FOFA 查询、站点监控与计划任务。
 
-### 平台与交付
+### Platform and Delivery · 平台与交付
 
 - React 19 + TypeScript + Vite 控制台：TanStack Query/Table、Radix UI、Tailwind CSS、ECharts。
 - OpenAPI 3.1 文档、RFC 7807 错误响应、SSE 任务事件、Prometheus 指标。
 - `viewer` / `operator` / `admin` 三级 RBAC、API Key、CSRF、审计日志与结构化日志。
 - 单个 Go 二进制（扫描资产外置）+ systemd 原生部署；Docker 仅用于 PostgreSQL、Redis。所有后台组件都在同一个 ARL 进程内运行。
 
-## 架构
+## Architecture · 架构
 
 ```text
                      ┌──────────────────────────────────────┐
@@ -84,9 +84,9 @@ ARL 3.0 面向已获授权的资产发现与外部攻击面管理。单个 `arl`
 
 更完整的设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧版功能对照见 [docs/PARITY.md](docs/PARITY.md)。
 
-## 快速开始
+## Quick Start · 快速开始
 
-### 依赖
+### Prerequisites · 环境依赖
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ ARL 3.0 面向已获授权的资产发现与外部攻击面管理。单个 `arl`
 | Chromium | 可选 | 宿主安装后可启用站点截图 |
 | Docker + Compose | 可选 | 仅用于 PostgreSQL、Redis |
 
-### 方式一：基础设施容器 + 原生 ARL（推荐）
+### Option 1: Native ARL + Containerized Infrastructure (Recommended) · 方式一：原生 ARL + 容器化基础设施
 
 React 控制台由 Vite 构建到 `internal/webui/dist`，随后通过 `go:embed` 进入 `arl` 二进制。运行时不启动前端容器，也不需要 Node.js。
 
@@ -122,7 +122,7 @@ make infra-up
 
 访问 <http://localhost:5003>。`config.example.yaml` 中的数据库密码只用于本地试用；生产环境应通过 `ARL_POSTGRES_DSN`、`ARL_REDIS_URL` 和密钥管理系统覆盖，并启用 TLS（配置 `server.tlsCert` / `server.tlsKey`，或在前置反向代理终止 TLS）。
 
-### 方式二：systemd 安装
+### Option 2: Install with systemd · 方式二：systemd 安装
 
 ```bash
 make build
@@ -135,7 +135,7 @@ sudo systemctl enable --now arl
 
 安装脚本把二进制和外部扫描资产放到 `/opt/arl`，配置与 `arl.env` 放到 `/etc/arl`，运行数据放到 `/var/lib/arl`。系统只安装一个 `arl.service`，它运行完整的单节点服务。基础设施仍可用 `make infra-up` 启动，或改用宿主原生 PostgreSQL/Redis。
 
-### 可选 EASM 组件
+### Optional EASM Integrations · 可选 EASM 组件
 
 Neo4j、ICP_Query 和 GeoIP 不属于默认 Docker 基础设施。需要这些能力时，连接外部或宿主原生实例，并在启动 ARL 前加载环境变量：
 
@@ -149,7 +149,7 @@ set +a
 
 详细配置与降级行为见 [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md)。
 
-## 配置
+## Configuration · 配置
 
 配置优先级为：`config.yaml` → `ARL_*` 环境变量覆盖。常用项：
 
@@ -219,7 +219,7 @@ set +a
 - 列表接口统一支持 `page`、`pageSize`、`sort`、`q` 及资源专属过滤器。
 - 错误响应使用 `application/problem+json`（RFC 7807）；健康检查为 `/healthz`、`/readyz`，指标为 `/metrics`。
 
-## 安全模型
+## Security Model · 安全模型
 
 - Argon2id 密码哈希；默认 15 分钟访问 JWT、7 天可轮换刷新令牌；刷新令牌重放会撤销整个会话族。
 - `viewer` / `operator` / `admin` 三级 RBAC；API Key 支持 `read` / `scan` / `admin` 范围。
@@ -228,7 +228,7 @@ set +a
 - 写操作记录审计日志；ICP 原始证据独立存储且不包含 provider cookie，候选域名在确认前不会进入地图、关系图和组织统计。
 - 扫描默认拒绝私网与回环地址；仅在明确授权的内网或靶场中通过 `scan.allowPrivate` / `scan.allowLoopback` 放开。
 
-## 开发与测试
+## Development and Testing · 开发与测试
 
 ```bash
 make test       # Go 测试 + 前端类型检查 + Vitest
@@ -250,7 +250,7 @@ npm run generate:api # 根据 internal/httpapi/openapi.json 生成类型
 
 CI 会构建前端产物、运行 Go 测试（含 race）、构建原生 `arl` 二进制，并校验基础设施 Compose 配置。
 
-## 目录结构
+## Repository Layout · 目录结构
 
 ```text
 cmd/arl                CLI 入口与角色分发
@@ -268,7 +268,7 @@ docs/                  架构、功能对照、扫描器差异、EASM 运维
 scripts/               Redis 预检、EASM 在线冒烟
 ```
 
-## 已知限制与有意差异
+## Known Limitations and Intentional Differences · 已知限制与有意差异
 
 - 3.0 是重写而非原地升级：**不迁移旧版 MongoDB 数据，也不兼容旧 `/api`**；升级后业务主库为 PostgreSQL 18。
 - OS 识别仅使用 naabu 服务元数据，无法获得 OS 类型时省略。
@@ -279,7 +279,7 @@ scripts/               Redis 预检、EASM 在线冒烟
 - GitHub 搜索与监控需要配置 API Token。
 - 所有扫描引擎与 ProjectDiscovery 都通过进程内 SDK 调用；结果时间线与指纹会与 nmap / massdns 版本存在差异，见 [docs/SCANNER-DIFFERENCES.md](docs/SCANNER-DIFFERENCES.md)。
 
-## 文档
+## Documentation · 文档
 
 | 文档 | 内容 |
 | --- | --- |
@@ -290,7 +290,7 @@ scripts/               Redis 预检、EASM 在线冒烟
 | [docs/EASM-OPERATIONS.md](docs/EASM-OPERATIONS.md) | 组织、域名归属、地图/关系图与本地 EASM 栈 |
 | [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) | 第三方组件与规则许可 |
 
-## 免责声明与许可
+## Disclaimer and License · 免责声明与许可
 
 本项目仅用于合法的授权安全测试。使用者应自行确保目标授权、数据合规与操作边界；因不当使用造成的后果由使用者承担。完整条款见 [Disclaimer.md](Disclaimer.md)。
 
