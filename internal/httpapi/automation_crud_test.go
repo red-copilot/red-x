@@ -23,6 +23,7 @@ func TestMaintainableObjectUpdateAndDeleteHandlers(t *testing.T) {
 	router.Delete("/policies/{id}", s.requireWrite(s.handleDeletePolicy))
 	router.Patch("/scopes/{id}", s.requireWrite(s.handleUpdateScope))
 	router.Delete("/scopes/{id}", s.requireWrite(s.handleDeleteScope))
+	router.Get("/scopes/{id}/assets", s.handleScopeAssets)
 	router.Get("/monitors/{id}", s.handleGetMonitor)
 	router.Patch("/monitors/{id}", s.requireWrite(s.handleUpdateMonitor))
 	router.Delete("/monitors/{id}", s.requireWrite(s.handleDeleteMonitor))
@@ -115,6 +116,10 @@ func TestMaintainableObjectUpdateAndDeleteHandlers(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("delete %s status=%d body=%s", target, rec.Code, rec.Body.String())
 		}
+		again := requestWithPrincipal(t, http.MethodDelete, target, "", router)
+		if again.Code != http.StatusNotFound {
+			t.Fatalf("second delete %s status=%d body=%s", target, again.Code, again.Body.String())
+		}
 	}
 	assertUpdate(t, requestWithPrincipal(t, http.MethodPatch, "/policies/"+policy.ID, `{
 		"name":"CRUD policy renamed","description":"updated","config":{}
@@ -124,6 +129,9 @@ func TestMaintainableObjectUpdateAndDeleteHandlers(t *testing.T) {
 	}
 	if rec := requestWithPrincipal(t, http.MethodDelete, "/scopes/"+scope.ID, "", router); rec.Code != http.StatusOK {
 		t.Fatalf("scope delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := requestWithPrincipal(t, http.MethodGet, "/scopes/"+scope.ID+"/assets", "", router); rec.Code != http.StatusNotFound {
+		t.Fatalf("deleted scope assets status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	userDelete := requestWithUser(t, http.MethodDelete, "/users/"+viewer.ID, "", admin.Username, admin.ID, domain.RoleAdmin, router)
 	if userDelete.Code != http.StatusOK {
@@ -155,6 +163,23 @@ func TestUpdateUserRejectsInvalidPasswordWithoutPartialMutation(t *testing.T) {
 	}
 	if unchanged == nil || unchanged.Role != domain.RoleViewer {
 		t.Fatalf("user was partially updated: %#v", unchanged)
+	}
+}
+
+func TestCreateIntelligenceRecordsValidateRequiredFields(t *testing.T) {
+	st, _ := newHTTPTestStore(t)
+	s := &Server{Store: st}
+	router := chi.NewRouter()
+	router.Post("/github/monitors", s.requireWrite(s.handleCreateGitHubMonitor))
+	router.Post("/fingerprints", s.requireWrite(s.handleCreateFingerprint))
+
+	github := requestWithPrincipal(t, http.MethodPost, "/github/monitors", `{"keyword":"","intervalSec":3600}`, router)
+	if github.Code != http.StatusBadRequest {
+		t.Fatalf("github monitor status=%d body=%s", github.Code, github.Body.String())
+	}
+	fingerprint := requestWithPrincipal(t, http.MethodPost, "/fingerprints", `{"name":"","rule":"body=\"example\""}`, router)
+	if fingerprint.Code != http.StatusBadRequest {
+		t.Fatalf("fingerprint status=%d body=%s", fingerprint.Code, fingerprint.Body.String())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
 
@@ -170,8 +171,64 @@ func (s *Store) RestoreRecord(ctx context.Context, resourceType, id, actor strin
 				}
 			}
 		}
+		if err := recomputeRestoredSchedule(tx, resourceType, id, now); err != nil {
+			return err
+		}
 		return nil
 	})
+}
+
+func recomputeRestoredSchedule(tx *gorm.DB, resourceType, id string, now time.Time) error {
+	switch resourceType {
+	case "monitor":
+		var monitor domain.Monitor
+		if err := tx.Where("id = ?", id).First(&monitor).Error; err != nil {
+			return err
+		}
+		if monitor.Status == "active" {
+			return tx.Model(&domain.Monitor{}).Where("id = ?", id).Updates(map[string]any{
+				"next_run_at": now.Add(time.Duration(monitor.IntervalSec) * time.Second),
+				"updated_at":  now,
+			}).Error
+		}
+	case "schedule":
+		var schedule domain.Schedule
+		if err := tx.Where("id = ?", id).First(&schedule).Error; err != nil {
+			return err
+		}
+		if schedule.Status != "active" {
+			return nil
+		}
+		var next time.Time
+		if schedule.Kind == "future_scan" {
+			next = now
+			if schedule.StartAt != nil && schedule.StartAt.After(now) {
+				next = *schedule.StartAt
+			}
+		} else {
+			parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+			parsed, err := parser.Parse(schedule.Cron)
+			if err != nil {
+				return err
+			}
+			next = parsed.Next(now)
+		}
+		return tx.Model(&domain.Schedule{}).Where("id = ?", id).Updates(map[string]any{
+			"next_run_at": next, "updated_at": now,
+		}).Error
+	case "github_monitor":
+		var monitor domain.GitHubMonitor
+		if err := tx.Where("id = ?", id).First(&monitor).Error; err != nil {
+			return err
+		}
+		if monitor.Status == "active" {
+			return tx.Model(&domain.GitHubMonitor{}).Where("id = ?", id).Updates(map[string]any{
+				"next_run_at": now.Add(time.Duration(monitor.IntervalSec) * time.Second),
+				"updated_at":  now,
+			}).Error
+		}
+	}
+	return nil
 }
 
 func (s *Store) ListDeletedRecords(ctx context.Context, filter DeletedRecordFilter) ([]DeletedRecord, int64, error) {

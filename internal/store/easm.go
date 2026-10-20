@@ -139,6 +139,13 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 	var conflict error
 	for attempt := 0; attempt < 2; attempt++ {
 		conflict = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var org domain.Organization
+			if err := active(tx).Where("id = ?", od.OrganizationID).First(&org).Error; err != nil {
+				if isNotFound(err) {
+					return domain.ErrRecordNotFound
+				}
+				return err
+			}
 			var existing domain.OrganizationDomain
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("organization_id = ? AND root_domain = ?", od.OrganizationID, od.RootDomain).
@@ -456,7 +463,10 @@ func (s *Store) GetFindingByID(ctx context.Context, id string) (*domain.Finding,
 
 func (s *Store) GetOrganizationDomainByID(ctx context.Context, id string) (*domain.OrganizationDomain, error) {
 	var od domain.OrganizationDomain
-	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&od).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).
+		Where("organization_id IN (?)", s.db.WithContext(ctx).Model(&domain.Organization{}).
+			Select("id").Where("deleted_at IS NULL")).
+		First(&od).Error
 	if isNotFound(err) {
 		return nil, nil
 	}

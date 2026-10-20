@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -158,6 +159,10 @@ func (s *Server) handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Scheduler.DeleteMonitor(r.Context(), id, principalFrom(r.Context()).Username); err != nil {
+		if errors.Is(err, domain.ErrRecordNotFound) {
+			httpx.WriteProblem(w, r, http.StatusNotFound, "monitor_not_found", "monitor not found")
+			return
+		}
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
@@ -278,6 +283,10 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Store.DeleteSchedule(r.Context(), id, principalFrom(r.Context()).Username); err != nil {
+		if errors.Is(err, domain.ErrRecordNotFound) {
+			httpx.WriteProblem(w, r, http.StatusNotFound, "schedule_not_found", "schedule not found")
+			return
+		}
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
@@ -347,6 +356,11 @@ func (s *Server) handleGetGitHubMonitor(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleCreateGitHubMonitor(w http.ResponseWriter, r *http.Request) {
 	var m domain.GitHubMonitor
 	if !httpx.DecodeJSON(w, r, &m) {
+		return
+	}
+	m.Keyword = strings.TrimSpace(m.Keyword)
+	if m.Keyword == "" {
+		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_github_monitor", "keyword is required")
 		return
 	}
 	if m.IntervalSec < 3600 {
@@ -428,6 +442,10 @@ func (s *Server) handleDeleteGitHubMonitor(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.Store.DeleteGitHubMonitor(r.Context(), id, principalFrom(r.Context()).Username); err != nil {
+		if errors.Is(err, domain.ErrRecordNotFound) {
+			httpx.WriteProblem(w, r, http.StatusNotFound, "github_monitor_not_found", "GitHub monitor not found")
+			return
+		}
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
@@ -476,6 +494,12 @@ func (s *Server) handleGetFingerprint(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateFingerprint(w http.ResponseWriter, r *http.Request) {
 	var rule store.FingerprintRule
 	if !httpx.DecodeJSON(w, r, &rule) {
+		return
+	}
+	rule.Name = strings.TrimSpace(rule.Name)
+	rule.Rule = strings.TrimSpace(rule.Rule)
+	if rule.Name == "" || rule.Rule == "" {
+		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid_fingerprint", "name and rule are required")
 		return
 	}
 	if _, err := webintelParse(rule.Rule); err != nil {
@@ -543,6 +567,10 @@ func (s *Server) handleDeleteFingerprint(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.Store.DeleteFingerprint(r.Context(), id, principalFrom(r.Context()).Username); err != nil {
+		if errors.Is(err, domain.ErrRecordNotFound) {
+			httpx.WriteProblem(w, r, http.StatusNotFound, "fingerprint_not_found", "fingerprint not found")
+			return
+		}
 		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}

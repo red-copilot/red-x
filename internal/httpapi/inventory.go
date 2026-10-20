@@ -212,6 +212,15 @@ func (s *Server) handleScopeAssets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	scope, err := s.Store.GetScope(r.Context(), id)
+	if err != nil {
+		httpx.WriteProblem(w, r, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	if scope == nil {
+		httpx.WriteProblem(w, r, http.StatusNotFound, "scope_not_found", "scope not found")
+		return
+	}
 	q := httpx.PageQuery(r)
 	items, total, err := s.Store.ListScopeAssets(r.Context(), id, r.URL.Query().Get("kind"), q)
 	if err != nil {

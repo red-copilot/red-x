@@ -70,6 +70,19 @@ func TestDeletedOrganizationHidesOwnedDomains(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("deleted organization leaked %d domains", len(items))
 	}
+	byID, err := st.GetOrganizationDomainByID(ctx, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byID != nil {
+		t.Fatalf("deleted organization domain lookup leaked %#v", byID)
+	}
+	if err := st.UpsertOrganizationDomain(ctx, &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "new-hidden.example.com", Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate,
+	}); !errors.Is(err, domain.ErrRecordNotFound) {
+		t.Fatalf("upsert under deleted organization error = %v, want ErrRecordNotFound", err)
+	}
 }
 
 func TestOrganizationRestoreReenqueuesConfirmedDomains(t *testing.T) {

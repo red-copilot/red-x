@@ -139,3 +139,75 @@ func TestUpdatesCannotReactivateDeletedRecords(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoresRecomputeNextRun(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	scope := &domain.Scope{Name: "restore-run-scope", Type: "domain", Targets: []string{"example.com"}}
+	policy := &domain.Policy{Name: "restore-run-policy"}
+	if err := st.CreateScope(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreatePolicy(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	monitor := &domain.Monitor{
+		Name: "restore-run-monitor", Kind: "domain", ScopeID: scope.ID, Target: "example.com",
+		IntervalSec: 21600, PolicyID: policy.ID, Status: "active", NextRunAt: now.Add(-time.Hour),
+	}
+	schedule := &domain.Schedule{
+		Name: "restore-run-schedule", Kind: "recurrent_scan", TaskKind: domain.TaskDomain,
+		Target: "example.com", PolicyID: policy.ID, Cron: "* * * * *", Status: "active",
+		NextRunAt: timePointer(now.Add(-time.Hour)),
+	}
+	githubMonitor := &domain.GitHubMonitor{
+		Name: "restore-run-github", Keyword: "example.com", IntervalSec: 3600,
+		Status: "active", NextRunAt: now.Add(-time.Hour),
+	}
+	if err := st.CreateMonitor(ctx, monitor); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSchedule(ctx, schedule); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateGitHubMonitor(ctx, githubMonitor); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct{ typ, id string }{
+		{"monitor", monitor.ID},
+		{"schedule", schedule.ID},
+		{"github_monitor", githubMonitor.ID},
+	} {
+		if err := st.SoftDeleteRecord(ctx, item.typ, item.id, "operator"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.RestoreRecord(ctx, item.typ, item.id, "admin"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restoredMonitor, err := st.GetMonitor(ctx, monitor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restoredMonitor.NextRunAt.After(now) {
+		t.Fatalf("monitor next run not recomputed: %v", restoredMonitor.NextRunAt)
+	}
+	restoredSchedule, err := st.GetSchedule(ctx, schedule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredSchedule.NextRunAt == nil || !restoredSchedule.NextRunAt.After(now) {
+		t.Fatalf("schedule next run not recomputed: %v", restoredSchedule.NextRunAt)
+	}
+	restoredGitHub, err := st.GetGitHubMonitor(ctx, githubMonitor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restoredGitHub.NextRunAt.After(now) {
+		t.Fatalf("GitHub monitor next run not recomputed: %v", restoredGitHub.NextRunAt)
+	}
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
+}
