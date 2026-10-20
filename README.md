@@ -2,6 +2,10 @@
 
 # ARL · 资产侦察灯塔
 
+**Authorization-first External Attack Surface Management.**
+
+**授权优先的外部攻击面管理与资产侦察平台。** ARL 3.0 采用 Go 重写，以组织为主线关联域名、资产、风险与任务，并提供可追溯的侦察工作流。
+
 **Authorization-first external attack surface management and asset reconnaissance.**
 
 ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资产侦察平台。它以组织为主线，把域名归属、资产、风险、任务和报告串成一条可追溯的链路；除可选的 Chromium 截图外，所有扫描引擎都在 Go 进程内运行，不需要安装 nmap、massdns 或 ProjectDiscovery CLI。
@@ -9,6 +13,9 @@ ARL 是面向**已授权安全测试**的外部攻击面管理（EASM）与资�
 当前版本是 3.0：一个 Go 二进制以 `arl all` 单节点方式运行，React 控制台构建后直接嵌入二进制；PostgreSQL 18 保存业务数据，Redis Streams 承载异步任务，所有后台处理都在同一进程内完成。
 
 > **仅用于已获得明确授权的资产、域名、IP 和站点测试。** 使用前请阅读 [Disclaimer.md](Disclaimer.md)。
+
+**Quick links · 快速导航:** [Architecture](docs/ARCHITECTURE.md) · [Feature parity](docs/PARITY.md) · [EASM operations](docs/EASM-OPERATIONS.md) · [Scanner differences](docs/SCANNER-DIFFERENCES.md) · [API docs](#api) · [Security model](#安全模型)
+
 
 > **与旧版 ARL 的关系：** 3.0 是 Go 重写而非原地升级，不迁移旧版 MongoDB 数据，也不兼容旧 `/api`；当前版本以 PostgreSQL 18 作为唯一业务主库。旧功能与新实现的对照见 [docs/PARITY.md](docs/PARITY.md)。
 
