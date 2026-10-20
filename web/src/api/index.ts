@@ -52,15 +52,31 @@ export const api = {
   organizations: (query?: string) =>
     execute(() => client.GET('/organizations', { params: { query: { query, limit: 200 } } })),
   organization: (id: string) => execute(() => client.GET('/organizations/{id}', { params: { path: { id } } })),
+  updateOrganization: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/organizations/{id}', { params: { path: { id } }, body: body as never })),
+  deleteOrganization: (id: string) => execute(() => client.DELETE('/organizations/{id}', { params: { path: { id } } })),
   organizationSummary: (id: string) =>
     execute(() => client.GET('/organizations/{id}/summary', { params: { path: { id } } })),
   domains: (id: string) => execute(() => client.GET('/organizations/{id}/domains', { params: { path: { id } } })),
+  updateDomain: (id: string, domainId: string, body: Record<string, unknown>) =>
+    execute(() =>
+      client.PATCH('/organizations/{id}/domains/{domainId}', {
+        params: { path: { id, domainId } },
+        body: body as never,
+      }),
+    ),
+  deleteDomain: (id: string, domainId: string) =>
+    execute(() => client.DELETE('/organizations/{id}/domains/{domainId}', { params: { path: { id, domainId } } })),
   assets: (query: Record<string, string | number | undefined>) =>
     execute(() => client.GET('/assets', { params: { query: query as never } })),
   asset: (id: string, view = 'surface', organizationId?: string) =>
     execute(() =>
       client.GET('/assets/{id}', { params: { path: { id }, query: { view: view as never, organizationId } } }),
     ),
+  createAsset: (body: Record<string, unknown>) => execute(() => client.POST('/assets', { body: body as never })),
+  updateAsset: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/assets/{id}', { params: { path: { id } }, body: body as never })),
+  deleteAsset: (id: string) => execute(() => client.DELETE('/assets/{id}', { params: { path: { id } } })),
   findings: (query: Record<string, string | number | undefined>) =>
     execute(() => client.GET('/findings', { params: { query: query as never } })),
   findingHistory: (id: string, organizationId: string) =>
@@ -155,9 +171,13 @@ export const api = {
   deletePolicy: (id: string) => execute(() => client.DELETE('/policies/{id}', { params: { path: { id } } })),
   scopes: () => execute(() => client.GET('/scopes')),
   createScope: (body: Record<string, unknown>) => execute(() => client.POST('/scopes', { body: body as never })),
+  updateScope: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/scopes/{id}', { params: { path: { id } }, body: body as never })),
   deleteScope: (id: string) => execute(() => client.DELETE('/scopes/{id}', { params: { path: { id } } })),
   monitors: () => execute(() => client.GET('/monitors')),
   createMonitor: (body: Record<string, unknown>) => execute(() => client.POST('/monitors', { body: body as never })),
+  updateMonitor: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/monitors/{id}', { params: { path: { id } }, body: body as never })),
   monitorAction: (id: string, action: 'pause' | 'resume' | 'run') =>
     execute(() =>
       action === 'pause'
@@ -169,18 +189,24 @@ export const api = {
   deleteMonitor: (id: string) => execute(() => client.DELETE('/monitors/{id}', { params: { path: { id } } })),
   schedules: () => execute(() => client.GET('/schedules')),
   createSchedule: (body: Record<string, unknown>) => execute(() => client.POST('/schedules', { body: body as never })),
+  updateSchedule: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/schedules/{id}', { params: { path: { id } }, body: body as never })),
   deleteSchedule: (id: string) => execute(() => client.DELETE('/schedules/{id}', { params: { path: { id } } })),
   githubTasks: () => execute(() => client.GET('/github/tasks')),
   createGitHubTask: (keyword: string) => execute(() => client.POST('/github/tasks', { body: { keyword } })),
   githubMonitors: () => execute(() => client.GET('/github/monitors')),
   createGitHubMonitor: (body: Record<string, unknown>) =>
     execute(() => client.POST('/github/monitors', { body: body as never })),
+  updateGitHubMonitor: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/github/monitors/{id}', { params: { path: { id } }, body: body as never })),
   deleteGitHubMonitor: (id: string) =>
     execute(() => client.DELETE('/github/monitors/{id}', { params: { path: { id } } })),
   githubFindings: () => execute(() => client.GET('/github/findings')),
   fingerprints: () => execute(() => client.GET('/fingerprints')),
   createFingerprint: (body: Record<string, unknown>) =>
     execute(() => client.POST('/fingerprints', { body: body as never })),
+  updateFingerprint: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/fingerprints/{id}', { params: { path: { id } }, body: body as never })),
   deleteFingerprint: (id: string) => execute(() => client.DELETE('/fingerprints/{id}', { params: { path: { id } } })),
   importFingerprints: async (content: string) => {
     const response = await fetch('/api/v1/fingerprints/import', {
@@ -195,14 +221,21 @@ export const api = {
   pocPlugins: () => execute(() => client.GET('/poc/plugins')),
   syncPOC: () => execute(() => client.POST('/poc/sync', { body: {} as never })),
   users: () => execute(() => client.GET('/users')),
+  user: (id: string) => execute(() => client.GET('/users/{id}', { params: { path: { id } } })),
   createUser: (body: { username: string; password: string; role: string }) =>
     execute(() => client.POST('/users', { body: body as never })),
+  updateUser: (id: string, body: Record<string, unknown>) =>
+    execute(() => client.PATCH('/users/{id}', { params: { path: { id } }, body: body as never })),
   deleteUser: (id: string) => execute(() => client.DELETE('/users/{id}', { params: { path: { id } } })),
   apiKeys: () => execute(() => client.GET('/api-keys')),
   createAPIKey: (body: { name: string; scopes: string[] }) =>
     execute(() => client.POST('/api-keys', { body: body as never })),
   deleteAPIKey: (id: string) => execute(() => client.DELETE('/api-keys/{id}', { params: { path: { id } } })),
   audit: (query?: PageQuery) => execute(() => client.GET('/audit-events', { params: { query: query as never } })),
+  listRecycleBin: (query: { type?: string; q?: string; page?: number; pageSize?: number }) =>
+    execute(() => client.GET('/recycle-bin', { params: { query: query as never } })),
+  restoreRecord: (type: string, id: string) =>
+    execute(() => client.POST('/recycle-bin/{type}/{id}/restore', { params: { path: { type, id } } as never })),
   systemInfo: () => execute(() => client.GET('/system/info')),
   ready: () => fetch('/readyz').then((response) => response.ok),
 }

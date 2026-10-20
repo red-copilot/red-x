@@ -122,6 +122,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         }
       },
@@ -595,6 +609,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -630,6 +658,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -646,6 +688,11 @@
           "kind": {
             "type": "string"
           },
+        "options": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": true
+        },
           "scopeId": {
             "type": "string"
           },
@@ -668,6 +715,31 @@
           "lastRunAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "lastRunId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -684,6 +756,18 @@
           "kind": {
             "type": "string"
           },
+        "taskKind": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "resultSetId": {
+          "type": "string"
+        },
           "cron": {
             "type": "string"
           },
@@ -702,6 +786,39 @@
           "nextRunAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runCount": {
+          "type": "integer"
+        },
+        "lastRunAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -745,6 +862,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -802,6 +933,20 @@
           "lastSeen": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -1173,6 +1318,28 @@
           "title": {
             "type": "string"
           },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "scan",
+            "manual"
+          ]
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "displayUrl": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
           "risk": {
             "type": "string"
           },
@@ -1184,6 +1351,13 @@
             "type": "string",
             "format": "date-time"
           },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
+        },
           "organizationIds": {
             "type": "array",
             "items": {
@@ -1389,6 +1563,20 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -1443,6 +1631,20 @@
             "type": "string"
           },
           "rule": {
+            "type": "string"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deletedBy": {
+            "type": "string"
+          },
+          "restoredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restoreReason": {
             "type": "string"
           }
         }
@@ -2208,6 +2410,188 @@
         }
       }
     },
+    "/recycle-bin": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List deleted records",
+        "operationId": "listRecycleBin",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "deletedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "deletedBy": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id",
+                          "label",
+                          "deletedAt"
+                        ]
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pageSize": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "pageSize"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/recycle-bin/{type}/{id}/restore": {
+      "parameters": [
+        {
+          "name": "type",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Restore a deleted record",
+        "operationId": "restoreDeletedRecord",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "restoredAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "id",
+                    "restoredAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/users": {
       "get": {
         "tags": [
@@ -2302,6 +2686,83 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Get user",
+        "operationId": "getUser",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Update user",
+        "operationId": "updateUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  },
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Administration"
@@ -2669,6 +3130,44 @@
             "$ref": "#/components/responses/Problem"
           },
           "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Update scope",
+        "operationId": "updateScope",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Scope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -3409,6 +3908,153 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Delete organization",
+        "operationId": "deleteOrganization",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/domains/{domainId}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "domainId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update organization domain metadata",
+        "operationId": "updateOrganizationDomain",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "siteName": {
+                    "type": "string"
+                  },
+                  "homeSite": {
+                    "type": "string"
+                  },
+                  "icpNo": {
+                    "type": "string"
+                  },
+                  "auditDate": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Delete organization domain",
+        "operationId": "deleteOrganizationDomain",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/organizations/{id}/domains": {
@@ -3939,6 +4585,69 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Get monitor",
+        "operationId": "getMonitor",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Monitor"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Update monitor",
+        "operationId": "updateMonitor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Monitor"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Monitor"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Operations"
@@ -4038,6 +4747,69 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Get schedule",
+        "operationId": "getSchedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedule"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Update schedule",
+        "operationId": "updateSchedule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Schedule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedule"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Operations"
@@ -4221,6 +4993,69 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Get GitHub monitor",
+        "operationId": "getGitHubMonitor",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMonitor"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Update GitHub monitor",
+        "operationId": "updateGitHubMonitor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubMonitor"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMonitor"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Operations"
@@ -4384,6 +5219,69 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Data"
+        ],
+        "summary": "Get fingerprint",
+        "operationId": "getFingerprint",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fingerprint"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Data"
+        ],
+        "summary": "Update fingerprint",
+        "operationId": "updateFingerprint",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Fingerprint"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fingerprint"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Data"
@@ -4779,6 +5677,71 @@
             }
           }
         ]
+      },
+      "post": {
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Create manual asset",
+        "operationId": "createAsset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "key"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "displayUrl": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EasmAsset"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/assets/{id}": {
@@ -4838,6 +5801,97 @@
             }
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Update asset metadata",
+        "operationId": "updateAsset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "displayUrl": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EasmAsset"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Delete asset",
+        "operationId": "deleteAsset",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/findings": {

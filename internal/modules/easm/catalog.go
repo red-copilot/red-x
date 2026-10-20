@@ -46,9 +46,16 @@ type AssetItem struct {
 	Kind            string         `json:"kind"`
 	Key             string         `json:"key"`
 	Title           string         `json:"title,omitempty"`
+	Origin          string         `json:"origin"`
+	DisplayName     string         `json:"displayName,omitempty"`
+	DisplayURL      string         `json:"displayUrl,omitempty"`
+	Notes           string         `json:"notes,omitempty"`
+	Tags            []string       `json:"tags,omitempty"`
 	Risk            string         `json:"risk,omitempty"`
 	FirstSeen       time.Time      `json:"firstSeen"`
 	LastSeen        time.Time      `json:"lastSeen"`
+	RestoredAt      *time.Time     `json:"restoredAt,omitempty"`
+	RestoreReason   string         `json:"restoreReason,omitempty"`
 	OrganizationIDs []string       `json:"organizationIds"`
 	RootDomains     []string       `json:"rootDomains"`
 	Data            map[string]any `json:"data,omitempty"`
@@ -338,12 +345,7 @@ func (s *Service) Assets(ctx context.Context, orgID *string, filter AssetFilter)
 			if len(oidList) == 0 {
 				continue
 			}
-			item := AssetItem{
-				ID: asset.ID, Kind: string(kind), Key: asset.Key,
-				Title: stringValue(asset.Data["title"]), Risk: risks[asset.Key],
-				FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen,
-				OrganizationIDs: oidList, RootDomains: roots, Data: asset.Data,
-			}
+			item := newAssetItem(asset, risks[asset.Key], oidList, roots)
 			if matchesAsset(item, filter) {
 				items = append(items, item)
 			}
@@ -377,17 +379,20 @@ func (s *Service) Asset(ctx context.Context, orgID *string, id string) (*AssetIt
 	risks := assetRisks(c)
 	for _, asset := range c.domains {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Title: stringValue(asset.Data["title"]), Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			item := newAssetItem(asset, risks[asset.Key], c.orgsForTarget(asset.Key), c.rootsForTarget(asset.Key))
+			return &item, nil
 		}
 	}
 	for _, asset := range c.ips {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			item := newAssetItem(asset, risks[asset.Key], c.orgsForTarget(asset.Key), c.rootsForTarget(asset.Key))
+			return &item, nil
 		}
 	}
 	for _, asset := range c.services {
 		if asset.ID == id {
-			return &AssetItem{ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key, Risk: risks[asset.Key], FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen, OrganizationIDs: c.orgsForTarget(asset.Key), RootDomains: c.rootsForTarget(asset.Key), Data: asset.Data}, nil
+			item := newAssetItem(asset, risks[asset.Key], c.orgsForTarget(asset.Key), c.rootsForTarget(asset.Key))
+			return &item, nil
 		}
 	}
 	return nil, ErrAssetNotFound
@@ -552,7 +557,24 @@ func matchesAsset(item AssetItem, f AssetFilter) bool {
 		return false
 	}
 	q := strings.ToLower(strings.TrimSpace(f.Query))
-	return q == "" || strings.Contains(strings.ToLower(item.Key), q) || strings.Contains(strings.ToLower(item.Title), q)
+	if q == "" {
+		return true
+	}
+	searchable := strings.Join([]string{
+		item.Key, item.Title, item.DisplayName, item.DisplayURL, item.Notes, strings.Join(item.Tags, " "),
+	}, " ")
+	return strings.Contains(strings.ToLower(searchable), q)
+}
+
+func newAssetItem(asset domain.Asset, risk string, organizationIDs, rootDomains []string) AssetItem {
+	return AssetItem{
+		ID: asset.ID, Kind: string(asset.Kind), Key: asset.Key,
+		Title: stringValue(asset.Data["title"]), Origin: string(asset.Origin),
+		DisplayName: asset.DisplayName, DisplayURL: asset.DisplayURL, Notes: asset.Notes, Tags: asset.Tags,
+		Risk: risk, FirstSeen: asset.FirstSeen, LastSeen: asset.LastSeen,
+		RestoredAt: asset.RestoredAt, RestoreReason: asset.RestoreReason,
+		OrganizationIDs: organizationIDs, RootDomains: rootDomains, Data: asset.Data,
+	}
 }
 
 func matchesFinding(item FindingItem, f FindingFilter) bool {

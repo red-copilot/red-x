@@ -6,6 +6,34 @@ import (
 
 const SchemaVersion = 1
 
+// Lifecycle is embedded by user-maintained records so deletes remain
+// recoverable while scans, schedulers and credential checks continue to see
+// only active rows.
+type Lifecycle struct {
+	DeletedAt     *time.Time `gorm:"index" json:"deletedAt,omitempty"`
+	DeletedBy     string     `json:"deletedBy,omitempty"`
+	RestoredAt    *time.Time `json:"restoredAt,omitempty"`
+	RestoreReason string     `json:"restoreReason,omitempty"`
+}
+
+func (l Lifecycle) Deleted() bool {
+	return l.DeletedAt != nil
+}
+
+func (l *Lifecycle) MarkDeleted(at time.Time, actor string) {
+	l.DeletedAt = &at
+	l.DeletedBy = actor
+	l.RestoredAt = nil
+	l.RestoreReason = ""
+}
+
+func (l *Lifecycle) MarkRestored(at time.Time, reason string) {
+	l.DeletedAt = nil
+	l.DeletedBy = ""
+	l.RestoredAt = &at
+	l.RestoreReason = reason
+}
+
 type Role string
 
 const (
@@ -73,6 +101,13 @@ const (
 	AssetCIDR    AssetKind = "cidr"
 )
 
+type AssetOrigin string
+
+const (
+	AssetOriginScan   AssetOrigin = "scan"
+	AssetOriginManual AssetOrigin = "manual"
+)
+
 type FindingKind string
 
 const (
@@ -93,6 +128,7 @@ type User struct {
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 	SchemaVersion      int       `json:"schemaVersion"`
+	Lifecycle          `gorm:"embedded"`
 }
 
 type Session struct {
@@ -188,6 +224,7 @@ type Policy struct {
 	CreatedAt     time.Time    `json:"createdAt"`
 	UpdatedAt     time.Time    `json:"updatedAt"`
 	SchemaVersion int          `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type Scope struct {
@@ -199,6 +236,7 @@ type Scope struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 	SchemaVersion int       `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type TaskOptions struct {
@@ -335,10 +373,16 @@ type Asset struct {
 	Key           string         `json:"key"`
 	Data          map[string]any `gorm:"type:jsonb;serializer:json" json:"data"`
 	ScopeIDs      []string       `gorm:"type:jsonb;serializer:json" json:"scopeIds,omitempty"`
+	Origin        AssetOrigin    `gorm:"not null;default:scan" json:"origin"`
+	DisplayName   string         `json:"displayName,omitempty"`
+	DisplayURL    string         `json:"displayUrl,omitempty"`
+	Notes         string         `json:"notes,omitempty"`
+	Tags          []string       `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`
 	FirstSeen     time.Time      `json:"firstSeen"`
 	LastSeen      time.Time      `json:"lastSeen"`
 	LastTaskID    string         `json:"lastTaskId,omitempty"`
 	SchemaVersion int            `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type AssetObservation struct {
@@ -395,6 +439,7 @@ type Monitor struct {
 	CreatedAt     time.Time   `json:"createdAt"`
 	UpdatedAt     time.Time   `json:"updatedAt"`
 	SchemaVersion int         `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type Schedule struct {
@@ -414,6 +459,7 @@ type Schedule struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	SchemaVersion int        `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type MonitorRun struct {
@@ -452,6 +498,7 @@ type GitHubMonitor struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	SchemaVersion int        `json:"schemaVersion"`
+	Lifecycle     `gorm:"embedded"`
 }
 
 type GitHubFinding struct {

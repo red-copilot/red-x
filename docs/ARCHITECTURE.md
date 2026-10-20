@@ -84,9 +84,29 @@ statistics) fail the task.
 - `assets`: canonical `(kind, key)` rows with JSONB scan data.
 - `asset_observations`: per-task snapshots for historical task views and reports.
 - `scope_asset_links`: many-to-many membership with first/last seen and tags.
+- Asset management metadata (`origin`, display name/URL, notes and tags) is separate
+  from scan-owned `data`; user edits never rewrite scanner facts.
 
 Canonical assets keep global search fast; observations preserve the exact
 task result set and record the producing `engine`/`engineVersion`.
+
+## Lifecycle and CRUD
+
+Organizations, organization domains, assets, scopes, policies, monitors,
+schedules, fingerprints, GitHub monitors and users use recoverable soft deletion.
+Normal reads, authentication, schedulers and EASM/graph projections ignore rows
+with `deletedAt`; administrators restore records from `/api/v1/recycle-bin`.
+
+All delete and restore operations are audited. Policy deletion is blocked while
+active monitors or unfinished schedules reference it, scope deletion is blocked
+while active monitors reference it, and organization deletion is blocked while a
+queued or running task belongs to it. Users cannot delete themselves or the last
+active administrator, and deleting a user revokes all sessions.
+
+Assets deleted manually stay hidden even if observations continue to arrive,
+except that a later scan re-observing the same `(kind, key)` atomically restores
+the canonical asset and records `restoreReason=scan_rediscovery`. Manual metadata
+is preserved across that recovery.
 
 ## EASM
 

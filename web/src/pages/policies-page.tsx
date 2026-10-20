@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Settings2, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Policy } from '@/api'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -20,7 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { policySummary } from '@/lib/format'
-import { canWrite, isAdmin } from '@/lib/access'
+import { canWrite } from '@/lib/access'
 import { useAuth } from '@/app/auth'
 
 const defaults = {
@@ -36,9 +37,11 @@ export function PoliciesPage() {
   const { role } = useAuth()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [options, setOptions] = useState(defaults)
+  const [configBase, setConfigBase] = useState<Record<string, any>>({})
   const policies = useQuery({ queryKey: ['policies'], queryFn: () => api.policies() })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['policies'] })
   const create = useMutation({
@@ -46,24 +49,14 @@ export function PoliciesPage() {
       api.createPolicy({
         name,
         description,
-        config: {
-          domain: { domainBrute: options.domainBrute },
-          ip: { portScan: options.portScan, serviceDetection: options.serviceDetection },
-          site: {
-            siteIdentify: options.siteIdentify,
-            fileLeak: options.fileLeak,
-            webInfoHunter: options.webInfoHunter,
-            nucleiScan: options.nucleiScan,
-          },
-          poc: [],
-          brute: [],
-        },
+        config: mergePolicyConfig(configBase, options),
       }),
     onSuccess: () => {
       toast.success('策略已创建')
       setOpen(false)
       setName('')
       setDescription('')
+      setConfigBase({})
       void refresh()
     },
     onError: (error) => toast.error(error.message),
@@ -76,6 +69,38 @@ export function PoliciesPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () =>
+      api.updatePolicy(editingId, {
+        name,
+        description,
+        config: mergePolicyConfig(configBase, options),
+      }),
+    onSuccess: () => {
+      toast.success('策略已更新')
+      setOpen(false)
+      setEditingId('')
+      void refresh()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  function edit(row: Policy) {
+    const config = (row.config || {}) as Record<string, any>
+    setEditingId(row.id || '')
+    setName(row.name || '')
+    setDescription(row.description || '')
+    setConfigBase(config)
+    setOptions({
+      domainBrute: Boolean(config.domain?.domainBrute),
+      portScan: Boolean(config.ip?.portScan),
+      serviceDetection: Boolean(config.ip?.serviceDetection),
+      siteIdentify: Boolean(config.site?.siteIdentify),
+      fileLeak: Boolean(config.site?.fileLeak),
+      webInfoHunter: Boolean(config.site?.webInfoHunter),
+      nucleiScan: Boolean(config.site?.nucleiScan),
+    })
+    setOpen(true)
+  }
   const rows = (policies.data?.items || []) as Policy[]
   return (
     <div>
@@ -84,7 +109,16 @@ export function PoliciesPage() {
         description="组合域名、IP、站点与 PoC 能力，供任务、计划和监控复用。"
         actions={
           canWrite(role) ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button
+              onClick={() => {
+                setEditingId('')
+                setName('')
+                setDescription('')
+                setOptions(defaults)
+                setConfigBase({})
+                setOpen(true)
+              }}
+            >
               <Plus />
               新建策略
             </Button>
@@ -119,17 +153,24 @@ export function PoliciesPage() {
               key: 'actions',
               header: '操作',
               cell: (row) =>
-                isAdmin(role) ? (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => remove.mutate(row.id || '')}
-                    >
-                      <Trash2 />
-                      删除
+                canWrite(role) ? (
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => edit(row)}>
+                      <Pencil />
+                      编辑
                     </Button>
+                    <ConfirmDialog
+                      title="删除扫描策略"
+                      description="策略会移入回收站；被活动监控或未完成计划引用时无法删除。"
+                      confirmLabel="移入回收站"
+                      onConfirm={() => remove.mutate(row.id || '')}
+                      trigger={
+                        <Button size="sm" variant="ghost" className="text-destructive">
+                          <Trash2 />
+                          删除
+                        </Button>
+                      }
+                    />
                   </div>
                 ) : null,
             },
@@ -139,8 +180,10 @@ export function PoliciesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建扫描策略</DialogTitle>
-            <DialogDescription>默认启用域名枚举、端口与服务识别、站点指纹。</DialogDescription>
+            <DialogTitle>{editingId ? '编辑扫描策略' : '新建扫描策略'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? '保存后新任务和新计划将使用更新后的配置。' : '默认启用域名枚举、端口与服务识别、站点指纹。'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Field label="名称">
@@ -165,8 +208,11 @@ export function PoliciesPage() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button disabled={!name.trim()} onClick={() => create.mutate()}>
-              创建策略
+            <Button
+              disabled={!name.trim() || create.isPending || update.isPending}
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
+            >
+              {editingId ? '保存修改' : '创建策略'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -181,4 +227,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   )
+}
+
+function mergePolicyConfig(base: Record<string, any>, options: typeof defaults) {
+  return {
+    ...base,
+    domain: { ...(base.domain || {}), domainBrute: options.domainBrute },
+    ip: {
+      ...(base.ip || {}),
+      portScan: options.portScan,
+      serviceDetection: options.serviceDetection,
+    },
+    site: {
+      ...(base.site || {}),
+      siteIdentify: options.siteIdentify,
+      fileLeak: options.fileLeak,
+      webInfoHunter: options.webInfoHunter,
+      nucleiScan: options.nucleiScan,
+    },
+    poc: base.poc || [],
+    brute: base.brute || [],
+  }
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Pause, Play, Plus, Trash2 } from 'lucide-react'
+import { Activity, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Monitor } from '@/api'
@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/common/badges'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -27,8 +28,18 @@ export function MonitorsPage() {
   const { role } = useAuth()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', kind: 'domain', target: '', intervalSec: 21600, policyId: '' })
+  const [editingId, setEditingId] = useState('')
+  const [form, setForm] = useState({
+    name: '',
+    kind: 'domain',
+    target: '',
+    intervalSec: 21600,
+    scopeId: '',
+    policyId: '',
+  })
   const monitors = useQuery({ queryKey: ['monitors'], queryFn: () => api.monitors() })
+  const scopes = useQuery({ queryKey: ['scopes'], queryFn: () => api.scopes() })
+  const policies = useQuery({ queryKey: ['policies'], queryFn: () => api.policies() })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['monitors'] })
   const create = useMutation({
     mutationFn: () => api.createMonitor(form),
@@ -55,7 +66,31 @@ export function MonitorsPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () => api.updateMonitor(editingId, form),
+    onSuccess: () => {
+      toast.success('监控已更新')
+      setOpen(false)
+      setEditingId('')
+      void refresh()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  function edit(row: Monitor) {
+    setEditingId(row.id || '')
+    setForm({
+      name: row.name || '',
+      kind: row.kind || 'domain',
+      target: row.target || '',
+      intervalSec: row.intervalSec || 21600,
+      scopeId: row.scopeId || '',
+      policyId: row.policyId || '',
+    })
+    setOpen(true)
+  }
   const rows = (monitors.data?.items || []) as Monitor[]
+  const scopeRows = (scopes.data?.items || []) as Array<{ id?: string; name?: string }>
+  const policyRows = (policies.data?.items || []) as Array<{ id?: string; name?: string }>
   return (
     <div>
       <PageHeader
@@ -63,7 +98,20 @@ export function MonitorsPage() {
         description="对域名、IP、站点或 WIH 变化建立周期任务。"
         actions={
           canWrite(role) ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button
+              onClick={() => {
+                setEditingId('')
+                setForm({
+                  name: '',
+                  kind: 'domain',
+                  target: '',
+                  intervalSec: 21600,
+                  scopeId: '',
+                  policyId: '',
+                })
+                setOpen(true)
+              }}
+            >
               <Plus />
               新建监控
             </Button>
@@ -93,6 +141,10 @@ export function MonitorsPage() {
               cell: (row) =>
                 canWrite(role) ? (
                   <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => edit(row)}>
+                      <Pencil />
+                      编辑
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
@@ -120,14 +172,18 @@ export function MonitorsPage() {
                         </>
                       )}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => remove.mutate(row.id || '')}
-                    >
-                      <Trash2 />
-                    </Button>
+                    <ConfirmDialog
+                      title="删除监控"
+                      description="监控会移入回收站并停止后续调度，历史运行记录会保留。"
+                      confirmLabel="移入回收站"
+                      onConfirm={() => remove.mutate(row.id || '')}
+                      trigger={
+                        <Button size="sm" variant="ghost" className="text-destructive">
+                          <Trash2 />
+                          删除
+                        </Button>
+                      }
+                    />
                   </div>
                 ) : null,
             },
@@ -137,8 +193,8 @@ export function MonitorsPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建监控</DialogTitle>
-            <DialogDescription>周期检查结果会创建后续任务并保留变更历史。</DialogDescription>
+            <DialogTitle>{editingId ? '编辑监控' : '新建监控'}</DialogTitle>
+            <DialogDescription>监控必须绑定有效资产组；编辑后将从新间隔重新计算下次运行时间。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Field label="名称">
@@ -170,8 +226,37 @@ export function MonitorsPage() {
             <Field label="目标">
               <Input value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
             </Field>
+            <Field label="资产组">
+              <Select value={form.scopeId} onValueChange={(value) => setForm({ ...form, scopeId: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择资产组" />
+                </SelectTrigger>
+                <SelectContent>
+                  {scopeRows.map((scope) => (
+                    <SelectItem key={scope.id || ''} value={scope.id || ''}>
+                      {scope.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="策略 ID（可选）">
-              <Input value={form.policyId} onChange={(e) => setForm({ ...form, policyId: e.target.value })} />
+              <Select
+                value={form.policyId || 'none'}
+                onValueChange={(value) => setForm({ ...form, policyId: value === 'none' ? '' : value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">使用任务默认策略</SelectItem>
+                  {policyRows.map((policy) => (
+                    <SelectItem key={policy.id || ''} value={policy.id || ''}>
+                      {policy.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           <DialogFooter>
@@ -179,10 +264,12 @@ export function MonitorsPage() {
               取消
             </Button>
             <Button
-              disabled={!form.name.trim() || !form.target.trim() || create.isPending}
-              onClick={() => create.mutate()}
+              disabled={
+                !form.name.trim() || !form.target.trim() || !form.scopeId || create.isPending || update.isPending
+              }
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
             >
-              创建监控
+              {editingId ? '保存修改' : '创建监控'}
             </Button>
           </DialogFooter>
         </DialogContent>

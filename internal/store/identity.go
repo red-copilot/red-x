@@ -6,12 +6,21 @@ import (
 	"time"
 
 	"github.com/red-copilot/red-x/internal/domain"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.WithContext(ctx).Model(&domain.User{}).Count(&n).Error
+	err := active(s.db.WithContext(ctx)).Model(&domain.User{}).Count(&n).Error
 	return n, err
+}
+
+func (s *Store) CountActiveAdmins(ctx context.Context) (int64, error) {
+	var count int64
+	err := active(s.db.WithContext(ctx)).Model(&domain.User{}).
+		Where("role = ? AND disabled = FALSE", domain.RoleAdmin).
+		Count(&count).Error
+	return count, err
 }
 
 func (s *Store) CreateUser(ctx context.Context, u *domain.User) error {
@@ -29,7 +38,7 @@ func (s *Store) CreateUser(ctx context.Context, u *domain.User) error {
 
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	var u domain.User
-	err := s.db.WithContext(ctx).Where("username = ?", strings.TrimSpace(username)).First(&u).Error
+	err := active(s.db.WithContext(ctx)).Where("username = ?", strings.TrimSpace(username)).First(&u).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -41,7 +50,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (*domain
 
 func (s *Store) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
 	var u domain.User
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&u).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -53,12 +62,18 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*domain.User, error
 
 func (s *Store) UpdateUser(ctx context.Context, u *domain.User) error {
 	u.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(u).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ? AND deleted_at IS NULL", u.ID).
+		Updates(map[string]any{
+			"password_hash": u.PasswordHash, "role": u.Role,
+			"must_change_password": u.MustChangePassword, "disabled": u.Disabled,
+			"updated_at": u.UpdatedAt,
+		}))
 }
 
 func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.User{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.User{})
 	if q.Search != "" {
 		db = db.Where(`username ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -71,8 +86,31 @@ func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int6
 	return out, total, err
 }
 
-func (s *Store) DeleteUser(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.User{}, "id = ?", id).Error
+func (s *Store) DeleteUser(ctx context.Context, id, actor, currentUserID string) error {
+	if id == currentUserID {
+		return domain.ErrSelfDelete
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user domain.User
+		if err := active(tx).Where("id = ?", id).First(&user).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		if user.Role == domain.RoleAdmin && !user.Disabled {
+			var admins int64
+			if err := active(tx).Model(&domain.User{}).
+				Where("role = ? AND disabled = FALSE", domain.RoleAdmin).
+				Count(&admins).Error; err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return domain.ErrLastAdmin
+			}
+		}
+		return softDeleteRecordTx(tx, "user", id, actor)
+	})
 }
 
 func (s *Store) CreateSession(ctx context.Context, sess *domain.Session) error {

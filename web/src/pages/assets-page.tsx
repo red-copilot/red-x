@@ -1,25 +1,51 @@
-import { useQuery } from '@tanstack/react-query'
-import { Crosshair, Search } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Crosshair, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { api, type EasmAsset } from '@/api'
 import { RiskBadge } from '@/components/common/badges'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { Pagination } from '@/components/common/pagination'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Textarea } from '@/components/ui/textarea'
 import { formatTime } from '@/lib/format'
+import { canWrite } from '@/lib/access'
+import { useAuth } from '@/app/auth'
 
 const surfaceKinds = ['', 'domain', 'ip', 'service']
 const inventoryKinds = ['', 'domain', 'ip', 'site', 'url', 'cert', 'service', 'cidr']
 
 export function AssetsPage() {
+  const { role } = useAuth()
+  const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<EasmAsset | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
+  const [form, setForm] = useState({
+    kind: 'domain',
+    key: '',
+    displayName: '',
+    displayUrl: '',
+    notes: '',
+    tags: '',
+  })
   const view = params.get('view') === 'inventory' ? 'inventory' : 'surface'
   const kind = params.get('kind') || ''
   const risk = params.get('risk') || ''
@@ -36,6 +62,71 @@ export function AssetsPage() {
     queryFn: () => api.asset(focus, view),
     enabled: Boolean(focus),
   })
+  const create = useMutation({
+    mutationFn: () =>
+      api.createAsset({
+        ...form,
+        tags: form.tags
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      }),
+    onSuccess: () => {
+      toast.success('资产已创建')
+      setEditorOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['assets'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const update = useMutation({
+    mutationFn: () =>
+      api.updateAsset(editingId, {
+        displayName: form.displayName,
+        displayUrl: form.displayUrl,
+        notes: form.notes,
+        tags: form.tags
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      }),
+    onSuccess: () => {
+      toast.success('资产信息已更新')
+      setEditorOpen(false)
+      setEditingId('')
+      void queryClient.invalidateQueries({ queryKey: ['assets'] })
+      void queryClient.invalidateQueries({ queryKey: ['asset'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteAsset(id),
+    onSuccess: () => {
+      toast.success('资产已移入回收站')
+      setSelected(null)
+      setParam('focus', '')
+      void queryClient.invalidateQueries({ queryKey: ['assets'] })
+      void queryClient.invalidateQueries({ queryKey: ['organization-assets'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  function openCreate() {
+    setEditingId('')
+    setForm({ kind: 'domain', key: '', displayName: '', displayUrl: '', notes: '', tags: '' })
+    setEditorOpen(true)
+  }
+  function openEdit(row: EasmAsset) {
+    setEditingId(row.id || '')
+    setForm({
+      kind: row.kind || 'domain',
+      key: row.key || '',
+      displayName: row.displayName || '',
+      displayUrl: row.displayUrl || '',
+      notes: row.notes || '',
+      tags: (row.tags || []).join(', '),
+    })
+    setEditorOpen(true)
+  }
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params)
@@ -56,6 +147,14 @@ export function AssetsPage() {
       <PageHeader
         title="攻击面资产"
         description="默认展示能从已确认组织主域关联到的域名、IP 与服务；原始扫描库存作为辅助视图保留。"
+        actions={
+          canWrite(role) && view === 'inventory' ? (
+            <Button onClick={openCreate}>
+              <Plus />
+              新建资产
+            </Button>
+          ) : null
+        }
       />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex rounded-md bg-muted p-1">
@@ -157,6 +256,31 @@ export function AssetsPage() {
                 hideOnTablet: true,
               },
               { key: 'lastSeen', header: '最近发现', cell: (row) => formatTime(row.lastSeen), hideOnTablet: true },
+              {
+                key: 'actions',
+                header: '操作',
+                cell: (row) =>
+                  canWrite(role) ? (
+                    <div className="flex justify-end gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(row)}>
+                        <Pencil />
+                        编辑
+                      </Button>
+                      <ConfirmDialog
+                        title="删除资产"
+                        description="资产及其观测会从当前视图隐藏并移入回收站；后续扫描再次发现时会自动恢复。"
+                        confirmLabel="移入回收站"
+                        onConfirm={() => remove.mutate(row.id || '')}
+                        trigger={
+                          <Button size="sm" variant="ghost" className="text-destructive">
+                            <Trash2 />
+                            删除
+                          </Button>
+                        }
+                      />
+                    </div>
+                  ) : null,
+              },
             ]}
           />
           <Pagination
@@ -177,12 +301,56 @@ export function AssetsPage() {
           </SheetHeader>
           {visible ? (
             <div className="space-y-4">
+              {canWrite(role) ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => openEdit(visible)}>
+                    <Pencil />
+                    编辑基础信息
+                  </Button>
+                  <ConfirmDialog
+                    title="删除资产"
+                    description="资产会移入回收站；后续扫描再次发现时会自动恢复。"
+                    confirmLabel="移入回收站"
+                    onConfirm={() => remove.mutate(visible.id || '')}
+                    trigger={
+                      <Button size="sm" variant="outline" className="text-destructive">
+                        <Trash2 />
+                        删除
+                      </Button>
+                    }
+                  />
+                </div>
+              ) : null}
+              {visible.restoreReason === 'scan_rediscovery' && visible.restoredAt ? (
+                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                  扫描重新发现，已于 {formatTime(visible.restoredAt)} 自动恢复。
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <Fact label="风险" value={<RiskBadge risk={visible.risk} />} />
                 <Fact label="类型" value={visible.kind || '—'} />
                 <Fact label="首次发现" value={formatTime(visible.firstSeen)} />
                 <Fact label="最近发现" value={formatTime(visible.lastSeen)} />
+                <Fact label="来源" value={visible.origin === 'manual' ? '手工维护' : '扫描发现'} />
               </div>
+              {visible.displayName || visible.displayUrl || visible.notes || visible.tags?.length ? (
+                <Section title="维护信息">
+                  <div className="space-y-2 rounded-md border bg-[#fbfcfe] p-3 text-xs">
+                    {visible.displayName ? <div>名称：{visible.displayName}</div> : null}
+                    {visible.displayUrl ? <div className="mono break-all">URL：{visible.displayUrl}</div> : null}
+                    {visible.notes ? <div className="whitespace-pre-wrap">备注：{visible.notes}</div> : null}
+                    {visible.tags?.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {visible.tags.map((tag) => (
+                          <span key={tag} className="rounded border bg-muted px-2 py-0.5 text-[11px]">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </Section>
+              ) : null}
               {visible.rootDomains?.length ? (
                 <Section title="关联主域">
                   <div className="flex flex-wrap gap-1.5">
@@ -214,6 +382,83 @@ export function AssetsPage() {
           )}
         </SheetContent>
       </Sheet>
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingId ? '编辑资产基础信息' : '新建手工资产'}</DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? '类型、唯一键和扫描原始数据保持只读。'
+                : '手工资产会标记为 manual 来源，不修改扫描生成的原始 data。'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>类型</Label>
+                <Select
+                  value={form.kind}
+                  onValueChange={(value) => setForm({ ...form, kind: value })}
+                  disabled={Boolean(editingId)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {inventoryKinds.filter(Boolean).map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>唯一键</Label>
+                <Input
+                  value={form.key}
+                  disabled={Boolean(editingId)}
+                  onChange={(event) => setForm({ ...form, key: event.target.value })}
+                  placeholder="example.com / 1.1.1.1 / https://…"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>显示名称</Label>
+              <Input
+                value={form.displayName}
+                onChange={(event) => setForm({ ...form, displayName: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>URL</Label>
+              <Input
+                value={form.displayUrl}
+                onChange={(event) => setForm({ ...form, displayUrl: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>标签（逗号分隔）</Label>
+              <Input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>备注</Label>
+              <Textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditorOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={(!editingId && (!form.kind || !form.key.trim())) || create.isPending || update.isPending}
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
+            >
+              {create.isPending || update.isPending ? '保存中…' : editingId ? '保存修改' : '创建资产'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

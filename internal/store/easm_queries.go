@@ -18,7 +18,7 @@ func (s *Store) ListDomainAssetsUnderRoots(ctx context.Context, roots []string) 
 		patterns = append(patterns, `(^|\.)`+regexp.QuoteMeta(strings.ToLower(root))+`$`)
 	}
 	var out []domain.Asset
-	err := s.db.WithContext(ctx).Where("kind = ?", domain.AssetDomain).
+	err := active(s.db.WithContext(ctx)).Where("kind = ?", domain.AssetDomain).
 		Where("key ~* ?", strings.Join(patterns, "|")).Limit(5000).Find(&out).Error
 	return out, err
 }
@@ -29,7 +29,7 @@ func (s *Store) ListAssetsByKindKeys(ctx context.Context, kind domain.AssetKind,
 		return nil, nil
 	}
 	var out []domain.Asset
-	err := s.db.WithContext(ctx).Where("kind = ? AND key IN ?", kind, keys).Limit(5000).Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Where("kind = ? AND key IN ?", kind, keys).Limit(5000).Find(&out).Error
 	return out, err
 }
 
@@ -39,7 +39,7 @@ func (s *Store) ListServiceAssetsByIPs(ctx context.Context, ips []string) ([]dom
 		return nil, nil
 	}
 	var out []domain.Asset
-	err := s.db.WithContext(ctx).Where("kind = ? AND data->>'ip' IN ?", domain.AssetService, ips).Limit(5000).Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Where("kind = ? AND data->>'ip' IN ?", domain.AssetService, ips).Limit(5000).Find(&out).Error
 	return out, err
 }
 

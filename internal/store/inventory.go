@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -30,24 +32,118 @@ func (s *Store) UpsertAsset(ctx context.Context, kind domain.AssetKind, key stri
 		return nil, err
 	}
 	if err := s.db.WithContext(ctx).Exec(`
-INSERT INTO assets (id, kind, key, data, scope_ids, first_seen, last_seen, last_task_id, schema_version)
-VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
+INSERT INTO assets (id, kind, key, data, scope_ids, origin, first_seen, last_seen, last_task_id, schema_version)
+VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?)
 ON CONFLICT (kind, key) DO UPDATE SET
   data = EXCLUDED.data,
   last_seen = EXCLUDED.last_seen,
   last_task_id = EXCLUDED.last_task_id,
+  deleted_at = NULL,
+  deleted_by = '',
+  restored_at = CASE WHEN assets.deleted_at IS NOT NULL THEN EXCLUDED.last_seen ELSE assets.restored_at END,
+  restore_reason = CASE WHEN assets.deleted_at IS NOT NULL THEN 'scan_rediscovery' ELSE assets.restore_reason END,
   scope_ids = (
     SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
     FROM jsonb_array_elements_text(COALESCE(assets.scope_ids, '[]'::jsonb) || COALESCE(EXCLUDED.scope_ids, '[]'::jsonb)) AS item
-  )`, id, kind, key, string(raw), string(scopeJSON), now, now, taskID, domain.SchemaVersion).Error; err != nil {
+  )`, id, kind, key, string(raw), string(scopeJSON), domain.AssetOriginScan, now, now, taskID, domain.SchemaVersion).Error; err != nil {
 		return nil, err
 	}
 	var asset domain.Asset
-	if err := s.db.WithContext(ctx).Where("kind = ? AND key = ?", kind, key).First(&asset).Error; err != nil {
+	if err := active(s.db.WithContext(ctx)).Where("kind = ? AND key = ?", kind, key).First(&asset).Error; err != nil {
 		return nil, err
 	}
 	_ = s.AppendGraphOutbox(ctx, "asset", asset.ID, domain.OutboxOpUpsert)
 	return &asset, nil
+}
+
+func (s *Store) CreateManualAsset(ctx context.Context, asset *domain.Asset) error {
+	if asset == nil || strings.TrimSpace(string(asset.Kind)) == "" || strings.TrimSpace(asset.Key) == "" {
+		return errors.New("asset kind and key are required")
+	}
+	now := time.Now().UTC()
+	if asset.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		asset.ID = id
+	}
+	if asset.Data == nil {
+		asset.Data = map[string]any{}
+	}
+	if asset.Tags == nil {
+		asset.Tags = []string{}
+	}
+	asset.Origin = domain.AssetOriginManual
+	asset.FirstSeen, asset.LastSeen, asset.SchemaVersion = now, now, domain.SchemaVersion
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(asset).Error; err != nil {
+			if isDuplicate(err) {
+				return domain.ErrRecordAlreadyExists
+			}
+			return err
+		}
+		return appendGraphOutboxTx(tx, "asset", asset.ID, domain.OutboxOpUpsert)
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+type AssetMetadataPatch struct {
+	DisplayName *string
+	DisplayURL  *string
+	Notes       *string
+	Tags        *[]string
+}
+
+func (s *Store) UpdateAssetMetadata(ctx context.Context, id string, patch AssetMetadataPatch) (*domain.Asset, error) {
+	updates := map[string]any{}
+	if patch.DisplayName != nil {
+		updates["display_name"] = strings.TrimSpace(*patch.DisplayName)
+	}
+	if patch.DisplayURL != nil {
+		updates["display_url"] = strings.TrimSpace(*patch.DisplayURL)
+	}
+	if patch.Notes != nil {
+		updates["notes"] = strings.TrimSpace(*patch.Notes)
+	}
+	if patch.Tags != nil {
+		updates["tags"] = jsonbExpr(uniqueNonEmptyStrings(*patch.Tags))
+	}
+	var asset domain.Asset
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := active(tx).Where("id = ?", id).First(&asset).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		if len(updates) > 0 {
+			if err := tx.Model(&domain.Asset{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		return active(tx).Where("id = ?", id).First(&asset).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &asset, nil
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *Store) ObserveAsset(ctx context.Context, taskID string, asset *domain.Asset, source string, snapshot map[string]any) error {
@@ -85,7 +181,7 @@ func (s *Store) AddFinding(ctx context.Context, f *domain.Finding) (bool, error)
 
 func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q PageQuery) ([]domain.Asset, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Asset{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Asset{})
 	if kind != "" {
 		db = db.Where("kind = ?", kind)
 	}
@@ -97,7 +193,10 @@ func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q 
 	}
 	if q.Search != "" {
 		pattern := ilike(q.Search)
-		db = db.Where(`(key ILIKE ? ESCAPE '\' OR data->>'title' ILIKE ? ESCAPE '\' OR data->>'url' ILIKE ? ESCAPE '\')`, pattern, pattern, pattern)
+		db = db.Where(`(key ILIKE ? ESCAPE '\' OR data->>'title' ILIKE ? ESCAPE '\' OR data->>'url' ILIKE ? ESCAPE '\'
+			OR display_name ILIKE ? ESCAPE '\' OR display_url ILIKE ? ESCAPE '\' OR notes ILIKE ? ESCAPE '\'
+			OR tags::text ILIKE ? ESCAPE '\')`,
+			pattern, pattern, pattern, pattern, pattern, pattern, pattern)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -110,8 +209,11 @@ func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q 
 
 func (s *Store) assetIDsForTask(ctx context.Context, taskID string) ([]string, error) {
 	var ids []string
-	err := s.db.WithContext(ctx).Model(&domain.AssetObservation{}).
-		Where("task_id = ?", taskID).Distinct("asset_id").Pluck("asset_id", &ids).Error
+	err := s.db.WithContext(ctx).Table("asset_observations").
+		Select("DISTINCT asset_observations.asset_id").
+		Joins("JOIN assets ON assets.id = asset_observations.asset_id").
+		Where("asset_observations.task_id = ? AND assets.deleted_at IS NULL", taskID).
+		Pluck("asset_observations.asset_id", &ids).Error
 	return ids, err
 }
 
@@ -224,7 +326,7 @@ func (s *Store) CreateScope(ctx context.Context, sc *domain.Scope) error {
 
 func (s *Store) GetScope(ctx context.Context, id string) (*domain.Scope, error) {
 	var sc domain.Scope
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&sc).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&sc).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -236,7 +338,7 @@ func (s *Store) GetScope(ctx context.Context, id string) (*domain.Scope, error) 
 
 func (s *Store) ListScopes(ctx context.Context, q PageQuery) ([]domain.Scope, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Scope{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Scope{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -251,15 +353,30 @@ func (s *Store) ListScopes(ctx context.Context, q PageQuery) ([]domain.Scope, in
 
 func (s *Store) UpdateScope(ctx context.Context, sc *domain.Scope) error {
 	sc.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(sc).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Scope{}).
+		Where("id = ? AND deleted_at IS NULL", sc.ID).
+		Updates(map[string]any{
+			"name": sc.Name, "type": sc.Type, "targets": jsonbExpr(sc.Targets),
+			"black_scope": jsonbExpr(sc.BlackScope), "updated_at": sc.UpdatedAt,
+		}))
 }
 
-func (s *Store) DeleteScope(ctx context.Context, id string) error {
+func (s *Store) DeleteScope(ctx context.Context, id, actor string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("scope_id = ?", id).Delete(&domain.ScopeAssetLink{}).Error; err != nil {
+		if err := active(tx).Where("id = ?", id).First(&domain.Scope{}).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
 			return err
 		}
-		return tx.Where("id = ?", id).Delete(&domain.Scope{}).Error
+		var monitors int64
+		if err := active(tx).Model(&domain.Monitor{}).Where("scope_id = ?", id).Count(&monitors).Error; err != nil {
+			return err
+		}
+		if monitors > 0 {
+			return fmt.Errorf("%w: %d monitor(s)", domain.ErrResourceInUse, monitors)
+		}
+		return softDeleteRecordTx(tx, "scope", id, actor)
 	})
 }
 
@@ -339,7 +456,7 @@ func (s *Store) SearchHistoryDomains(ctx context.Context, base string, limit int
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(strings.TrimSpace(base)))
 	var out []string
-	err := s.db.WithContext(ctx).Model(&domain.Asset{}).
+	err := active(s.db.WithContext(ctx)).Model(&domain.Asset{}).
 		Where(`kind = ? AND key ILIKE ? ESCAPE '\'`, domain.AssetDomain, pattern).
 		Order("key ASC").Limit(limit).Pluck("key", &out).Error
 	return out, err
@@ -350,7 +467,7 @@ func (s *Store) CountAssets(ctx context.Context) (map[string]int64, error) {
 		Kind  string
 		Count int64
 	}
-	if err := s.db.WithContext(ctx).Model(&domain.Asset{}).Select("kind, count(*) AS count").Group("kind").Scan(&rows).Error; err != nil {
+	if err := active(s.db.WithContext(ctx)).Model(&domain.Asset{}).Select("kind, count(*) AS count").Group("kind").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[string]int64{}
@@ -361,11 +478,12 @@ func (s *Store) CountAssets(ctx context.Context) (map[string]int64, error) {
 }
 
 type FingerprintRule struct {
-	ID        string    `gorm:"primaryKey;size:24" json:"id"`
-	Name      string    `json:"name"`
-	Rule      string    `json:"rule"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string           `gorm:"primaryKey;size:24" json:"id"`
+	Name      string           `json:"name"`
+	Rule      string           `json:"rule"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
+	Lifecycle domain.Lifecycle `gorm:"embedded"`
 }
 
 func (FingerprintRule) TableName() string { return "fingerprints" }
@@ -385,12 +503,31 @@ func (s *Store) CreateFingerprint(ctx context.Context, r *FingerprintRule) error
 
 func (s *Store) ListFingerprints(ctx context.Context) ([]FingerprintRule, error) {
 	var out []FingerprintRule
-	err := s.db.WithContext(ctx).Order("name ASC").Find(&out).Error
+	err := active(s.db.WithContext(ctx)).Order("name ASC").Find(&out).Error
 	return out, err
 }
 
-func (s *Store) DeleteFingerprint(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&FingerprintRule{}, "id = ?", id).Error
+func (s *Store) GetFingerprint(ctx context.Context, id string) (*FingerprintRule, error) {
+	var rule FingerprintRule
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&rule).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rule, nil
+}
+
+func (s *Store) UpdateFingerprint(ctx context.Context, rule *FingerprintRule) error {
+	rule.UpdatedAt = time.Now().UTC()
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&FingerprintRule{}).
+		Where("id = ? AND deleted_at IS NULL", rule.ID).
+		Updates(map[string]any{"name": rule.Name, "rule": rule.Rule, "updated_at": rule.UpdatedAt}))
+}
+
+func (s *Store) DeleteFingerprint(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "fingerprint", id, actor)
 }
 
 func (s *Store) UpsertPOCPlugin(ctx context.Context, p *domain.PocPlugin) error {

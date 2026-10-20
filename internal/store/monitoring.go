@@ -22,7 +22,7 @@ func (s *Store) CreateMonitor(ctx context.Context, m *domain.Monitor) error {
 
 func (s *Store) GetMonitor(ctx context.Context, id string) (*domain.Monitor, error) {
 	var m domain.Monitor
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&m).Error
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&m).Error
 	if isNotFound(err) {
 		return nil, nil
 	}
@@ -34,7 +34,7 @@ func (s *Store) GetMonitor(ctx context.Context, id string) (*domain.Monitor, err
 
 func (s *Store) ListMonitors(ctx context.Context, q PageQuery) ([]domain.Monitor, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Monitor{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Monitor{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -49,11 +49,18 @@ func (s *Store) ListMonitors(ctx context.Context, q PageQuery) ([]domain.Monitor
 
 func (s *Store) UpdateMonitor(ctx context.Context, m *domain.Monitor) error {
 	m.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(m).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Monitor{}).
+		Where("id = ? AND deleted_at IS NULL", m.ID).
+		Updates(map[string]any{
+			"name": m.Name, "kind": m.Kind, "scope_id": m.ScopeID, "target": m.Target,
+			"interval_sec": m.IntervalSec, "policy_id": m.PolicyID, "options": jsonbExpr(m.Options),
+			"status": m.Status, "next_run_at": m.NextRunAt, "last_run_at": m.LastRunAt,
+			"last_run_id": m.LastRunID, "updated_at": m.UpdatedAt,
+		}))
 }
 
-func (s *Store) DeleteMonitor(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.Monitor{}, "id = ?", id).Error
+func (s *Store) DeleteMonitor(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "monitor", id, actor)
 }
 
 func (s *Store) DueMonitors(ctx context.Context, now time.Time, limit int) ([]domain.Monitor, error) {
@@ -61,7 +68,7 @@ func (s *Store) DueMonitors(ctx context.Context, now time.Time, limit int) ([]do
 		limit = 20
 	}
 	var out []domain.Monitor
-	err := s.db.WithContext(ctx).Where("status = ? AND next_run_at <= ?", "active", now).
+	err := active(s.db.WithContext(ctx)).Where("status = ? AND next_run_at <= ?", "active", now).
 		Order("next_run_at ASC, id ASC").Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -81,7 +88,7 @@ func (s *Store) CreateSchedule(ctx context.Context, sc *domain.Schedule) error {
 
 func (s *Store) ListSchedules(ctx context.Context, q PageQuery) ([]domain.Schedule, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.Schedule{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.Schedule{})
 	if q.Search != "" {
 		db = db.Where(`name ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -94,23 +101,42 @@ func (s *Store) ListSchedules(ctx context.Context, q PageQuery) ([]domain.Schedu
 	return out, total, err
 }
 
+func (s *Store) GetSchedule(ctx context.Context, id string) (*domain.Schedule, error) {
+	var schedule domain.Schedule
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&schedule).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &schedule, nil
+}
+
 func (s *Store) DueSchedules(ctx context.Context, now time.Time, limit int) ([]domain.Schedule, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	var out []domain.Schedule
-	err := s.db.WithContext(ctx).Where("status = ? AND next_run_at <= ?", "active", now).
+	err := active(s.db.WithContext(ctx)).Where("status = ? AND next_run_at <= ?", "active", now).
 		Order("next_run_at ASC, id ASC").Limit(limit).Find(&out).Error
 	return out, err
 }
 
 func (s *Store) UpdateSchedule(ctx context.Context, sc *domain.Schedule) error {
 	sc.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(sc).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Schedule{}).
+		Where("id = ? AND deleted_at IS NULL", sc.ID).
+		Updates(map[string]any{
+			"name": sc.Name, "kind": sc.Kind, "task_kind": sc.TaskKind, "target": sc.Target,
+			"policy_id": sc.PolicyID, "result_set_id": sc.ResultSetID, "cron": sc.Cron,
+			"start_at": sc.StartAt, "next_run_at": sc.NextRunAt, "status": sc.Status,
+			"run_count": sc.RunCount, "last_run_at": sc.LastRunAt, "updated_at": sc.UpdatedAt,
+		}))
 }
 
-func (s *Store) DeleteSchedule(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.Schedule{}, "id = ?", id).Error
+func (s *Store) DeleteSchedule(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "schedule", id, actor)
 }
 
 func (s *Store) CreateMonitorRun(ctx context.Context, r *domain.MonitorRun) error {
@@ -185,7 +211,7 @@ func (s *Store) CreateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor
 
 func (s *Store) ListGitHubMonitors(ctx context.Context, q PageQuery) ([]domain.GitHubMonitor, int64, error) {
 	q = q.Normalized()
-	db := s.db.WithContext(ctx).Model(&domain.GitHubMonitor{})
+	db := active(s.db.WithContext(ctx)).Model(&domain.GitHubMonitor{})
 	if q.Search != "" {
 		db = db.Where(`keyword ILIKE ? ESCAPE '\'`, ilike(q.Search))
 	}
@@ -198,13 +224,31 @@ func (s *Store) ListGitHubMonitors(ctx context.Context, q PageQuery) ([]domain.G
 	return out, total, err
 }
 
-func (s *Store) UpdateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor) error {
-	m.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(m).Error
+func (s *Store) GetGitHubMonitor(ctx context.Context, id string) (*domain.GitHubMonitor, error) {
+	var monitor domain.GitHubMonitor
+	err := active(s.db.WithContext(ctx)).Where("id = ?", id).First(&monitor).Error
+	if isNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &monitor, nil
 }
 
-func (s *Store) DeleteGitHubMonitor(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&domain.GitHubMonitor{}, "id = ?", id).Error
+func (s *Store) UpdateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor) error {
+	m.UpdatedAt = time.Now().UTC()
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.GitHubMonitor{}).
+		Where("id = ? AND deleted_at IS NULL", m.ID).
+		Updates(map[string]any{
+			"name": m.Name, "keyword": m.Keyword, "interval_sec": m.IntervalSec,
+			"status": m.Status, "next_run_at": m.NextRunAt, "last_run_at": m.LastRunAt,
+			"updated_at": m.UpdatedAt,
+		}))
+}
+
+func (s *Store) DeleteGitHubMonitor(ctx context.Context, id, actor string) error {
+	return s.SoftDeleteRecord(ctx, "github_monitor", id, actor)
 }
 
 func (s *Store) AddGitHubFinding(ctx context.Context, f *domain.GitHubFinding) (bool, error) {

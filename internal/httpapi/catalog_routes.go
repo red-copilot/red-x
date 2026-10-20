@@ -200,6 +200,8 @@ func assetItemFromDomain(item domain.Asset) easm.AssetItem {
 	return easm.AssetItem{
 		ID: item.ID, Kind: string(item.Kind), Key: item.Key,
 		Title: stringValue(item.Data["title"]), FirstSeen: item.FirstSeen, LastSeen: item.LastSeen,
+		Origin: string(item.Origin), DisplayName: item.DisplayName, DisplayURL: item.DisplayURL,
+		Notes: item.Notes, Tags: item.Tags, RestoredAt: item.RestoredAt, RestoreReason: item.RestoreReason,
 		Data: item.Data,
 	}
 }
