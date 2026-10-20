@@ -126,6 +126,7 @@ export function AssetsPage() {
           <DataTable
             rows={query.data?.items || []}
             rowKey={(row) => `${row.kind}-${row.id || row.key}`}
+            scrollable
             empty={
               <EmptyState
                 title="没有匹配资产"

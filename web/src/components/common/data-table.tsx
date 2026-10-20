@@ -16,22 +16,24 @@ export function DataTable<T>({
   rowKey,
   empty,
   loading,
+  scrollable = false,
 }: {
   rows: T[]
   columns: Column<T>[]
   rowKey: (row: T) => string
   empty: ReactNode
   loading?: boolean
+  scrollable?: boolean
 }) {
   if (loading)
     return <div className="rounded-lg border bg-card p-8 text-center text-xs text-muted-foreground">正在加载…</div>
   if (!rows.length) return <>{empty}</>
   return (
     <>
-      <div className="hidden overflow-hidden rounded-lg border bg-card md:block">
+      <div className={cn('hidden overflow-hidden rounded-lg border bg-card md:block', scrollable && 'max-h-[calc(100vh-18rem)] overflow-y-auto scrollbar-thin')}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="border-b bg-[#fafbfc] text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
+            <thead className="sticky top-0 z-10 border-b bg-[#fafbfc] text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
               <tr>
                 {columns.map((column) => (
                   <th

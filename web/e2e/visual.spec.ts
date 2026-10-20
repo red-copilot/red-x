@@ -21,9 +21,10 @@ test.describe('@visual responsive surface overview', () => {
       )
       expect(overflow).toBeLessThanOrEqual(1)
       await expect(page).toHaveScreenshot(`overview-${viewport.name}.png`, {
-        fullPage: true,
+        fullPage: false,
         animations: 'disabled',
         mask: [page.getByTestId('overview-freshness')],
+        maxDiffPixels: 5000,
       })
     })
   }

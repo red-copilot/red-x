@@ -54,11 +54,11 @@ export function AssetGraph({ snapshot, onSelect }: { snapshot?: GraphSnapshot; o
   }, [snapshot])
 
   return (
-    <div className="h-full min-h-[360px] rounded-lg border bg-card">
+    <div className="h-full min-h-[260px] rounded-lg border bg-card">
       <ReactECharts
         option={option}
         notMerge
-        style={{ height: '100%', minHeight: 360 }}
+        style={{ height: '100%', minHeight: 260 }}
         onEvents={{
           click: (params: any) => {
             if (params?.data) onSelect?.(params.data)

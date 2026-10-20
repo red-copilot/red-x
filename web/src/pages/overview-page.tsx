@@ -80,8 +80,8 @@ export function OverviewPage() {
   }
 
   return (
-    <div>
-      <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-5 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-primary">
             <Activity className="size-3.5" />
@@ -122,7 +122,7 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="mb-4 grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-5">
         <StatTile
           label="组织"
           value={formatNumber(data.summary.organizations)}
@@ -158,13 +158,13 @@ export function OverviewPage() {
         />
       </div>
 
-      <div className="grid min-h-[620px] gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <Card className="order-2 overflow-hidden xl:order-1">
+      <div className="grid min-h-[620px] gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[clamp(220px,20vw,300px)_minmax(0,1fr)_clamp(280px,24vw,380px)] xl:grid-rows-[minmax(0,1fr)]">
+        <Card className="order-2 flex min-h-0 flex-col overflow-hidden xl:order-1">
           <CardHeader className="flex-row items-center justify-between space-y-0 border-b py-3">
             <CardTitle>风险组织</CardTitle>
             <Badge variant="outline">{data.topOrganizations.length}</Badge>
           </CardHeader>
-          <div className="max-h-[560px] overflow-auto p-2 scrollbar-thin">
+          <div className="min-h-0 flex-1 overflow-auto p-2 scrollbar-thin">
             {data.topOrganizations.length ? (
               data.topOrganizations.map((org) => (
                 <button
@@ -198,7 +198,7 @@ export function OverviewPage() {
           </div>
         </Card>
 
-        <Card className="order-1 flex min-h-[620px] flex-col overflow-hidden xl:order-2">
+        <Card className="order-1 flex min-h-[520px] flex-col overflow-hidden xl:order-2 xl:min-h-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5">
             <div className="flex items-center gap-1 rounded-md bg-muted p-1">
               <Button size="sm" variant={visual === 'map' ? 'default' : 'ghost'} onClick={() => setVisual('map')}>
@@ -275,7 +275,7 @@ export function OverviewPage() {
           </div>
         </Card>
 
-        <div className="order-3 space-y-4">
+        <div className="order-3 min-h-0 space-y-4 overflow-y-auto scrollbar-thin xl:order-3">
           <Card>
             <CardHeader className="border-b py-3">
               <CardTitle>{selectedOrg ? '选中组织' : '最近发现'}</CardTitle>

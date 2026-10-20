@@ -168,7 +168,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background xl:h-dvh xl:min-h-0 xl:overflow-hidden">
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-slate-800 bg-[#0f1c2e] text-slate-100 transition-[width] lg:flex',
@@ -237,8 +237,8 @@ export function AppShell() {
         </div>
       ) : null}
 
-      <div className={cn('min-h-screen transition-[padding]', collapsed ? 'lg:pl-[68px]' : 'lg:pl-[236px]')}>
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b bg-white/95 px-4 backdrop-blur sm:px-6">
+      <div className={cn('min-h-screen transition-[padding] xl:flex xl:h-dvh xl:min-h-0 xl:flex-col xl:overflow-hidden', collapsed ? 'lg:pl-[68px]' : 'lg:pl-[236px]')}>
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b bg-white/95 px-4 backdrop-blur sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)}>
               <Menu />
@@ -290,7 +290,7 @@ export function AppShell() {
             </DropdownMenu>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1800px] p-4 sm:p-6">
+        <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col p-4 sm:p-6 xl:min-h-0 xl:overflow-y-auto">
           <Outlet />
         </main>
       </div>

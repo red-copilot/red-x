@@ -72,7 +72,7 @@ export function SurfaceMap({
   }, [snapshot])
 
   return (
-    <div className="relative h-full min-h-[360px] w-full overflow-hidden rounded-lg border bg-[#fbfcfe] data-grid">
+    <div className="relative h-full min-h-[260px] w-full overflow-hidden rounded-lg border bg-[#fbfcfe] data-grid">
       <ReactECharts
         option={option}
         notMerge
