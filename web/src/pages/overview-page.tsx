@@ -230,6 +230,16 @@ export function OverviewPage() {
             {visual === 'map' ? (
               map.isLoading ? (
                 <LoadingBlock label="正在定位资产…" />
+              ) : map.error ? (
+                <div className="grid h-full min-h-[360px] place-items-center rounded-lg border bg-card p-6 text-center">
+                  <div>
+                    <MapIcon className="mx-auto mb-2 size-6 text-muted-foreground" />
+                    <div className="text-sm font-medium">地图暂不可用</div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      组织列表、资产和风险仍可正常使用。请检查 GeoIP 或地图数据服务。
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <SurfaceMap snapshot={map.data} onSelect={(_id, orgIds) => orgIds[0] && selectOrg(orgIds[0])} />
               )
