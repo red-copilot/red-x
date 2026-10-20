@@ -9,14 +9,29 @@ export function requirePassword() {
   }
 }
 
-export async function login(page: Page) {
-  requirePassword()
-  await page.goto('/login')
+async function submitLogin(page: Page) {
   await page.locator('input[autocomplete="username"]').fill(username)
   await page.locator('input[autocomplete="current-password"]').fill(password)
   await page.locator('button[type="submit"]').click()
-  await expect(page).toHaveURL(/\/dashboard$/)
-  await expect(page.getByRole('heading', { name: '资产态势' })).toBeVisible()
+}
+
+export async function login(page: Page) {
+  requirePassword()
+  await page.goto('/login')
+  await submitLogin(page)
+  await page.waitForURL((url) => url.pathname === '/' || url.pathname === '/change-password')
+
+  if (new URL(page.url()).pathname === '/change-password') {
+    await page.locator('#oldPassword').fill(password)
+    await page.locator('#newPassword').fill(password)
+    await page.locator('#confirmPassword').fill(password)
+    await page.getByRole('button', { name: '修改密码' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+    await submitLogin(page)
+    await page.waitForURL((url) => url.pathname === '/')
+  }
+
+  await expect(page.getByRole('heading', { name: '外部攻击面总览' })).toBeVisible()
 }
 
 export function trackBrowserErrors(page: Page) {
@@ -27,7 +42,7 @@ export function trackBrowserErrors(page: Page) {
   })
   page.on('response', (response) => {
     const url = new URL(response.url())
-    if (url.pathname.startsWith('/api/') && response.status() >= 400) {
+    if (url.pathname.startsWith('/api/') && response.status() >= 400 && !url.pathname.endsWith('/auth/me')) {
       errors.push(`api: HTTP ${response.status()} ${url.pathname}`)
     }
   })

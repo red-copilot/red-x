@@ -12,20 +12,30 @@ The `arl` binary has three production roles:
 
 ## Module boundaries
 
-| Package | Responsibility |
-|---|---|
-| `internal/modules/discovery` | Target parsing and ProjectDiscovery SDK adapters for DNS, passive sources, ports, TLS and HTTP |
-| `internal/modules/webintel` | Fingerprints, WIH, file leaks, katana crawling, screenshots and nuclei SDK results |
-| `internal/modules/poc` | Go plugin registry, HTTP/TCP/sniffer/brute plugins |
-| `internal/modules/tasking` | Task state machine, steps, outbox, worker handlers |
-| `internal/modules/monitoring` | Monitors, schedules, leader lease |
-| `internal/modules/github` | GitHub search and monitoring |
-| `internal/modules/reporting` | CSV/XLSX reports |
-| `internal/store` | MongoDB repositories and indexes |
-| `internal/platform` | Config, logging, Redis Streams, auth primitives, network safety, notifications and ProjectDiscovery SDK helpers |
+| Package                       | Responsibility                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `internal/modules/discovery`  | Target parsing and ProjectDiscovery SDK adapters for DNS, passive sources, ports, TLS and HTTP                  |
+| `internal/modules/webintel`   | Fingerprints, WIH, file leaks, katana crawling, screenshots and nuclei SDK results                              |
+| `internal/modules/poc`        | Go plugin registry, HTTP/TCP/sniffer/brute plugins                                                              |
+| `internal/modules/tasking`    | Task state machine, steps, outbox, worker handlers                                                              |
+| `internal/modules/monitoring` | Monitors, schedules, leader lease                                                                               |
+| `internal/modules/github`     | GitHub search and monitoring                                                                                    |
+| `internal/modules/reporting`  | CSV/XLSX reports                                                                                                |
+| `internal/store`              | MongoDB repositories and indexes                                                                                |
+| `internal/platform`           | Config, logging, Redis Streams, auth primitives, network safety, notifications and ProjectDiscovery SDK helpers |
 
 Modules share the domain model but do not reach into another module's private
 helpers. Repository access is centralized in `internal/store`.
+
+## Console
+
+The embedded console lives in `web/` and is built with React, TypeScript, Vite,
+Tailwind CSS, Radix/shadcn-style primitives, TanStack Query/Table and ECharts.
+The checked-in OpenAPI document is the source for generated TypeScript types.
+Shareable list filters and map/graph selection live in the URL; server state is
+cached by TanStack Query. The console is organization-centric and exposes
+overview, organizations, assets, findings and tasks as the primary path while
+automation, intelligence and administration remain secondary navigation groups.
 
 ## Scanner pipeline
 
@@ -98,18 +108,18 @@ environment variables or read-only files and are never persisted.
 
 ## Queue topology
 
-| Queue | Work |
-|---|---|
-| `q.discovery.dns` | DNS and Fofa discovery |
-| `q.discovery.network` | Port/TLS scanning |
-| `q.web.fetch` | HTTP probing |
-| `q.web.scan` | Fingerprints, WIH, spider, file leak, screenshots, nuclei |
-| `q.poc.http` | HTTP/brute checks |
-| `q.poc.service` | Protocol sniffing |
-| `q.monitor` | Monitoring work |
-| `q.github` | GitHub jobs |
-| `q.icp` | ICP organization refresh |
-| `q.maintenance` | Statistics/export/maintenance |
+| Queue                 | Work                                                      |
+| --------------------- | --------------------------------------------------------- |
+| `q.discovery.dns`     | DNS and Fofa discovery                                    |
+| `q.discovery.network` | Port/TLS scanning                                         |
+| `q.web.fetch`         | HTTP probing                                              |
+| `q.web.scan`          | Fingerprints, WIH, spider, file leak, screenshots, nuclei |
+| `q.poc.http`          | HTTP/brute checks                                         |
+| `q.poc.service`       | Protocol sniffing                                         |
+| `q.monitor`           | Monitoring work                                           |
+| `q.github`            | GitHub jobs                                               |
+| `q.icp`               | ICP organization refresh                                  |
+| `q.maintenance`       | Statistics/export/maintenance                             |
 
 Each queue is a Redis Stream named `arl:jobs:<queue>` with consumer group
 `arl-workers`. Consumers use manual acknowledgement and remove acknowledged

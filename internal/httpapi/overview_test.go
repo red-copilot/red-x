@@ -73,3 +73,14 @@ func TestSearchReturnsGroupedHitsAndRejectsShortQuery(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestOverviewSinceAllUsesPastInsteadOfZero(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	got, ok := overviewSince("all", now)
+	if !ok {
+		t.Fatal("all range should be accepted")
+	}
+	if got.IsZero() || !got.Before(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("all range should use a far-past sentinel, got %s", got)
+	}
+}

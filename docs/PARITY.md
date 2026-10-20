@@ -2,33 +2,33 @@
 
 This document maps the legacy Flask surface to the Go implementation. Status is intentionally explicit.
 
-| Legacy capability | New surface | Status |
-|---|---|---|
-| Token login / logout / password change | `/api/v1/auth/*` | Implemented (Cookie JWT + refresh + CSRF) |
-| Admin user management | `/api/v1/users` | Implemented |
-| Task submit/list/detail/stop/delete/retry | `/api/v1/tasks` | Implemented |
-| Task real-time progress | `/api/v1/tasks/{id}/events` | Implemented (SSE) |
-| Domain brute and DNS resolution | `discovery` package + `dns` step | Implemented (`dnsx` v1.3.1 SDK) |
-| Passive DNS plugins | `crtsh`, `alienvault`, `rapiddns`, `fofa` | Implemented (`subfinder` v2.17.0 SDK plus Fofa API); ICANN root-domain tasks enumerate automatically, subdomains and private/unmanaged suffixes do not |
-| Port scan / service detection / TLS cert | `port` step | Implemented (`naabu` v2.6.1 and `tlsx` v1.4.1 SDKs) |
-| OS detection | `port` step | Best effort from naabu service metadata only |
-| Site probing / title / favicon / headers | `http` step | Implemented (`httpx` v1.12.0 SDK) |
-| Fingerprint library and boolean rules | `/api/v1/fingerprints` + `webintel` | Implemented |
-| Site screenshot | `webintel.Screenshotter` | Implemented when Chromium is installed |
-| Site spider | `webintel.KatanaCrawler` | Implemented (`katana` v1.8.0 SDK) |
-| File leak | `webintel.FileLeakScanner` | Implemented |
-| WIH / JS secret collection | `webintel.WIHScanner` | Implemented (regex rule engine) |
-| NPoC POC/sniffer/brute plugins | `/api/v1/poc/plugins` | 96 registered; see plugin note below |
-| nuclei scan | `webintel.NucleiSDKScanner` | Implemented (`nuclei` v3.11.1 SDK, HTTP templates) |
-| Asset groups and tags | `/api/v1/scopes` | Implemented |
-| EASM organization, domain review, assets, findings, scans and reports | `/api/v1/easm/*`, `/organizations/*` | Implemented (global organization model) |
-| Result sets / risk cruising | task options + result-set store | Partial |
-| Policies | `/api/v1/policies` | Implemented |
-| Monitors / schedules | `/api/v1/monitors`, `/schedules` | Implemented |
-| GitHub search and monitor | `/api/v1/github/*` | Implemented (API token required) |
-| CSV / Excel export | `/api/v1/exports` | Implemented |
-| DingTalk/Feishu/WeCom/email/webhook | `platform/notify` | Implemented |
-| Console/device metrics | `/api/v1/system/info`, `/metrics` | Implemented |
+| Legacy capability                                                     | New surface                                                            | Status                                                                                                                                                 |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Token login / logout / password change                                | `/api/v1/auth/*`                                                       | Implemented (Cookie JWT + refresh + CSRF)                                                                                                              |
+| Admin user management                                                 | `/api/v1/users`                                                        | Implemented                                                                                                                                            |
+| Task submit/list/detail/stop/delete/retry                             | `/api/v1/tasks`                                                        | Implemented                                                                                                                                            |
+| Task real-time progress                                               | `/api/v1/tasks/{id}/events`                                            | Implemented (SSE)                                                                                                                                      |
+| Domain brute and DNS resolution                                       | `discovery` package + `dns` step                                       | Implemented (`dnsx` v1.3.1 SDK)                                                                                                                        |
+| Passive DNS plugins                                                   | `crtsh`, `alienvault`, `rapiddns`, `fofa`                              | Implemented (`subfinder` v2.17.0 SDK plus Fofa API); ICANN root-domain tasks enumerate automatically, subdomains and private/unmanaged suffixes do not |
+| Port scan / service detection / TLS cert                              | `port` step                                                            | Implemented (`naabu` v2.6.1 and `tlsx` v1.4.1 SDKs)                                                                                                    |
+| OS detection                                                          | `port` step                                                            | Best effort from naabu service metadata only                                                                                                           |
+| Site probing / title / favicon / headers                              | `http` step                                                            | Implemented (`httpx` v1.12.0 SDK)                                                                                                                      |
+| Fingerprint library and boolean rules                                 | `/api/v1/fingerprints` + `webintel`                                    | Implemented                                                                                                                                            |
+| Site screenshot                                                       | `webintel.Screenshotter`                                               | Implemented when Chromium is installed                                                                                                                 |
+| Site spider                                                           | `webintel.KatanaCrawler`                                               | Implemented (`katana` v1.8.0 SDK)                                                                                                                      |
+| File leak                                                             | `webintel.FileLeakScanner`                                             | Implemented                                                                                                                                            |
+| WIH / JS secret collection                                            | `webintel.WIHScanner`                                                  | Implemented (regex rule engine)                                                                                                                        |
+| NPoC POC/sniffer/brute plugins                                        | `/api/v1/poc/plugins`                                                  | 96 registered; see plugin note below                                                                                                                   |
+| nuclei scan                                                           | `webintel.NucleiSDKScanner`                                            | Implemented (`nuclei` v3.11.1 SDK, HTTP templates)                                                                                                     |
+| Asset groups and tags                                                 | `/api/v1/scopes`                                                       | Implemented                                                                                                                                            |
+| EASM organization, domain review, assets, findings, scans and reports | `/api/v1/organizations/*`, `/overview`, `/assets`, `/findings`, `/map` | Implemented (organization-centric API and React console)                                                                                               |
+| Result sets / risk cruising                                           | task options + result-set store                                        | Partial                                                                                                                                                |
+| Policies                                                              | `/api/v1/policies`                                                     | Implemented                                                                                                                                            |
+| Monitors / schedules                                                  | `/api/v1/monitors`, `/schedules`                                       | Implemented                                                                                                                                            |
+| GitHub search and monitor                                             | `/api/v1/github/*`                                                     | Implemented (API token required)                                                                                                                       |
+| CSV / Excel export                                                    | `/api/v1/exports`                                                      | Implemented                                                                                                                                            |
+| DingTalk/Feishu/WeCom/email/webhook                                   | `platform/notify`                                                      | Implemented                                                                                                                                            |
+| Console/device metrics                                                | `/api/v1/system/info`, `/metrics`                                      | Implemented                                                                                                                                            |
 
 ## Plugin note
 
@@ -36,7 +36,8 @@ The registry contains the legacy counts: 40 POC, 28 sniffer and 28 brute plugins
 
 ## Deliberate differences
 
-- No legacy MongoDB migration and no old `/api` compatibility.
+- No legacy MongoDB migration and no old `/api` compatibility; `/dashboard` and `/easm/*` API/page aliases are intentionally removed.
+- The console uses a direct JSON response contract with RFC 7807 problem errors instead of the old `{data: ...}` success envelope.
 - OS detection is limited to the OS metadata returned by naabu service probes.
 - Screenshots require a browser runtime.
 - Scanner result timing and fingerprints differ from nmap/massdns; ProjectDiscovery SDKs are pinned in `go.mod`.

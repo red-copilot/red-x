@@ -10,7 +10,7 @@ build: frontend
 
 test:
 	go test ./...
-	cd web && npm run typecheck
+	cd web && npm run typecheck && npm test
 
 race:
 	go test -race ./...
@@ -22,12 +22,12 @@ verify:
 	go mod verify
 	go vet ./...
 	go test ./...
-	cd web && npm run typecheck
+	cd web && npm run lint && npm run typecheck && npm test && npm run build
 
 lint:
 	test -z "$$(gofmt -l cmd internal)"
 	go vet ./...
-	cd web && npm run typecheck
+	cd web && npm run lint && npm run typecheck
 
 compose-build:
 	docker compose -f deploy/compose.yaml build

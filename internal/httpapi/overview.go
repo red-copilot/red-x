@@ -87,7 +87,7 @@ func overviewSince(raw string, now time.Time) (time.Time, bool) {
 	case "90d":
 		return now.Add(-90 * 24 * time.Hour), true
 	case "all":
-		return time.Time{}, true
+		return time.Unix(0, 0).UTC(), true
 	default:
 		return time.Time{}, false
 	}

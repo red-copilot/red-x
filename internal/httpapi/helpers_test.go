@@ -73,7 +73,7 @@ func TestServeSPADoesNotTreatAssetDirectoryAsFile(t *testing.T) {
 		if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 			t.Fatalf("%s content-type = %q", target, got)
 		}
-		if !strings.Contains(rec.Body.String(), `<div id="app">`) {
+		if !strings.Contains(rec.Body.String(), `<div id="root">`) {
 			t.Fatalf("%s did not return the SPA index", target)
 		}
 	}

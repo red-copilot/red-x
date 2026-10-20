@@ -1,6 +1,6 @@
 # ARL · Asset Reconnaissance Lighthouse
 
-ARL 是一个面向授权安全测试的资产侦察平台。当前代码库已从 Flask/Celery/Python 重构为 **Go 模块化单体 + Vue 3 控制台**。
+ARL 是一个面向授权安全测试的资产侦察平台。当前代码库已从 Flask/Celery/Python 重构为 **Go 模块化单体 + React 控制台**。
 
 > 仅用于已获得明确授权的资产、域名、IP 和站点测试。使用前请阅读 [Disclaimer.md](Disclaimer.md)。
 
@@ -10,7 +10,7 @@ ARL 是一个面向授权安全测试的资产侦察平台。当前代码库已�
 - MongoDB 保存任务、资产、发现、监控和审计数据。
 - Redis Streams 承载异步任务；开发模式可使用内存队列。
 - DNS、端口、HTTP、TLS、指纹、WIH、文件泄漏和 PoC 引擎均在 Go 进程内实现。
-- 前端为 Vue 3 + TypeScript + Ant Design Vue，构建后嵌入 Go 二进制。
+- 前端为 React 19 + TypeScript + Vite，使用 Tailwind CSS、Radix/shadcn 风格组件、TanStack Query 与 ECharts，构建后嵌入 Go 二进制。
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，功能对照见 [docs/PARITY.md](docs/PARITY.md)。
 
@@ -81,17 +81,17 @@ docker compose -f deploy/compose.yaml up -d
 
 ## 命令
 
-| 命令 | 说明 |
-|---|---|
-| `arl web` | API、SSE、OpenAPI、嵌入式前端 |
-| `arl worker` | 消费 Redis Streams 任务 |
-| `arl scheduler` | 监控和计划任务调度（Mongo 租约选主） |
-| `arl migrate` | 创建索引、默认策略、管理员和 PoC 元数据 |
-| `arl doctor` | 检查配置、Mongo、队列、资源与 DNS |
-| `arl admin create-user` | 创建用户 |
-| `arl admin reset-password` | 重置密码 |
-| `arl poc sync` | 同步 Go 插件元数据到 MongoDB |
-| `arl health` | 容器健康检查 |
+| 命令                       | 说明                                    |
+| -------------------------- | --------------------------------------- |
+| `arl web`                  | API、SSE、OpenAPI、嵌入式前端           |
+| `arl worker`               | 消费 Redis Streams 任务                 |
+| `arl scheduler`            | 监控和计划任务调度（Mongo 租约选主）    |
+| `arl migrate`              | 创建索引、默认策略、管理员和 PoC 元数据 |
+| `arl doctor`               | 检查配置、Mongo、队列、资源与 DNS       |
+| `arl admin create-user`    | 创建用户                                |
+| `arl admin reset-password` | 重置密码                                |
+| `arl poc sync`             | 同步 Go 插件元数据到 MongoDB            |
+| `arl health`               | 容器健康检查                            |
 
 ## API
 
@@ -117,7 +117,7 @@ docker compose -f deploy/compose.yaml up -d
 go test ./...
 go test -race ./...
 go vet ./...
-cd web && npm run typecheck && npm run build
+cd web && npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 当前自动化覆盖认证密码/JWT、目标解析、端口列表、CIDR 展开、指纹 DSL、WIH 规则加载、96 个插件注册表和 Redis 协议识别。靶场集成测试需要本机 MongoDB/Redis；参见 `docs/ARCHITECTURE.md`。
@@ -134,7 +134,7 @@ internal/modules      业务模块
 internal/platform     配置、日志、队列、安全、通知
 internal/webui        嵌入式前端资源
 assets/               字典、指纹、WIH 和 nuclei 模板
-web/                  Vue 3 前端源码
+web/                  React / TypeScript / Vite 前端源码
 deploy/               Docker、Compose、systemd
 ```
 

@@ -1,41 +1,20 @@
 import { expect, test } from '@playwright/test'
+import { login } from './support'
 
-const username = process.env.E2E_USERNAME || 'admin'
-const password = process.env.E2E_PASSWORD || ''
-
-test('EASM overview and catalog pages load', async ({ page }) => {
-  test.skip(!password, 'E2E_PASSWORD is required')
-  await page.goto('/login')
-  await page.locator('input[autocomplete="username"]').fill(username)
-  await page.locator('input[autocomplete="current-password"]').fill(password)
-  await page.locator('button[type="submit"]').click()
-
-  await expect(page).toHaveURL(/\/easm$/)
-  await expect(page.getByText('外部攻击面态势')).toBeVisible()
-  await expect(page.locator('.easm-page')).toBeVisible()
-  await expect(page.getByText(/ICP ·/)).toBeVisible()
-
-  const orgButton = page.locator('aside.rail button.org').first()
-  if (await orgButton.count()) {
-    await orgButton.click()
-    await expect(page.locator('aside.inspector')).toBeVisible()
-    const graph = page.getByRole('button', { name: '图谱' })
-    if (await graph.isEnabled()) await graph.click()
-  }
-
-  await page.getByText('组织治理', { exact: true }).click()
-  await expect(page).toHaveURL(/\/easm\/organizations$/)
-  await expect(page.getByRole('heading', { name: 'EASM 组织' })).toBeVisible()
-
-  await page.getByText('EASM 资产', { exact: true }).click()
-  await expect(page).toHaveURL(/\/easm\/assets$/)
-  await expect(page.getByRole('heading', { name: 'EASM 资产' })).toBeVisible()
-
-  await page.getByText('EASM 风险', { exact: true }).click()
-  await expect(page).toHaveURL(/\/easm\/findings$/)
-  await expect(page.getByRole('heading', { name: 'EASM 风险' })).toBeVisible()
-
-  await page.getByText('EASM 任务', { exact: true }).click()
-  await expect(page).toHaveURL(/\/easm\/tasks$/)
-  await expect(page.getByRole('heading', { name: 'EASM 任务' })).toBeVisible()
+test('surface overview and primary pages load', async ({ page }) => {
+  await login(page)
+  await expect(page.getByText('外部攻击面总览')).toBeVisible()
+  await expect(page.getByText('风险组织')).toBeVisible()
+  await page.getByRole('link', { name: '组织工作区' }).click()
+  await expect(page).toHaveURL(/\/organizations$/)
+  await expect(page.getByRole('heading', { name: '组织治理' })).toBeVisible()
+  await page.getByRole('link', { name: '资产', exact: true }).click()
+  await expect(page).toHaveURL(/\/assets$/)
+  await expect(page.getByRole('heading', { name: '攻击面资产' })).toBeVisible()
+  await page.getByRole('link', { name: '风险', exact: true }).click()
+  await expect(page).toHaveURL(/\/findings$/)
+  await expect(page.getByRole('heading', { name: '当前风险' })).toBeVisible()
+  await page.getByRole('link', { name: '任务', exact: true }).click()
+  await expect(page).toHaveURL(/\/tasks$/)
+  await expect(page.getByRole('heading', { name: '扫描任务' })).toBeVisible()
 })

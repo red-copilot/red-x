@@ -1,21 +1,139 @@
-:root {
-  color-scheme: light;
-  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-  background: #f3f6fb;
-  color: #1d2433;
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-body { margin: 0; min-width: 320px; background: #f3f6fb; }
-* { box-sizing: border-box; }
+:root {
+  --background: #f6f7f9;
+  --foreground: #172033;
+  --card: #ffffff;
+  --card-foreground: #172033;
+  --popover: #ffffff;
+  --popover-foreground: #172033;
+  --primary: #214e8a;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2f7;
+  --secondary-foreground: #23324a;
+  --muted: #f0f2f5;
+  --muted-foreground: #667085;
+  --accent: #e8eef7;
+  --accent-foreground: #1b3f70;
+  --destructive: #b42318;
+  --border: #e1e5eb;
+  --input: #d8dee8;
+  --ring: #214e8a;
+  --radius: 0.5rem;
+  --risk-critical: #b42318;
+  --risk-high: #d9480f;
+  --risk-medium: #a15c00;
+  --risk-low: #2563a5;
+  --risk-info: #667085;
+  --success: #027a48;
+}
 
-.page-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-title h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
-.muted { color: #6b7280; }
-.mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
-.table-toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
-.metric-card { border-radius: 14px; background: #fff; padding: 18px; border: 1px solid #e5eaf2; }
-.metric-card .label { color: #6b7280; font-size: 13px; }
-.metric-card .value { margin-top: 8px; font-size: 28px; font-weight: 700; }
-.json-block { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #dbeafe; padding: 14px; border-radius: 10px; font-size: 12px; }
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Inter,
+    'Noto Sans SC',
+    'PingFang SC',
+    'Microsoft YaHei',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: #cfe0f7;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.mono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
+
+.risk-critical {
+  color: var(--risk-critical);
+}
+.risk-high {
+  color: var(--risk-high);
+}
+.risk-medium {
+  color: var(--risk-medium);
+}
+.risk-low {
+  color: var(--risk-low);
+}
+.risk-info {
+  color: var(--risk-info);
+}
+
+.data-grid {
+  background-image:
+    linear-gradient(to right, rgb(33 78 138 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(33 78 138 / 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}

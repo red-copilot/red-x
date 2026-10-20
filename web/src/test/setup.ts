@@ -1,20 +1,22 @@
-import { vi } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 
-if (!window.matchMedia) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  })
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  }),
+})
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
 }
-
-const getComputedStyle = window.getComputedStyle.bind(window)
-window.getComputedStyle = ((element: Element) => getComputedStyle(element)) as typeof window.getComputedStyle
+globalThis.ResizeObserver = ResizeObserverMock as typeof ResizeObserver

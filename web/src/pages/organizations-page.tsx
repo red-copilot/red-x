@@ -1,0 +1,243 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FileUp, Plus, RefreshCw, Search } from 'lucide-react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
+import { api } from '@/api'
+import { RiskBadge, StatusBadge } from '@/components/common/badges'
+import { DataTable } from '@/components/common/data-table'
+import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { PageHeader } from '@/components/common/page-header'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { canWrite } from '@/lib/access'
+import { useAuth } from '@/app/auth'
+
+export function OrganizationsPage() {
+  const { role } = useAuth()
+  const queryClient = useQueryClient()
+  const [query, setQuery] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [form, setForm] = useState({ canonicalName: '', aliases: '', region: '', uscc: '' })
+  const orgs = useQuery({ queryKey: ['organizations', query], queryFn: () => api.organizations(query) })
+  const map = useQuery({ queryKey: ['map'], queryFn: () => api.map() })
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.createOrganization({
+        canonicalName: form.canonicalName,
+        aliases: form.aliases
+          .split('|')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        region: form.region,
+        uscc: form.uscc,
+      }),
+    onSuccess: () => {
+      toast.success('组织已创建')
+      setCreateOpen(false)
+      setForm({ canonicalName: '', aliases: '', region: '', uscc: '' })
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const importOrgs = useMutation({
+    mutationFn: (file: File) => api.importOrganizations(file),
+    onSuccess: () => {
+      toast.success('组织数据已导入')
+      setImportOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  const riskByOrg = new Map((map.data?.organizations || []).map((item) => [item.orgId, item]))
+  const rows = orgs.data?.items || []
+  return (
+    <div>
+      <PageHeader
+        title="组织治理"
+        description="按单位维护备案主域、归属证据、风险覆盖与扫描任务。组织是 ARL 攻击面工作区的主线。"
+        actions={
+          canWrite(role) ? (
+            <>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <FileUp />
+                导入 CSV
+              </Button>
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus />
+                新建组织
+              </Button>
+            </>
+          ) : null
+        }
+      />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <form
+          className="relative min-w-0 flex-1 sm:max-w-sm"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void orgs.refetch()
+          }}
+        >
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索组织名称、别名或信用代码…"
+            className="pl-8"
+          />
+        </form>
+        <Button variant="outline" onClick={() => void orgs.refetch()}>
+          <RefreshCw />
+          刷新
+        </Button>
+        <span className="ml-auto text-[11px] text-muted-foreground">共 {rows.length} 个组织</span>
+      </div>
+      {orgs.isLoading ? (
+        <LoadingBlock />
+      ) : orgs.error ? (
+        <ErrorState error={orgs.error} retry={() => orgs.refetch()} />
+      ) : (
+        <DataTable
+          rows={rows}
+          rowKey={(row) => row.id || row.canonicalName || 'org'}
+          empty={
+            <EmptyState
+              title="还没有组织"
+              description="导入包含组织名称和主域名的 CSV，或先创建单个组织。"
+              action={
+                canWrite(role) ? (
+                  <Button onClick={() => setImportOpen(true)}>
+                    <FileUp />
+                    导入组织
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+          columns={[
+            {
+              key: 'name',
+              header: '组织',
+              cell: (row) => (
+                <Link to={`/organizations/${row.id}`} className="font-medium text-primary hover:underline">
+                  {row.canonicalName}
+                </Link>
+              ),
+            },
+            { key: 'region', header: '地区', cell: (row) => row.region || '—', hideOnTablet: true },
+            {
+              key: 'aliases',
+              header: '别名',
+              cell: (row) =>
+                row.aliases?.length ? (
+                  <span className="text-muted-foreground">{row.aliases.slice(0, 2).join(' / ')}</span>
+                ) : (
+                  '—'
+                ),
+              hideOnTablet: true,
+            },
+            { key: 'risk', header: '最高风险', cell: (row) => <RiskBadge risk={riskByOrg.get(row.id || '')?.risk} /> },
+            {
+              key: 'assets',
+              header: '暴露资产',
+              cell: (row) => <span className="tabular-nums">{riskByOrg.get(row.id || '')?.assetCount ?? '—'}</span>,
+            },
+            { key: 'status', header: '状态', cell: (row) => <StatusBadge status={row.status} /> },
+            {
+              key: 'updated',
+              header: '最近更新',
+              cell: (row) => (row.updatedAt ? new Date(row.updatedAt).toLocaleDateString('zh-CN') : '—'),
+              hideOnTablet: true,
+            },
+          ]}
+        />
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建组织</DialogTitle>
+            <DialogDescription>创建后可继续添加候选主域并执行 ICP 归属反查。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Field label="组织名称">
+              <Input
+                value={form.canonicalName}
+                onChange={(event) => setForm({ ...form, canonicalName: event.target.value })}
+              />
+            </Field>
+            <Field label="别名（用 | 分隔）">
+              <Input value={form.aliases} onChange={(event) => setForm({ ...form, aliases: event.target.value })} />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="地区">
+                <Input value={form.region} onChange={(event) => setForm({ ...form, region: event.target.value })} />
+              </Field>
+              <Field label="统一社会信用代码">
+                <Input value={form.uscc} onChange={(event) => setForm({ ...form, uscc: event.target.value })} />
+              </Field>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              取消
+            </Button>
+            <Button disabled={!form.canonicalName.trim() || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? '创建中…' : '创建组织'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导入组织 CSV</DialogTitle>
+            <DialogDescription>
+              必填列 canonicalName；可选 aliases、region、uscc、rootDomains。多个别名用 | 分隔，多个主域用分号分隔。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 text-[11px] leading-5 text-muted-foreground">
+            <div className="mono">canonicalName,aliases,region,uscc,rootDomains</div>
+            <div className="mono">四川某学院,学院A|学院B,蜀,12510000...,guc.edu.cn;example.edu.cn</div>
+          </div>
+          <Input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) importOrgs.mutate(file)
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)}>
+              取消
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
