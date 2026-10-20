@@ -181,7 +181,7 @@ set +a
 
 **不要提交真实密钥。** `config.example.yaml` 只作为模板；systemd 部署应把敏感覆盖项写入权限为 `0640` 的 `/etc/arl/arl.env` 或外部密钥管理系统。
 
-## 命令行
+## CLI and Operations · 命令行与运维
 
 | 命令 | 说明 |
 | --- | --- |
@@ -195,14 +195,14 @@ set +a
 | `arl graph rebuild` | 重建 Neo4j 关系投影（启用关系图时） |
 | `arl version` | 打印版本 |
 
-### 部署与运维
+### Deployment and Operations · 部署与运维
 
 - PostgreSQL 迁移从空库开始：旧版 MongoDB 数据不会自动导入；启用 Neo4j 时升级后执行一次 `./arl graph rebuild`。
 - systemd：`sudo ./deploy/install.sh` 安装单节点 `arl.service`、二进制和外部资产；配置与环境文件分别位于 `/etc/arl/config.yaml`、`/etc/arl/arl.env`，数据目录为 `/var/lib/arl`。
 - Redis 切换/升级前运行 `./scripts/redis-preflight.sh --config config.yaml`，检查连通性、版本、AOF、内存策略、队列深度并执行 `arl doctor`；迁移切换可加 `--require-empty`。
 - EASM 在线冒烟使用 `./scripts/easm-live-smoke.sh`；默认只做只读检查，设置 `EASM_LIVE_SCAN=1` 才会发起有界扫描。
 
-## API
+## API Reference · API 参考
 
 - OpenAPI 3.1：`/api/v1/openapi.json`
 - 文档入口：`/api/v1/docs`
