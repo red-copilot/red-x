@@ -129,7 +129,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, version strin
 	)
 	safeClient := pdtools.NewSafeHTTPClient(policy, cfg.Scan.ProxyURL, cfg.Scanners.HTTPX.Timeout)
 	passive := discovery.NewSubfinderEnumerator(
-		cfg.Scanners.Subfinder.Sources, cfg.Scanners.Subfinder.Threads,
+		cfg.Scanners.Subfinder.All, cfg.Scanners.Subfinder.Sources, cfg.Scanners.Subfinder.Threads,
 		cfg.Scanners.Subfinder.Timeout, cfg.Scanners.Subfinder.MaxEnumerationTime, providerConfig,
 	)
 	passive.MaxResults = cfg.Scan.MaxHosts

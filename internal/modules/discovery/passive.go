@@ -16,6 +16,7 @@ import (
 )
 
 type SubfinderEnumerator struct {
+	All                bool
 	Sources            []string
 	Threads            int
 	Timeout            int
@@ -24,9 +25,18 @@ type SubfinderEnumerator struct {
 	ProviderConfig     string
 }
 
-func NewSubfinderEnumerator(sources []string, threads, timeout, maxEnumerationTime int, providerConfig string) *SubfinderEnumerator {
+func NewSubfinderEnumerator(all bool, sources []string, threads, timeout, maxEnumerationTime int, providerConfig string) *SubfinderEnumerator {
+	for _, source := range sources {
+		if strings.EqualFold(strings.TrimSpace(source), "all") {
+			all = true
+			break
+		}
+	}
+	if all {
+		sources = nil
+	}
 	return &SubfinderEnumerator{
-		Sources: sources, Threads: threads, Timeout: timeout,
+		All: all, Sources: sources, Threads: threads, Timeout: timeout,
 		MaxEnumerationTime: maxEnumerationTime, ProviderConfig: providerConfig,
 	}
 }
@@ -46,6 +56,7 @@ func (s *SubfinderEnumerator) Enumerate(ctx context.Context, domain string) (Pas
 	)
 	options := &subfinderrunner.Options{
 		Domain:             []string{domain},
+		All:                s.All,
 		Sources:            s.Sources,
 		Threads:            s.Threads,
 		Timeout:            s.Timeout,

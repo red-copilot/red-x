@@ -99,6 +99,7 @@ type ScannersConfig struct {
 }
 
 type SubfinderScannerConfig struct {
+	All                bool     `yaml:"all"`
 	Sources            []string `yaml:"sources"`
 	Threads            int      `yaml:"threads"`
 	Timeout            int      `yaml:"timeout"`
@@ -268,6 +269,7 @@ func Default() Config {
 		},
 		Scanners: ScannersConfig{
 			Subfinder: SubfinderScannerConfig{
+				All:                true,
 				Sources:            []string{"crtsh", "rapiddns", "alienvault"},
 				Threads:            10,
 				Timeout:            30,
@@ -356,6 +358,9 @@ func applyEnv(c *Config) {
 	set("ARL_ICP_ICPQUERY_BASE_URL", &c.ICP.ICPQuery.BaseURL)
 	if v := os.Getenv("ARL_COOKIE_SECURE"); v != "" {
 		c.Auth.CookieSecure, _ = strconv.ParseBool(v)
+	}
+	if v := os.Getenv("ARL_SUBFINDER_ALL"); v != "" {
+		c.Scanners.Subfinder.All, _ = strconv.ParseBool(v)
 	}
 	if v := os.Getenv("ARL_POSTGRES_MAX_OPEN_CONNS"); v != "" {
 		c.Postgres.MaxOpenConns, _ = strconv.Atoi(v)

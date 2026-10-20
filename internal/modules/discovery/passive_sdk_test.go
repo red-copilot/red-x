@@ -41,3 +41,28 @@ func TestAppendSubfinderEntryHonorsLimit(t *testing.T) {
 		t.Fatalf("collected %d entries, want 2", len(entries))
 	}
 }
+
+func TestNewSubfinderEnumeratorAllSources(t *testing.T) {
+	tests := []struct {
+		name        string
+		all         bool
+		sources     []string
+		wantAll     bool
+		wantSources int
+	}{
+		{name: "explicit all", all: true, sources: []string{"crtsh"}, wantAll: true, wantSources: 0},
+		{name: "all sentinel", sources: []string{"crtsh", "ALL"}, wantAll: true, wantSources: 0},
+		{name: "explicit sources", sources: []string{"crtsh", "rapiddns"}, wantAll: false, wantSources: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enumerator := NewSubfinderEnumerator(tc.all, tc.sources, 10, 30, 5, "")
+			if enumerator.All != tc.wantAll {
+				t.Fatalf("All = %v, want %v", enumerator.All, tc.wantAll)
+			}
+			if len(enumerator.Sources) != tc.wantSources {
+				t.Fatalf("Sources = %v, want %d entries", enumerator.Sources, tc.wantSources)
+			}
+		})
+	}
+}

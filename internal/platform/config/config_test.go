@@ -12,6 +12,9 @@ func TestScannersDefaults(t *testing.T) {
 	if cfg.Scanners.Subfinder.Threads != 10 {
 		t.Fatalf("subfinder threads = %d, want 10", cfg.Scanners.Subfinder.Threads)
 	}
+	if !cfg.Scanners.Subfinder.All {
+		t.Fatal("subfinder all should default to true")
+	}
 	if got := cfg.Scanners.Subfinder.Sources; len(got) != 3 || got[0] != "crtsh" {
 		t.Fatalf("subfinder sources = %v", got)
 	}
@@ -52,11 +55,29 @@ scanners:
 	if cfg.Scanners.Subfinder.Threads != 2 {
 		t.Fatalf("threads = %d", cfg.Scanners.Subfinder.Threads)
 	}
+	if !cfg.Scanners.Subfinder.All {
+		t.Fatal("untouched all default should remain true")
+	}
 	if cfg.Scanners.Nuclei.TemplatesDir != "/tmp/templates" || cfg.Scanners.Nuclei.RateLimit != 5 {
 		t.Fatalf("nuclei config = %+v", cfg.Scanners.Nuclei)
 	}
 	if cfg.Scanners.Subfinder.Timeout != 30 {
 		t.Fatalf("untouched default timeout = %d, want 30", cfg.Scanners.Subfinder.Timeout)
+	}
+}
+
+func TestSubfinderAllEnvironmentOverride(t *testing.T) {
+	t.Setenv("ARL_SUBFINDER_ALL", "false")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("auth:\n  accessSecret: test-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scanners.Subfinder.All {
+		t.Fatal("ARL_SUBFINDER_ALL=false should override the default")
 	}
 }
 

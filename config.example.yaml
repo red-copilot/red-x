@@ -63,6 +63,8 @@ tools:
 
 scanners:
   subfinder:
+    # all: true uses every built-in source and ignores sources (subfinder --all).
+    all: true
     sources: ["crtsh", "rapiddns", "alienvault"]
     threads: 10
     timeout: 30
