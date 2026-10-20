@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -30,24 +31,118 @@ func (s *Store) UpsertAsset(ctx context.Context, kind domain.AssetKind, key stri
 		return nil, err
 	}
 	if err := s.db.WithContext(ctx).Exec(`
-INSERT INTO assets (id, kind, key, data, scope_ids, first_seen, last_seen, last_task_id, schema_version)
-VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
+INSERT INTO assets (id, kind, key, data, scope_ids, origin, first_seen, last_seen, last_task_id, schema_version)
+VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?)
 ON CONFLICT (kind, key) DO UPDATE SET
   data = EXCLUDED.data,
   last_seen = EXCLUDED.last_seen,
   last_task_id = EXCLUDED.last_task_id,
+  deleted_at = NULL,
+  deleted_by = '',
+  restored_at = CASE WHEN assets.deleted_at IS NOT NULL THEN EXCLUDED.last_seen ELSE assets.restored_at END,
+  restore_reason = CASE WHEN assets.deleted_at IS NOT NULL THEN 'scan_rediscovery' ELSE assets.restore_reason END,
   scope_ids = (
     SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
     FROM jsonb_array_elements_text(COALESCE(assets.scope_ids, '[]'::jsonb) || COALESCE(EXCLUDED.scope_ids, '[]'::jsonb)) AS item
-  )`, id, kind, key, string(raw), string(scopeJSON), now, now, taskID, domain.SchemaVersion).Error; err != nil {
+  )`, id, kind, key, string(raw), string(scopeJSON), domain.AssetOriginScan, now, now, taskID, domain.SchemaVersion).Error; err != nil {
 		return nil, err
 	}
 	var asset domain.Asset
-	if err := s.db.WithContext(ctx).Where("kind = ? AND key = ?", kind, key).First(&asset).Error; err != nil {
+	if err := active(s.db.WithContext(ctx)).Where("kind = ? AND key = ?", kind, key).First(&asset).Error; err != nil {
 		return nil, err
 	}
 	_ = s.AppendGraphOutbox(ctx, "asset", asset.ID, domain.OutboxOpUpsert)
 	return &asset, nil
+}
+
+func (s *Store) CreateManualAsset(ctx context.Context, asset *domain.Asset) error {
+	if asset == nil || strings.TrimSpace(string(asset.Kind)) == "" || strings.TrimSpace(asset.Key) == "" {
+		return errors.New("asset kind and key are required")
+	}
+	now := time.Now().UTC()
+	if asset.ID == "" {
+		id, err := domain.NewID()
+		if err != nil {
+			return err
+		}
+		asset.ID = id
+	}
+	if asset.Data == nil {
+		asset.Data = map[string]any{}
+	}
+	if asset.Tags == nil {
+		asset.Tags = []string{}
+	}
+	asset.Origin = domain.AssetOriginManual
+	asset.FirstSeen, asset.LastSeen, asset.SchemaVersion = now, now, domain.SchemaVersion
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(asset).Error; err != nil {
+			if isDuplicate(err) {
+				return domain.ErrRecordAlreadyExists
+			}
+			return err
+		}
+		return appendGraphOutboxTx(tx, "asset", asset.ID, domain.OutboxOpUpsert)
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+type AssetMetadataPatch struct {
+	DisplayName *string
+	DisplayURL  *string
+	Notes       *string
+	Tags        *[]string
+}
+
+func (s *Store) UpdateAssetMetadata(ctx context.Context, id string, patch AssetMetadataPatch) (*domain.Asset, error) {
+	updates := map[string]any{}
+	if patch.DisplayName != nil {
+		updates["display_name"] = strings.TrimSpace(*patch.DisplayName)
+	}
+	if patch.DisplayURL != nil {
+		updates["display_url"] = strings.TrimSpace(*patch.DisplayURL)
+	}
+	if patch.Notes != nil {
+		updates["notes"] = strings.TrimSpace(*patch.Notes)
+	}
+	if patch.Tags != nil {
+		updates["tags"] = jsonbExpr(uniqueNonEmptyStrings(*patch.Tags))
+	}
+	var asset domain.Asset
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := active(tx).Where("id = ?", id).First(&asset).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		if len(updates) > 0 {
+			if err := tx.Model(&domain.Asset{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		return active(tx).Where("id = ?", id).First(&asset).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &asset, nil
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *Store) ObserveAsset(ctx context.Context, taskID string, asset *domain.Asset, source string, snapshot map[string]any) error {
@@ -97,7 +192,10 @@ func (s *Store) ListAssets(ctx context.Context, kind, taskID, scopeID string, q 
 	}
 	if q.Search != "" {
 		pattern := ilike(q.Search)
-		db = db.Where(`(key ILIKE ? ESCAPE '\' OR data->>'title' ILIKE ? ESCAPE '\' OR data->>'url' ILIKE ? ESCAPE '\')`, pattern, pattern, pattern)
+		db = db.Where(`(key ILIKE ? ESCAPE '\' OR data->>'title' ILIKE ? ESCAPE '\' OR data->>'url' ILIKE ? ESCAPE '\'
+			OR display_name ILIKE ? ESCAPE '\' OR display_url ILIKE ? ESCAPE '\' OR notes ILIKE ? ESCAPE '\'
+			OR tags::text ILIKE ? ESCAPE '\')`,
+			pattern, pattern, pattern, pattern, pattern, pattern, pattern)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {

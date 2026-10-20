@@ -70,18 +70,33 @@ func (s *Store) SoftDeleteRecord(ctx context.Context, resourceType, id, actor st
 	if !ok {
 		return fmt.Errorf("unsupported lifecycle resource %q", resourceType)
 	}
-	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).Exec(
-		fmt.Sprintf("UPDATE %s SET deleted_at = ?, deleted_by = ?, restored_at = NULL, restore_reason = '' WHERE id = ? AND deleted_at IS NULL", resource.Table),
-		now, actor, id,
-	)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrRecordNotFound
-	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		result := tx.Exec(
+			fmt.Sprintf("UPDATE %s SET deleted_at = ?, deleted_by = ?, restored_at = NULL, restore_reason = '' WHERE id = ? AND deleted_at IS NULL", resource.Table),
+			now, actor, id,
+		)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrRecordNotFound
+		}
+		if resourceType == "user" {
+			if err := tx.Model(&domain.Session{}).
+				Where("user_id = ? AND revoked_at IS NULL", id).
+				Update("revoked_at", now).Error; err != nil {
+				return err
+			}
+		}
+		switch resourceType {
+		case "organization", "organization_domain", "asset":
+			if err := appendGraphOutboxTx(tx, resourceType, id, domain.OutboxOpDelete); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) RestoreRecord(ctx context.Context, resourceType, id, actor string) error {
@@ -90,18 +105,46 @@ func (s *Store) RestoreRecord(ctx context.Context, resourceType, id, actor strin
 		return fmt.Errorf("unsupported lifecycle resource %q", resourceType)
 	}
 	_ = actor
-	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).Exec(
-		fmt.Sprintf("UPDATE %s SET deleted_at = NULL, deleted_by = '', restored_at = ?, restore_reason = 'manual' WHERE id = ? AND deleted_at IS NOT NULL", resource.Table),
-		now, id,
-	)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrRecordNotFound
-	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if resourceType == "organization_domain" {
+			var domainRow domain.OrganizationDomain
+			if err := tx.Where("id = ? AND deleted_at IS NOT NULL", id).First(&domainRow).Error; err != nil {
+				if isNotFound(err) {
+					return domain.ErrRecordNotFound
+				}
+				return err
+			}
+			if domainRow.Status == domain.DomainStatusConfirmed {
+				var conflicts int64
+				if err := tx.Model(&domain.OrganizationDomain{}).
+					Where("root_domain = ? AND status = ? AND organization_id <> ? AND deleted_at IS NULL", domainRow.RootDomain, domain.DomainStatusConfirmed, domainRow.OrganizationID).
+					Count(&conflicts).Error; err != nil {
+					return err
+				}
+				if conflicts > 0 {
+					return domain.ErrDomainAlreadyConfirmed
+				}
+			}
+		}
+		now := time.Now().UTC()
+		result := tx.Exec(
+			fmt.Sprintf("UPDATE %s SET deleted_at = NULL, deleted_by = '', restored_at = ?, restore_reason = 'manual' WHERE id = ? AND deleted_at IS NOT NULL", resource.Table),
+			now, id,
+		)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrRecordNotFound
+		}
+		switch resourceType {
+		case "organization", "organization_domain", "asset":
+			if err := appendGraphOutboxTx(tx, resourceType, id, domain.OutboxOpUpsert); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) ListDeletedRecords(ctx context.Context, filter DeletedRecordFilter) ([]DeletedRecord, int64, error) {

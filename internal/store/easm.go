@@ -20,6 +20,13 @@ type ICPJobPatch struct {
 	FinishedAt  *time.Time
 }
 
+type OrganizationDomainPatch struct {
+	SiteName  *string
+	HomeSite  *string
+	ICPNo     *string
+	AuditDate *string
+}
+
 func (p ICPJobPatch) updates() map[string]any {
 	out := map[string]any{}
 	if p.Status != nil {
@@ -137,11 +144,26 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 				Where("organization_id = ? AND root_domain = ?", od.OrganizationID, od.RootDomain).
 				First(&existing).Error
 			if err == nil {
+				wasDeleted := existing.Deleted()
+				if wasDeleted && od.Status == domain.DomainStatusConfirmed {
+					var conflictCount int64
+					if err := tx.Model(&domain.OrganizationDomain{}).
+						Where("root_domain = ? AND status = ? AND organization_id <> ? AND deleted_at IS NULL", od.RootDomain, domain.DomainStatusConfirmed, od.OrganizationID).
+						Count(&conflictCount).Error; err != nil {
+						return err
+					}
+					if conflictCount > 0 {
+						return domain.ErrDomainAlreadyConfirmed
+					}
+				}
 				existing.SiteName, existing.HomeSite, existing.ICPNo, existing.AuditDate = od.SiteName, od.HomeSite, od.ICPNo, od.AuditDate
 				existing.Source, existing.Confidence, existing.EvidenceID = od.Source, od.Confidence, od.EvidenceID
 				existing.LastSeen, existing.UpdatedAt, existing.SchemaVersion = now, now, domain.SchemaVersion
 				if existing.Status == domain.DomainStatusCandidate {
 					existing.Status = od.Status
+				}
+				if wasDeleted {
+					existing.Lifecycle.MarkRestored(now, "reimport")
 				}
 				*od = existing
 				return tx.Save(&existing).Error
@@ -152,7 +174,7 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 			if od.Status == domain.DomainStatusConfirmed {
 				var n int64
 				if err := tx.Model(&domain.OrganizationDomain{}).
-					Where("root_domain = ? AND status = ? AND organization_id <> ?", od.RootDomain, domain.DomainStatusConfirmed, od.OrganizationID).
+					Where("root_domain = ? AND status = ? AND organization_id <> ? AND deleted_at IS NULL", od.RootDomain, domain.DomainStatusConfirmed, od.OrganizationID).
 					Count(&n).Error; err != nil {
 					return err
 				}
@@ -218,7 +240,7 @@ func (s *Store) ConfirmOrganizationDomains(ctx context.Context, orgID string, do
 		}
 		var conflict domain.OrganizationDomain
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("root_domain IN ? AND status = ? AND organization_id <> ?", roots, domain.DomainStatusConfirmed, orgID).
+			Where("root_domain IN ? AND status = ? AND organization_id <> ? AND deleted_at IS NULL", roots, domain.DomainStatusConfirmed, orgID).
 			First(&conflict).Error
 		if err == nil {
 			return fmt.Errorf("%w: %s", domain.ErrDomainAlreadyConfirmed, conflict.RootDomain)
@@ -470,6 +492,67 @@ func (s *Store) UpdateOrganization(ctx context.Context, org *domain.Organization
 		"uscc": org.USCC, "status": org.Status, "merged_into": org.MergedInto,
 		"updated_at": org.UpdatedAt,
 	}).Error
+}
+
+func (s *Store) DeleteOrganization(ctx context.Context, id, actor string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var org domain.Organization
+		if err := active(tx).Where("id = ?", id).First(&org).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		var activeTasks int64
+		if err := tx.Model(&domain.Task{}).
+			Where("organization_id = ? AND status IN ?", id, []domain.TaskStatus{domain.TaskQueued, domain.TaskRunning}).
+			Count(&activeTasks).Error; err != nil {
+			return err
+		}
+		if activeTasks > 0 {
+			return fmt.Errorf("%w: %d queued or running task(s)", domain.ErrResourceInUse, activeTasks)
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&domain.Organization{}).Where("id = ?", id).Updates(map[string]any{
+			"deleted_at": now, "deleted_by": actor, "restored_at": nil, "restore_reason": "",
+		}).Error; err != nil {
+			return err
+		}
+		return appendGraphOutboxTx(tx, "organization", id, domain.OutboxOpDelete)
+	})
+}
+
+func (s *Store) UpdateOrganizationDomainMetadata(ctx context.Context, orgID, domainID string, patch OrganizationDomainPatch) (*domain.OrganizationDomain, error) {
+	updates := map[string]any{"updated_at": time.Now().UTC()}
+	if patch.SiteName != nil {
+		updates["site_name"] = strings.TrimSpace(*patch.SiteName)
+	}
+	if patch.HomeSite != nil {
+		updates["home_site"] = strings.TrimSpace(*patch.HomeSite)
+	}
+	if patch.ICPNo != nil {
+		updates["icp_no"] = strings.TrimSpace(*patch.ICPNo)
+	}
+	if patch.AuditDate != nil {
+		updates["audit_date"] = strings.TrimSpace(*patch.AuditDate)
+	}
+	var row domain.OrganizationDomain
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := active(tx).Where("id = ? AND organization_id = ?", domainID, orgID).First(&row).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrRecordNotFound
+			}
+			return err
+		}
+		if err := tx.Model(&domain.OrganizationDomain{}).Where("id = ?", row.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+		return active(tx).Where("id = ?", row.ID).First(&row).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 func (s *Store) GetICPEvidence(ctx context.Context, id string) (*domain.ICPEvidence, error) {

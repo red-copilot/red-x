@@ -116,6 +116,9 @@ func (s *Server) Router() http.Handler {
 
 			protected.Get("/assets", s.handleAssets)
 			protected.Get("/assets/{id}", s.handleAsset)
+			protected.Post("/assets", s.requireWrite(s.handleCreateAsset))
+			protected.Patch("/assets/{id}", s.requireWrite(s.handleUpdateAsset))
+			protected.Delete("/assets/{id}", s.requireWrite(s.handleDeleteAsset))
 			protected.Get("/findings", s.handleFindings)
 			protected.Get("/findings/{id}/history", s.handleFindingHistory)
 
@@ -124,10 +127,13 @@ func (s *Server) Router() http.Handler {
 			protected.Post("/organizations/import", s.requireWrite(s.handleImportOrganizations))
 			protected.Get("/organizations/{id}", s.handleGetOrganization)
 			protected.Patch("/organizations/{id}", s.requireWrite(s.handleUpdateOrganization))
+			protected.Delete("/organizations/{id}", s.requireWrite(s.handleDeleteOrganization))
 			protected.Post("/domain-lookups", s.requireWrite(s.handleLookupDomain))
 			protected.Get("/domain-lookups/{id}", s.handleGetICPJob)
 			protected.Post("/organizations/{id}/icp-refresh", s.requireWrite(s.handleRefreshICP))
 			protected.Get("/organizations/{id}/domains", s.handleListOrgDomains)
+			protected.Patch("/organizations/{id}/domains/{domainId}", s.requireWrite(s.handleUpdateOrganizationDomain))
+			protected.Delete("/organizations/{id}/domains/{domainId}", s.requireWrite(s.handleDeleteOrganizationDomain))
 			protected.Post("/organizations/{id}/domains/confirm", s.requireWrite(s.handleConfirmDomains))
 			protected.Post("/organizations/{id}/domains/import", s.requireWrite(s.handleImportDomains))
 			protected.Post("/organizations/{id}/domains/{domainId}/reject", s.requireWrite(s.handleRejectOrganizationDomain))

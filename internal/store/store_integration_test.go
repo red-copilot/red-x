@@ -182,11 +182,11 @@ func TestMigrateIsConcurrentAndIndexesExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	required := map[string]bool{
-		"uniq_confirmed_root_domain":     false,
-		"uniq_assets_kind_key":           false,
-		"uniq_findings_task_kind_dedupe": false,
-		"idx_assets_key_trgm":            false,
-		"idx_organizations_name_trgm":    false,
+		"uniq_active_confirmed_root_domain": false,
+		"uniq_assets_kind_key":              false,
+		"uniq_findings_task_kind_dedupe":    false,
+		"idx_assets_key_trgm":               false,
+		"idx_organizations_name_trgm":       false,
 	}
 	for _, name := range indexes {
 		if _, ok := required[name]; ok {

@@ -51,7 +51,7 @@ func (s *Server) handleUpdateOrganization(w http.ResponseWriter, r *http.Request
 	}
 	_ = s.Store.AppendGraphOutbox(r.Context(), "organization", org.ID, domain.OutboxOpUpsert)
 	p := principalFrom(r.Context())
-	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "easm.organization_update", Resource: org.ID, Detail: map[string]any{"name": org.CanonicalName}})
+	s.Store.AddAudit(r.Context(), domain.AuditEvent{Actor: p.Username, Action: "organization.update", Resource: org.ID, Detail: map[string]any{"name": org.CanonicalName}})
 	httpx.WriteJSON(w, http.StatusOK, org)
 }
 
