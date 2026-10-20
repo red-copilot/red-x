@@ -75,27 +75,36 @@ func (r *Neo4jReader) ReadOrganizationGraph(ctx context.Context, orgID string, d
 		limit = 500
 	}
 	structureQuery := `
-MATCH (o:Organization {id:$orgId})
-OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+OPTIONAL MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
+WITH o, root, d
+WHERE d IS NOT NULL
+RETURN o.id AS orgId, o.name AS orgName, root.name AS rootDomain, root.entityId AS rootId,
+       d.name AS domain, d.entityId AS domainId, d.name = root.name AS isRoot,
        null AS ip, null AS ipId, null AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	if depth >= 2 {
 		structureQuery = `
-MATCH (o:Organization {id:$orgId})
-OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+OPTIONAL MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
+WITH o, root, d
+WHERE d IS NOT NULL
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
+RETURN o.id AS orgId, o.name AS orgName, root.name AS rootDomain, root.entityId AS rootId,
+       d.name AS domain, d.entityId AS domainId, d.name = root.name AS isRoot,
        ip.addr AS ip, ip.entityId AS ipId, ip.cdn AS cdn, null AS service, null AS serviceId, null AS port, null AS serviceName
 LIMIT $limit`
 	}
 	if depth >= 3 {
 		structureQuery = `
-MATCH (o:Organization {id:$orgId})
-OPTIONAL MATCH (o)-[:OWNS]->(d:Domain)
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+OPTIONAL MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
+WITH o, root, d
+WHERE d IS NOT NULL
 OPTIONAL MATCH (d)-[:RESOLVES_TO]->(ip:IP)
 OPTIONAL MATCH (ip)-[:EXPOSES]->(s:Service)
-RETURN o.id AS orgId, o.name AS orgName, d.name AS domain, d.entityId AS domainId,
+RETURN o.id AS orgId, o.name AS orgName, root.name AS rootDomain, root.entityId AS rootId,
+       d.name AS domain, d.entityId AS domainId, d.name = root.name AS isRoot,
        ip.addr AS ip, ip.entityId AS ipId, ip.cdn AS cdn, s.key AS service, s.entityId AS serviceId, s.port AS port, s.service AS serviceName
 LIMIT $limit`
 	}
@@ -120,12 +129,9 @@ LIMIT $limit`
 			orgName = n
 		}
 		domain := recordString(rec, "domain")
+		rootDomain := recordString(rec, "rootDomain")
 		ip := recordString(rec, "ip")
 		service := recordString(rec, "service")
-		if ip != "" {
-			// At depth >= 2 every row carries an IP; the org/domain nodes are still unique.
-			_ = domain
-		}
 		orgNodeID := oid
 		addNode(GraphNode{ID: orgNodeID, EntityID: oid, Type: "organization", Label: orgName})
 		if domain == "" {
@@ -133,7 +139,16 @@ LIMIT $limit`
 		}
 		domainID := "domain:" + domain
 		addNode(GraphNode{ID: domainID, EntityID: recordString(rec, "domainId"), Type: "domain", Label: domain})
-		addEdge(GraphEdge{ID: "owns:" + orgNodeID + ":" + domainID, Type: "OWNS", Source: orgNodeID, Target: domainID})
+		if rootDomain == "" {
+			continue
+		}
+		rootID := "domain:" + rootDomain
+		addNode(GraphNode{ID: rootID, EntityID: recordString(rec, "rootId"), Type: "domain", Label: rootDomain})
+		if recordBool(rec, "isRoot") {
+			addEdge(GraphEdge{ID: "owns:" + orgNodeID + ":" + domainID, Type: "OWNS", Source: orgNodeID, Target: domainID})
+		} else if domainID != rootID {
+			addEdge(GraphEdge{ID: "subdomain:" + domainID + ":" + rootID, Type: "SUBDOMAIN_OF", Source: domainID, Target: rootID})
+		}
 		if ip == "" {
 			continue
 		}
@@ -149,7 +164,8 @@ LIMIT $limit`
 	}
 
 	findings, err := r.query(ctx, `
-MATCH (o:Organization {id:$orgId})-[:OWNS]->(d:Domain)
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
 MATCH (f:Finding)-[:FOUND_ON]->(d)
 RETURN f.id AS id, f.kind AS kind, f.severity AS severity, f.title AS title,
        f.dedupeKey AS dedupeKey, f.createdAt AS createdAt, d.name AS target
@@ -165,7 +181,9 @@ LIMIT $limit`, map[string]any{"orgId": orgID, "limit": limit})
 	}
 	if depth >= 2 {
 		ipFindings, err := r.query(ctx, `
-MATCH (o:Organization {id:$orgId})-[:OWNS]->(:Domain)-[:RESOLVES_TO]->(ip:IP)
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
+MATCH (d)-[:RESOLVES_TO]->(ip:IP)
 MATCH (f:Finding)-[:FOUND_ON]->(ip)
 RETURN f.id AS id, f.kind AS kind, f.severity AS severity, f.title AS title,
        f.dedupeKey AS dedupeKey, f.createdAt AS createdAt, ip.addr AS target
@@ -181,7 +199,9 @@ LIMIT $limit`, map[string]any{"orgId": orgID, "limit": limit})
 		}
 		if depth >= 3 {
 			serviceFindings, err := r.query(ctx, `
-MATCH (o:Organization {id:$orgId})-[:OWNS]->(:Domain)-[:RESOLVES_TO]->(:IP)-[:EXPOSES]->(s:Service)
+MATCH (o:Organization {id:$orgId})-[:OWNS]->(root:Domain)
+MATCH (d:Domain)-[:SUBDOMAIN_OF*0..1]->(root)
+MATCH (d)-[:RESOLVES_TO]->(:IP)-[:EXPOSES]->(s:Service)
 MATCH (f:Finding)-[:FOUND_ON]->(s)
 RETURN f.id AS id, f.kind AS kind, f.severity AS severity, f.title AS title,
        f.dedupeKey AS dedupeKey, f.createdAt AS createdAt, s.key AS target

@@ -57,6 +57,22 @@ func TestNeo4jProjectionRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	subdomain := "www." + root
+	subdomainAssetID := domain.MustID()
+	if err := writer.MergeAsset(context.Background(), domain.Asset{
+		ID: subdomainAssetID, Kind: domain.AssetDomain, Key: subdomain, Data: map[string]any{"ips": []any{"1.1.1.2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	findingID := domain.MustID()
+	if err := writer.MergeFinding(context.Background(), domain.Finding{
+		ID: findingID, Kind: domain.FindingWIH, DedupeKey: findingID,
+		Title: "timezone regression", Severity: "info", Target: root,
+		CreatedAt: time.Now().Local(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer writer.DeleteEntityEdges(context.Background(), "finding", findingID)
 	defer writer.DeleteEntityEdges(context.Background(), "organization", orgID)
 	if err := reader.Probe(context.Background()); err != nil {
 		t.Fatal(err)
@@ -69,12 +85,22 @@ func TestNeo4jProjectionRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected graph nodes=%+v edges=%+v", nodes, edges)
 	}
 	foundDomain := false
+	foundSubdomain := false
+	foundSubdomainEdge := false
 	for _, node := range nodes {
 		if node.Type == "domain" && node.EntityID == assetID {
 			foundDomain = true
 		}
+		if node.Type == "domain" && node.Label == subdomain {
+			foundSubdomain = true
+		}
 	}
-	if !foundDomain {
-		t.Fatalf("domain entity id missing from graph nodes: %+v", nodes)
+	for _, edge := range edges {
+		if edge.Type == "SUBDOMAIN_OF" {
+			foundSubdomainEdge = true
+		}
+	}
+	if !foundDomain || !foundSubdomain || !foundSubdomainEdge {
+		t.Fatalf("subdomain graph missing: nodes=%+v edges=%+v", nodes, edges)
 	}
 }

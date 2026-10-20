@@ -90,7 +90,11 @@ func (w *Neo4jWriter) MergeAsset(ctx context.Context, asset domain.Asset) error 
 		}
 		ips := stringSlice(asset.Data["ips"])
 		cdn, cdnName := cdnOf(asset.Data)
-		return w.exec(ctx, `
+		params := map[string]any{
+			"key": asset.Key, "root": root, "id": asset.ID,
+			"cdn": cdn, "cdnName": cdnName, "ips": ips,
+		}
+		if err := w.exec(ctx, `
 MERGE (d:Domain {name:$key})
 SET d.root=$root, d.entityId=$id, d.cdn=$cdn
 WITH d
@@ -98,11 +102,16 @@ UNWIND $ips AS ipAddr
 MERGE (ip:IP {addr:ipAddr})
 SET ip.cdn = CASE WHEN ip.cdn THEN true ELSE $cdn END,
     ip.cdnName = CASE WHEN ip.cdnName IS NULL OR ip.cdnName = '' THEN $cdnName ELSE ip.cdnName END
-MERGE (d)-[:RESOLVES_TO]->(ip)`,
-			map[string]any{
-				"key": asset.Key, "root": root, "id": asset.ID,
-				"cdn": cdn, "cdnName": cdnName, "ips": ips,
-			})
+MERGE (d)-[:RESOLVES_TO]->(ip)`, params); err != nil {
+			return err
+		}
+		if root != "" && root != asset.Key {
+			return w.exec(ctx, `
+MERGE (d:Domain {name:$key})
+MERGE (r:Domain {name:$root})
+MERGE (d)-[:SUBDOMAIN_OF]->(r)`, params)
+		}
+		return nil
 	case domain.AssetIP:
 		cdn, cdnName := cdnOf(asset.Data)
 		return w.exec(ctx, `MERGE (ip:IP {addr:$key})
@@ -131,12 +140,13 @@ MERGE (ip)-[:EXPOSES]->(s)`,
 
 func (w *Neo4jWriter) MergeFinding(ctx context.Context, finding domain.Finding) error {
 	label, target, port := findingTargetNode(finding.Target)
+	createdAt := finding.CreatedAt.UTC()
 	if target == "" {
 		return w.exec(ctx, `MERGE (f:Finding {id:$id}) SET f.kind=$kind, f.severity=$severity, f.title=$title, f.dedupeKey=$dedupeKey, f.createdAt=$createdAt`,
 			map[string]any{
 				"id": finding.ID, "kind": string(finding.Kind),
 				"severity": finding.Severity, "title": finding.Title,
-				"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
+				"dedupeKey": finding.DedupeKey, "createdAt": createdAt,
 			})
 	}
 	if label == "IP" && port != "" {
@@ -153,7 +163,7 @@ FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END | MERGE (f)-[:FOUND_ON]->
 				map[string]any{
 					"id": finding.ID, "kind": string(finding.Kind),
 					"severity": finding.Severity, "title": finding.Title, "target": target,
-					"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt, "port": portNum,
+					"dedupeKey": finding.DedupeKey, "createdAt": createdAt, "port": portNum,
 				})
 		}
 	}
@@ -166,7 +176,7 @@ MERGE (f)-[:FOUND_ON]->(n)`, label, targetKey(label))
 	return w.exec(ctx, query, map[string]any{
 		"id": finding.ID, "kind": string(finding.Kind),
 		"severity": finding.Severity, "title": finding.Title, "target": target,
-		"dedupeKey": finding.DedupeKey, "createdAt": finding.CreatedAt,
+		"dedupeKey": finding.DedupeKey, "createdAt": createdAt,
 	})
 }
 
