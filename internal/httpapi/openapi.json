@@ -122,6 +122,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         }
       },
@@ -595,6 +609,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -630,6 +658,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -646,6 +688,11 @@
           "kind": {
             "type": "string"
           },
+        "options": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": true
+        },
           "scopeId": {
             "type": "string"
           },
@@ -668,6 +715,31 @@
           "lastRunAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "lastRunId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -684,6 +756,18 @@
           "kind": {
             "type": "string"
           },
+        "taskKind": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "resultSetId": {
+          "type": "string"
+        },
           "cron": {
             "type": "string"
           },
@@ -702,6 +786,39 @@
           "nextRunAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runCount": {
+          "type": "integer"
+        },
+        "lastRunAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -745,6 +862,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -802,6 +933,20 @@
           "lastSeen": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -1418,6 +1563,20 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deletedBy": {
+          "type": "string"
+        },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
           }
         },
         "additionalProperties": true
@@ -1472,6 +1631,20 @@
             "type": "string"
           },
           "rule": {
+            "type": "string"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deletedBy": {
+            "type": "string"
+          },
+          "restoredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restoreReason": {
             "type": "string"
           }
         }

@@ -131,6 +131,33 @@ func TestMaintainableObjectUpdateAndDeleteHandlers(t *testing.T) {
 	}
 }
 
+func TestUpdateUserRejectsInvalidPasswordWithoutPartialMutation(t *testing.T) {
+	st, ctx := newHTTPTestStore(t)
+	s := &Server{Store: st}
+	admin := &domain.User{Username: "atomic-admin", PasswordHash: "hash", Role: domain.RoleAdmin}
+	viewer := &domain.User{Username: "atomic-viewer", PasswordHash: "hash", Role: domain.RoleViewer}
+	for _, user := range []*domain.User{admin, viewer} {
+		if err := st.CreateUser(ctx, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := chi.NewRouter()
+	router.Patch("/users/{id}", s.requireAdmin(s.handleUpdateUser))
+	rec := requestWithUser(t, http.MethodPatch, "/users/"+viewer.ID, `{
+		"role":"operator","password":"short"
+	}`, admin.Username, admin.ID, domain.RoleAdmin, router)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	unchanged, err := st.GetUserByID(ctx, viewer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged == nil || unchanged.Role != domain.RoleViewer {
+		t.Fatalf("user was partially updated: %#v", unchanged)
+	}
+}
+
 func assertUpdate(t *testing.T, rec *httptest.ResponseRecorder, want string) {
 	t.Helper()
 	if rec.Code != http.StatusOK || !containsJSONValue(rec.Body.String(), want) {

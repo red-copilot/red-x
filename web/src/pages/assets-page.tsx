@@ -387,7 +387,9 @@ export function AssetsPage() {
           <DialogHeader>
             <DialogTitle>{editingId ? '编辑资产基础信息' : '新建手工资产'}</DialogTitle>
             <DialogDescription>
-              {editingId ? '类型、唯一键和扫描原始数据保持只读。' : '手工资产会标记为 manual 来源，不修改扫描生成的原始 data。'}
+              {editingId
+                ? '类型、唯一键和扫描原始数据保持只读。'
+                : '手工资产会标记为 manual 来源，不修改扫描生成的原始 data。'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -403,13 +405,11 @@ export function AssetsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {inventoryKinds
-                      .filter(Boolean)
-                      .map((item) => (
-                        <SelectItem key={item} value={item}>
-                          {item}
-                        </SelectItem>
-                      ))}
+                    {inventoryKinds.filter(Boolean).map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -454,7 +454,7 @@ export function AssetsPage() {
               disabled={(!editingId && (!form.kind || !form.key.trim())) || create.isPending || update.isPending}
               onClick={() => (editingId ? update.mutate() : create.mutate())}
             >
-              {(create.isPending || update.isPending) ? '保存中…' : editingId ? '保存修改' : '创建资产'}
+              {create.isPending || update.isPending ? '保存中…' : editingId ? '保存修改' : '创建资产'}
             </Button>
           </DialogFooter>
         </DialogContent>

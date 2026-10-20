@@ -89,3 +89,53 @@ func TestUserDeletionProtectsSelfAndLastAdmin(t *testing.T) {
 		t.Fatalf("deleted user session was not revoked: %#v", storedSession)
 	}
 }
+
+func TestUpdatesCannotReactivateDeletedRecords(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	org := &domain.Organization{CanonicalName: "Immutable Deleted Organization"}
+	policy := &domain.Policy{Name: "immutable-deleted-policy"}
+	scope := &domain.Scope{Name: "immutable-deleted-scope", Type: "domain", Targets: []string{"example.com"}}
+	monitor := &domain.Monitor{Name: "immutable-deleted-monitor", Kind: "domain", ScopeID: scope.ID, Target: "example.com", IntervalSec: 21600, Status: "active"}
+	schedule := &domain.Schedule{Name: "immutable-deleted-schedule", Kind: "recurrent_scan", TaskKind: domain.TaskDomain, Target: "example.com", PolicyID: policy.ID, Cron: "0 2 * * *", Status: "active"}
+	githubMonitor := &domain.GitHubMonitor{Name: "immutable-deleted-github", Keyword: "example.com", IntervalSec: 3600, Status: "active"}
+	user := &domain.User{Username: "immutable-deleted-user", PasswordHash: "hash", Role: domain.RoleViewer}
+	fingerprint := &FingerprintRule{Name: "immutable-deleted-fingerprint", Rule: `body="deleted"`}
+	for _, create := range []func() error{
+		func() error { return st.CreateOrganization(ctx, org) },
+		func() error { return st.CreatePolicy(ctx, policy) },
+		func() error { return st.CreateScope(ctx, scope) },
+		func() error { return st.CreateMonitor(ctx, monitor) },
+		func() error { return st.CreateSchedule(ctx, schedule) },
+		func() error { return st.CreateGitHubMonitor(ctx, githubMonitor) },
+		func() error { return st.CreateUser(ctx, user) },
+		func() error { return st.CreateFingerprint(ctx, fingerprint) },
+	} {
+		if err := create(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		resourceType string
+		id           string
+		update       func() error
+	}{
+		{"organization", org.ID, func() error { org.CanonicalName = "changed"; return st.UpdateOrganization(ctx, org) }},
+		{"policy", policy.ID, func() error { policy.Name = "changed"; return st.UpdatePolicy(ctx, policy) }},
+		{"scope", scope.ID, func() error { scope.Name = "changed"; return st.UpdateScope(ctx, scope) }},
+		{"monitor", monitor.ID, func() error { monitor.Name = "changed"; return st.UpdateMonitor(ctx, monitor) }},
+		{"schedule", schedule.ID, func() error { schedule.Name = "changed"; return st.UpdateSchedule(ctx, schedule) }},
+		{"github_monitor", githubMonitor.ID, func() error { githubMonitor.Name = "changed"; return st.UpdateGitHubMonitor(ctx, githubMonitor) }},
+		{"user", user.ID, func() error { user.Disabled = true; return st.UpdateUser(ctx, user) }},
+		{"fingerprint", fingerprint.ID, func() error { fingerprint.Name = "changed"; return st.UpdateFingerprint(ctx, fingerprint) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.resourceType, func(t *testing.T) {
+			if err := st.SoftDeleteRecord(ctx, tt.resourceType, tt.id, "operator"); err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.update(); !errors.Is(err, domain.ErrRecordNotFound) {
+				t.Fatalf("update error = %v, want ErrRecordNotFound", err)
+			}
+		})
+	}
+}

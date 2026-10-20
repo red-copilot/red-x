@@ -47,6 +47,31 @@ func TestOrganizationDeleteIsBlockedByActiveTask(t *testing.T) {
 	}
 }
 
+func TestDeletedOrganizationHidesOwnedDomains(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	org := &domain.Organization{CanonicalName: "Hidden Domain Organization"}
+	if err := st.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	row := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "hidden.example.com", Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusCandidate,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteOrganization(ctx, org.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.ListOrganizationDomains(ctx, org.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("deleted organization leaked %d domains", len(items))
+	}
+}
+
 func TestOrganizationDomainMetadataUpdateAndRestoreConflict(t *testing.T) {
 	st, ctx := newPostgresTestStore(t)
 	owner := &domain.Organization{CanonicalName: "Domain Owner"}
@@ -85,6 +110,43 @@ func TestOrganizationDomainMetadataUpdateAndRestoreConflict(t *testing.T) {
 	}
 	if err := st.RestoreRecord(ctx, "organization_domain", row.ID, "admin"); !errors.Is(err, domain.ErrDomainAlreadyConfirmed) {
 		t.Fatalf("restore error = %v, want ErrDomainAlreadyConfirmed", err)
+	}
+}
+
+func TestDomainReimportEnqueuesGraphUpsert(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	org := &domain.Organization{CanonicalName: "Reimport Domain Organization"}
+	if err := st.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	row := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "reimport.example.com", Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SoftDeleteRecord(ctx, "organization_domain", row.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ClearGraphOutbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reimported := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: row.RootDomain, Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, reimported); err != nil {
+		t.Fatal(err)
+	}
+	var upserts int64
+	if err := st.db.Model(&domain.GraphOutbox{}).
+		Where("entity_id = ? AND entity_type = ? AND op = ?", row.ID, "organization_domain", domain.OutboxOpUpsert).
+		Count(&upserts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if upserts != 1 {
+		t.Fatalf("graph upserts = %d, want 1", upserts)
 	}
 }
 

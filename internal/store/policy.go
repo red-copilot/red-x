@@ -71,7 +71,11 @@ func (s *Store) ListPolicies(ctx context.Context) ([]domain.Policy, error) {
 
 func (s *Store) UpdatePolicy(ctx context.Context, p *domain.Policy) error {
 	p.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(p).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Policy{}).
+		Where("id = ? AND deleted_at IS NULL", p.ID).
+		Updates(map[string]any{
+			"name": p.Name, "description": p.Description, "config": jsonbExpr(p.Config), "updated_at": p.UpdatedAt,
+		}))
 }
 
 func (s *Store) DeletePolicy(ctx context.Context, id, actor string) error {

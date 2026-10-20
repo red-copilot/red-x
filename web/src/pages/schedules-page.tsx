@@ -240,7 +240,9 @@ export function SchedulesPage() {
               取消
             </Button>
             <Button
-              disabled={!form.name.trim() || !form.target.trim() || !form.policyId || create.isPending || update.isPending}
+              disabled={
+                !form.name.trim() || !form.target.trim() || !form.policyId || create.isPending || update.isPending
+              }
               onClick={() => (editingId ? update.mutate() : create.mutate())}
             >
               {editingId ? '保存修改' : '创建计划'}

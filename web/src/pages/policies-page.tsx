@@ -208,7 +208,10 @@ export function PoliciesPage() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button disabled={!name.trim() || create.isPending || update.isPending} onClick={() => (editingId ? update.mutate() : create.mutate())}>
+            <Button
+              disabled={!name.trim() || create.isPending || update.isPending}
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
+            >
               {editingId ? '保存修改' : '创建策略'}
             </Button>
           </DialogFooter>

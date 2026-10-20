@@ -177,6 +177,16 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
+	if req.Password != nil {
+		if len(*req.Password) < 10 {
+			httpx.WriteProblem(w, r, http.StatusBadRequest, "password_reset_failed", "password must be at least 10 characters")
+			return
+		}
+		if s.Identity == nil {
+			httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "identity_unavailable", "identity service is unavailable")
+			return
+		}
+	}
 	removeAdmin := user.Role == domain.RoleAdmin && !user.Disabled &&
 		((req.Role != nil && *req.Role != domain.RoleAdmin) || (req.Disabled != nil && *req.Disabled))
 	if removeAdmin {
@@ -207,10 +217,6 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Password != nil {
-		if s.Identity == nil {
-			httpx.WriteProblem(w, r, http.StatusServiceUnavailable, "identity_unavailable", "identity service is unavailable")
-			return
-		}
 		if err := s.Identity.ResetPassword(r.Context(), id, *req.Password); err != nil {
 			httpx.WriteProblem(w, r, http.StatusBadRequest, "password_reset_failed", err.Error())
 			return

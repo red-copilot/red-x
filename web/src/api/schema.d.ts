@@ -1445,6 +1445,12 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         };
         APIKey: {
             id?: string;
@@ -1625,6 +1631,12 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1638,6 +1650,12 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1645,6 +1663,9 @@ export interface components {
             id?: string;
             name?: string;
             kind?: string;
+            options?: {
+                [key: string]: unknown;
+            };
             scopeId?: string;
             target?: string;
             intervalSec?: number;
@@ -1654,6 +1675,17 @@ export interface components {
             nextRunAt?: string;
             /** Format: date-time */
             lastRunAt?: string;
+            lastRunId?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1661,6 +1693,10 @@ export interface components {
             id?: string;
             name?: string;
             kind?: string;
+            taskKind?: string;
+            target?: string;
+            policyId?: string;
+            resultSetId?: string;
             cron?: string;
             /** Format: date-time */
             runAt?: string;
@@ -1670,6 +1706,21 @@ export interface components {
             status?: string;
             /** Format: date-time */
             nextRunAt?: string;
+            /** Format: date-time */
+            startAt?: string;
+            runCount?: number;
+            /** Format: date-time */
+            lastRunAt?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1688,6 +1739,12 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1711,6 +1768,12 @@ export interface components {
             firstSeen?: string;
             /** Format: date-time */
             lastSeen?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1918,6 +1981,12 @@ export interface components {
             nextRunAt?: string;
             /** Format: date-time */
             createdAt?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1941,6 +2010,12 @@ export interface components {
             id?: string;
             name?: string;
             rule?: string;
+            /** Format: date-time */
+            deletedAt?: string;
+            deletedBy?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
         };
         PocPlugin: {
             name?: string;

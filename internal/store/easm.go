@@ -145,6 +145,7 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 				First(&existing).Error
 			if err == nil {
 				wasDeleted := existing.Deleted()
+				wasConfirmed := existing.Status == domain.DomainStatusConfirmed
 				if wasDeleted && od.Status == domain.DomainStatusConfirmed {
 					var conflictCount int64
 					if err := tx.Model(&domain.OrganizationDomain{}).
@@ -166,7 +167,13 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 					existing.Lifecycle.MarkRestored(now, "reimport")
 				}
 				*od = existing
-				return tx.Save(&existing).Error
+				if err := tx.Save(&existing).Error; err != nil {
+					return err
+				}
+				if existing.Status == domain.DomainStatusConfirmed && (wasDeleted || !wasConfirmed) {
+					return appendGraphOutboxTx(tx, "organization_domain", existing.ID, domain.OutboxOpUpsert)
+				}
+				return nil
 			}
 			if !isNotFound(err) {
 				return err
@@ -199,7 +206,9 @@ func (s *Store) UpsertOrganizationDomain(ctx context.Context, od *domain.Organiz
 }
 
 func (s *Store) ListOrganizationDomains(ctx context.Context, orgID string, status string) ([]domain.OrganizationDomain, error) {
-	db := active(s.db.WithContext(ctx)).Where("organization_id = ?", orgID)
+	db := active(s.db.WithContext(ctx)).Where("organization_id = ?", orgID).
+		Where("organization_id IN (?)", s.db.WithContext(ctx).Model(&domain.Organization{}).
+			Select("id").Where("deleted_at IS NULL"))
 	if status != "" {
 		db = db.Where("status = ?", status)
 	}
@@ -487,11 +496,11 @@ func (s *Store) UpdateOrganization(ctx context.Context, org *domain.Organization
 	}
 	org.CanonicalName = strings.TrimSpace(org.CanonicalName)
 	org.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Model(&domain.Organization{}).Where("id = ?", org.ID).Updates(map[string]any{
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Organization{}).Where("id = ? AND deleted_at IS NULL", org.ID).Updates(map[string]any{
 		"canonical_name": org.CanonicalName, "aliases": jsonbExpr(org.Aliases), "region": org.Region,
 		"uscc": org.USCC, "status": org.Status, "merged_into": org.MergedInto,
 		"updated_at": org.UpdatedAt,
-	}).Error
+	}))
 }
 
 func (s *Store) DeleteOrganization(ctx context.Context, id, actor string) error {

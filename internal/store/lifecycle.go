@@ -65,6 +65,16 @@ func active(db *gorm.DB) *gorm.DB {
 	return db.Where("deleted_at IS NULL")
 }
 
+func activeUpdateResult(result *gorm.DB) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (s *Store) SoftDeleteRecord(ctx context.Context, resourceType, id, actor string) error {
 	if !ValidLifecycleResource(resourceType) {
 		return fmt.Errorf("unsupported lifecycle resource %q", resourceType)

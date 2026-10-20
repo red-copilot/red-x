@@ -49,7 +49,14 @@ func (s *Store) ListMonitors(ctx context.Context, q PageQuery) ([]domain.Monitor
 
 func (s *Store) UpdateMonitor(ctx context.Context, m *domain.Monitor) error {
 	m.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(m).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Monitor{}).
+		Where("id = ? AND deleted_at IS NULL", m.ID).
+		Updates(map[string]any{
+			"name": m.Name, "kind": m.Kind, "scope_id": m.ScopeID, "target": m.Target,
+			"interval_sec": m.IntervalSec, "policy_id": m.PolicyID, "options": jsonbExpr(m.Options),
+			"status": m.Status, "next_run_at": m.NextRunAt, "last_run_at": m.LastRunAt,
+			"last_run_id": m.LastRunID, "updated_at": m.UpdatedAt,
+		}))
 }
 
 func (s *Store) DeleteMonitor(ctx context.Context, id, actor string) error {
@@ -118,7 +125,14 @@ func (s *Store) DueSchedules(ctx context.Context, now time.Time, limit int) ([]d
 
 func (s *Store) UpdateSchedule(ctx context.Context, sc *domain.Schedule) error {
 	sc.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(sc).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Schedule{}).
+		Where("id = ? AND deleted_at IS NULL", sc.ID).
+		Updates(map[string]any{
+			"name": sc.Name, "kind": sc.Kind, "task_kind": sc.TaskKind, "target": sc.Target,
+			"policy_id": sc.PolicyID, "result_set_id": sc.ResultSetID, "cron": sc.Cron,
+			"start_at": sc.StartAt, "next_run_at": sc.NextRunAt, "status": sc.Status,
+			"run_count": sc.RunCount, "last_run_at": sc.LastRunAt, "updated_at": sc.UpdatedAt,
+		}))
 }
 
 func (s *Store) DeleteSchedule(ctx context.Context, id, actor string) error {
@@ -224,7 +238,13 @@ func (s *Store) GetGitHubMonitor(ctx context.Context, id string) (*domain.GitHub
 
 func (s *Store) UpdateGitHubMonitor(ctx context.Context, m *domain.GitHubMonitor) error {
 	m.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(m).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.GitHubMonitor{}).
+		Where("id = ? AND deleted_at IS NULL", m.ID).
+		Updates(map[string]any{
+			"name": m.Name, "keyword": m.Keyword, "interval_sec": m.IntervalSec,
+			"status": m.Status, "next_run_at": m.NextRunAt, "last_run_at": m.LastRunAt,
+			"updated_at": m.UpdatedAt,
+		}))
 }
 
 func (s *Store) DeleteGitHubMonitor(ctx context.Context, id, actor string) error {

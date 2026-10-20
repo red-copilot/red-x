@@ -240,11 +240,7 @@ export function GitHubPage() {
             <Button
               disabled={!keyword.trim()}
               onClick={() =>
-                editingId
-                  ? update.mutate()
-                  : tab === 'monitors'
-                    ? createMonitor.mutate()
-                    : createTask.mutate()
+                editingId ? update.mutate() : tab === 'monitors' ? createMonitor.mutate() : createTask.mutate()
               }
             >
               {editingId ? '保存修改' : '创建'}

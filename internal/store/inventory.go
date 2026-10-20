@@ -353,7 +353,12 @@ func (s *Store) ListScopes(ctx context.Context, q PageQuery) ([]domain.Scope, in
 
 func (s *Store) UpdateScope(ctx context.Context, sc *domain.Scope) error {
 	sc.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(sc).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.Scope{}).
+		Where("id = ? AND deleted_at IS NULL", sc.ID).
+		Updates(map[string]any{
+			"name": sc.Name, "type": sc.Type, "targets": jsonbExpr(sc.Targets),
+			"black_scope": jsonbExpr(sc.BlackScope), "updated_at": sc.UpdatedAt,
+		}))
 }
 
 func (s *Store) DeleteScope(ctx context.Context, id, actor string) error {
@@ -516,9 +521,9 @@ func (s *Store) GetFingerprint(ctx context.Context, id string) (*FingerprintRule
 
 func (s *Store) UpdateFingerprint(ctx context.Context, rule *FingerprintRule) error {
 	rule.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Model(&FingerprintRule{}).
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&FingerprintRule{}).
 		Where("id = ? AND deleted_at IS NULL", rule.ID).
-		Updates(map[string]any{"name": rule.Name, "rule": rule.Rule, "updated_at": rule.UpdatedAt}).Error
+		Updates(map[string]any{"name": rule.Name, "rule": rule.Rule, "updated_at": rule.UpdatedAt}))
 }
 
 func (s *Store) DeleteFingerprint(ctx context.Context, id, actor string) error {

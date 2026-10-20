@@ -54,8 +54,7 @@ export const api = {
   organization: (id: string) => execute(() => client.GET('/organizations/{id}', { params: { path: { id } } })),
   updateOrganization: (id: string, body: Record<string, unknown>) =>
     execute(() => client.PATCH('/organizations/{id}', { params: { path: { id } }, body: body as never })),
-  deleteOrganization: (id: string) =>
-    execute(() => client.DELETE('/organizations/{id}', { params: { path: { id } } })),
+  deleteOrganization: (id: string) => execute(() => client.DELETE('/organizations/{id}', { params: { path: { id } } })),
   organizationSummary: (id: string) =>
     execute(() => client.GET('/organizations/{id}/summary', { params: { path: { id } } })),
   domains: (id: string) => execute(() => client.GET('/organizations/{id}/domains', { params: { path: { id } } })),
@@ -67,17 +66,14 @@ export const api = {
       }),
     ),
   deleteDomain: (id: string, domainId: string) =>
-    execute(() =>
-      client.DELETE('/organizations/{id}/domains/{domainId}', { params: { path: { id, domainId } } }),
-    ),
+    execute(() => client.DELETE('/organizations/{id}/domains/{domainId}', { params: { path: { id, domainId } } })),
   assets: (query: Record<string, string | number | undefined>) =>
     execute(() => client.GET('/assets', { params: { query: query as never } })),
   asset: (id: string, view = 'surface', organizationId?: string) =>
     execute(() =>
       client.GET('/assets/{id}', { params: { path: { id }, query: { view: view as never, organizationId } } }),
     ),
-  createAsset: (body: Record<string, unknown>) =>
-    execute(() => client.POST('/assets', { body: body as never })),
+  createAsset: (body: Record<string, unknown>) => execute(() => client.POST('/assets', { body: body as never })),
   updateAsset: (id: string, body: Record<string, unknown>) =>
     execute(() => client.PATCH('/assets/{id}', { params: { path: { id } }, body: body as never })),
   deleteAsset: (id: string) => execute(() => client.DELETE('/assets/{id}', { params: { path: { id } } })),

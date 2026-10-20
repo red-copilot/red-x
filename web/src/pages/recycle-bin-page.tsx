@@ -43,8 +43,7 @@ export function RecycleBinPage() {
     queryFn: () => api.listRecycleBin({ type, q, page, pageSize: 20 }),
   })
   const restore = useMutation({
-    mutationFn: ({ type: resourceType, id }: { type: string; id: string }) =>
-      api.restoreRecord(resourceType, id),
+    mutationFn: ({ type: resourceType, id }: { type: string; id: string }) => api.restoreRecord(resourceType, id),
     onSuccess: (_, item) => {
       toast.success(`${resourceLabels[item.type] || item.type}已恢复`)
       void queryClient.invalidateQueries({ queryKey: ['recycle-bin'] })
@@ -56,10 +55,7 @@ export function RecycleBinPage() {
 
   return (
     <div>
-      <PageHeader
-        title="回收站"
-        description="集中恢复已软删除的组织、资产、自动化配置和用户。恢复仅限管理员操作。"
-      />
+      <PageHeader title="回收站" description="集中恢复已软删除的组织、资产、自动化配置和用户。恢复仅限管理员操作。" />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

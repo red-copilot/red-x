@@ -62,7 +62,13 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*domain.User, error
 
 func (s *Store) UpdateUser(ctx context.Context, u *domain.User) error {
 	u.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(u).Error
+	return activeUpdateResult(s.db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ? AND deleted_at IS NULL", u.ID).
+		Updates(map[string]any{
+			"password_hash": u.PasswordHash, "role": u.Role,
+			"must_change_password": u.MustChangePassword, "disabled": u.Disabled,
+			"updated_at": u.UpdatedAt,
+		}))
 }
 
 func (s *Store) ListUsers(ctx context.Context, q PageQuery) ([]domain.User, int64, error) {
