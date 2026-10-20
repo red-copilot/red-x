@@ -1,5 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, FileClock, Globe2, Play, PlusCircle, RefreshCw, ShieldAlert } from 'lucide-react'
+import {
+  ArrowLeft,
+  Download,
+  FileClock,
+  Globe2,
+  Pencil,
+  Play,
+  PlusCircle,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -9,6 +20,7 @@ import { RiskBadge, StatusBadge } from '@/components/common/badges'
 import { DataTable } from '@/components/common/data-table'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
 import { StatTile } from '@/components/common/stat-tile'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -39,13 +51,17 @@ export function OrganizationDetailPage() {
     ? (params.get('tab') as (typeof tabs)[number])
     : 'overview'
   const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
   const [evidenceView, setEvidenceView] = useState<unknown>(null)
   const [rejectTarget, setRejectTarget] = useState<OrganizationDomain | null>(null)
+  const [domainEditTarget, setDomainEditTarget] = useState<OrganizationDomain | null>(null)
+  const [domainForm, setDomainForm] = useState({ siteName: '', homeSite: '', icpNo: '', auditDate: '' })
   const [rejectReason, setRejectReason] = useState('人工移出')
   const [domainText, setDomainText] = useState('')
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
   const [scanDomains, setScanDomains] = useState<string[]>([])
+  const [orgForm, setOrgForm] = useState({ canonicalName: '', aliases: '', region: '', uscc: '' })
 
   const organization = useQuery({
     queryKey: ['organization', id],
@@ -122,6 +138,23 @@ export function OrganizationDetailPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const updateDomain = useMutation({
+    mutationFn: () => api.updateDomain(id, domainEditTarget?.id || '', domainForm),
+    onSuccess: () => {
+      toast.success('域名信息已更新')
+      setDomainEditTarget(null)
+      refreshAll()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const deleteDomain = useMutation({
+    mutationFn: (domainId: string) => api.deleteDomain(id, domainId),
+    onSuccess: () => {
+      toast.success('域名已移入回收站')
+      refreshAll()
+    },
+    onError: (error) => toast.error(error.message),
+  })
   const createScans = useMutation({
     mutationFn: () => api.createScans(id, scanDomains),
     onSuccess: () => {
@@ -135,6 +168,33 @@ export function OrganizationDetailPage() {
   const exportReport = useMutation({
     mutationFn: (format: 'xlsx' | 'csv') => api.exportOrganization(id, format),
     onSuccess: (result) => void download(result.downloadUrl || ''),
+    onError: (error) => toast.error(error.message),
+  })
+  const updateOrganization = useMutation({
+    mutationFn: () =>
+      api.updateOrganization(id, {
+        canonicalName: orgForm.canonicalName,
+        aliases: orgForm.aliases
+          .split('|')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        region: orgForm.region,
+        uscc: orgForm.uscc,
+      }),
+    onSuccess: () => {
+      toast.success('组织已更新')
+      setEditOpen(false)
+      refreshAll()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const deleteOrganization = useMutation({
+    mutationFn: () => api.deleteOrganization(id),
+    onSuccess: () => {
+      toast.success('组织已移入回收站')
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      window.location.assign('/organizations')
+    },
     onError: (error) => toast.error(error.message),
   })
 
@@ -156,6 +216,16 @@ export function OrganizationDetailPage() {
     .map((domain) => domain.rootDomain)
     .filter((domain): domain is string => Boolean(domain))
 
+  function openEditOrganization() {
+    setOrgForm({
+      canonicalName: org.canonicalName || '',
+      aliases: (org.aliases || []).join(' | '),
+      region: org.region || '',
+      uscc: org.uscc || '',
+    })
+    setEditOpen(true)
+  }
+
   function switchTab(next: string) {
     const search = new URLSearchParams(params)
     if (next === 'overview') search.delete('tab')
@@ -168,6 +238,15 @@ export function OrganizationDetailPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '证据加载失败')
     }
+  }
+  function editDomain(domain: OrganizationDomain) {
+    setDomainForm({
+      siteName: domain.siteName || '',
+      homeSite: domain.homeSite || '',
+      icpNo: domain.icpNo || '',
+      auditDate: domain.auditDate || '',
+    })
+    setDomainEditTarget(domain)
   }
 
   return (
@@ -208,6 +287,22 @@ export function OrganizationDetailPage() {
               <Download />
               导出
             </Button>
+            <Button variant="outline" onClick={openEditOrganization}>
+              <Pencil />
+              编辑
+            </Button>
+            <ConfirmDialog
+              title="删除组织"
+              description="组织会移入回收站，已确认域名和任务历史会保留。存在排队或运行任务时不能删除。"
+              confirmLabel="移入回收站"
+              onConfirm={() => deleteOrganization.mutate()}
+              trigger={
+                <Button variant="outline" className="text-destructive">
+                  <Trash2 />
+                  删除
+                </Button>
+              }
+            />
             <Button
               onClick={() => {
                 setScanDomains(confirmed.slice(0, 10))
@@ -360,6 +455,24 @@ export function OrganizationDetailPage() {
                           <Button size="sm" variant="ghost" onClick={() => void showEvidence(row)}>
                             证据
                           </Button>
+                          {canWrite(role) ? (
+                            <Button size="sm" variant="ghost" onClick={() => editDomain(row)}>
+                              编辑
+                            </Button>
+                          ) : null}
+                          {canWrite(role) ? (
+                            <ConfirmDialog
+                              title="删除归属域名"
+                              description={`${row.rootDomain} 会移入回收站；如已被其他组织确认归属，恢复时会发生冲突。`}
+                              confirmLabel="移入回收站"
+                              onConfirm={() => deleteDomain.mutate(row.id || '')}
+                              trigger={
+                                <Button size="sm" variant="ghost" className="text-destructive">
+                                  删除
+                                </Button>
+                              }
+                            />
+                          ) : null}
                           {canWrite(role) && row.status === 'candidate' ? (
                             <Button
                               size="sm"
@@ -470,6 +583,103 @@ export function OrganizationDetailPage() {
               }}
             >
               移出主域
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑组织</DialogTitle>
+            <DialogDescription>保存后会同步刷新组织治理和地图中的组织信息。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>组织名称</Label>
+              <Input
+                value={orgForm.canonicalName}
+                onChange={(event) => setOrgForm({ ...orgForm, canonicalName: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>别名（用 | 分隔）</Label>
+              <Input
+                value={orgForm.aliases}
+                onChange={(event) => setOrgForm({ ...orgForm, aliases: event.target.value })}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>地区</Label>
+                <Input
+                  value={orgForm.region}
+                  onChange={(event) => setOrgForm({ ...orgForm, region: event.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>统一社会信用代码</Label>
+                <Input
+                  value={orgForm.uscc}
+                  onChange={(event) => setOrgForm({ ...orgForm, uscc: event.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={!orgForm.canonicalName.trim() || updateOrganization.isPending}
+              onClick={() => updateOrganization.mutate()}
+            >
+              {updateOrganization.isPending ? '保存中…' : '保存修改'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(domainEditTarget)} onOpenChange={(open) => !open && setDomainEditTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑归属域名</DialogTitle>
+            <DialogDescription className="mono">{domainEditTarget?.rootDomain}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>站点名称</Label>
+              <Input
+                value={domainForm.siteName}
+                onChange={(event) => setDomainForm({ ...domainForm, siteName: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>首页</Label>
+              <Input
+                value={domainForm.homeSite}
+                onChange={(event) => setDomainForm({ ...domainForm, homeSite: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>备案号</Label>
+              <Input
+                value={domainForm.icpNo}
+                onChange={(event) => setDomainForm({ ...domainForm, icpNo: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>审核时间</Label>
+              <Input
+                value={domainForm.auditDate}
+                onChange={(event) => setDomainForm({ ...domainForm, auditDate: event.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDomainEditTarget(null)}>
+              取消
+            </Button>
+            <Button disabled={updateDomain.isPending} onClick={() => updateDomain.mutate()}>
+              {updateDomain.isPending ? '保存中…' : '保存修改'}
             </Button>
           </DialogFooter>
         </DialogContent>

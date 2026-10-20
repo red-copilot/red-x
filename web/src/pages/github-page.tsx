@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { GitBranch, Plus, Trash2 } from 'lucide-react'
+import { GitBranch, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '@/api'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -27,6 +28,7 @@ export function GitHubPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState('findings')
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
   const [keyword, setKeyword] = useState('')
   const [name, setName] = useState('')
   const [intervalSec, setIntervalSec] = useState(21600)
@@ -68,6 +70,23 @@ export function GitHubPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () => api.updateGitHubMonitor(editingId, { keyword, name, intervalSec }),
+    onSuccess: () => {
+      toast.success('GitHub 监控已更新')
+      setOpen(false)
+      setEditingId('')
+      void queryClient.invalidateQueries({ queryKey: ['github-monitors'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  function editMonitor(row: any) {
+    setEditingId(row.id)
+    setKeyword(row.keyword || '')
+    setName(row.name || '')
+    setIntervalSec(row.intervalSec || 21600)
+    setOpen(true)
+  }
   return (
     <div>
       <PageHeader
@@ -75,7 +94,15 @@ export function GitHubPage() {
         description="检索公开代码中的域名、凭据泄漏与敏感关键字，并保留去重历史。"
         actions={
           canWrite(role) ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button
+              onClick={() => {
+                setEditingId('')
+                setKeyword('')
+                setName('')
+                setIntervalSec(21600)
+                setOpen(true)
+              }}
+            >
               <Plus />
               {tab === 'monitors' ? '新建监控' : '新建搜索'}
             </Button>
@@ -158,15 +185,24 @@ export function GitHubPage() {
                   header: '操作',
                   cell: (row: any) =>
                     canWrite(role) ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() => remove.mutate(row.id)}
-                      >
-                        <Trash2 />
-                        删除
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => editMonitor(row)}>
+                          <Pencil />
+                          编辑
+                        </Button>
+                        <ConfirmDialog
+                          title="删除 GitHub 监控"
+                          description="监控会移入回收站并停止后续搜索，历史发现会保留。"
+                          confirmLabel="移入回收站"
+                          onConfirm={() => remove.mutate(row.id)}
+                          trigger={
+                            <Button size="sm" variant="ghost" className="text-destructive">
+                              <Trash2 />
+                              删除
+                            </Button>
+                          }
+                        />
+                      </div>
                     ) : null,
                 },
               ]}
@@ -177,7 +213,9 @@ export function GitHubPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{tab === 'monitors' ? '新建 GitHub 监控' : '新建代码搜索'}</DialogTitle>
+            <DialogTitle>
+              {editingId ? '编辑 GitHub 监控' : tab === 'monitors' ? '新建 GitHub 监控' : '新建代码搜索'}
+            </DialogTitle>
             <DialogDescription>使用平台配置的 GitHub Token 执行搜索。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -201,9 +239,15 @@ export function GitHubPage() {
             </Button>
             <Button
               disabled={!keyword.trim()}
-              onClick={() => (tab === 'monitors' ? createMonitor.mutate() : createTask.mutate())}
+              onClick={() =>
+                editingId
+                  ? update.mutate()
+                  : tab === 'monitors'
+                    ? createMonitor.mutate()
+                    : createTask.mutate()
+              }
             >
-              创建
+              {editingId ? '保存修改' : '创建'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -157,6 +157,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recycle-bin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List deleted records */
+        get: operations["listRecycleBin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recycle-bin/{type}/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a deleted record */
+        post: operations["restoreDeletedRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -184,14 +221,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** Get user */
+        get: operations["getUser"];
         put?: never;
         post?: never;
         /** Delete user */
         delete: operations["deleteUser"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update user */
+        patch: operations["updateUser"];
         trace?: never;
     };
     "/api-keys": {
@@ -304,7 +343,8 @@ export interface paths {
         delete: operations["deleteScope"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update scope */
+        patch: operations["updateScope"];
         trace?: never;
     };
     "/scopes/{id}/assets": {
@@ -545,11 +585,33 @@ export interface paths {
         get: operations["getOrganization"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete organization */
+        delete: operations["deleteOrganization"];
         options?: never;
         head?: never;
         /** Update organization */
         patch: operations["updateOrganization"];
+        trace?: never;
+    };
+    "/organizations/{id}/domains/{domainId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete organization domain */
+        delete: operations["deleteOrganizationDomain"];
+        options?: never;
+        head?: never;
+        /** Update organization domain metadata */
+        patch: operations["updateOrganizationDomain"];
         trace?: never;
     };
     "/organizations/{id}/domains": {
@@ -753,14 +815,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** Get monitor */
+        get: operations["getMonitor"];
         put?: never;
         post?: never;
         /** Delete monitor */
         delete: operations["deleteMonitor"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update monitor */
+        patch: operations["updateMonitor"];
         trace?: never;
     };
     "/schedules": {
@@ -790,14 +854,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** Get schedule */
+        get: operations["getSchedule"];
         put?: never;
         post?: never;
         /** Delete schedule */
         delete: operations["deleteSchedule"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update schedule */
+        patch: operations["updateSchedule"];
         trace?: never;
     };
     "/github/tasks": {
@@ -845,14 +911,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** Get GitHub monitor */
+        get: operations["getGitHubMonitor"];
         put?: never;
         post?: never;
         /** Delete GitHub monitor */
         delete: operations["deleteGitHubMonitor"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update GitHub monitor */
+        patch: operations["updateGitHubMonitor"];
         trace?: never;
     };
     "/github/findings": {
@@ -916,14 +984,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** Get fingerprint */
+        get: operations["getFingerprint"];
         put?: never;
         post?: never;
         /** Delete fingerprint */
         delete: operations["deleteFingerprint"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update fingerprint */
+        patch: operations["updateFingerprint"];
         trace?: never;
     };
     "/poc/plugins": {
@@ -1060,7 +1130,8 @@ export interface paths {
         /** Cross-organization assets */
         get: operations["listAssets"];
         put?: never;
-        post?: never;
+        /** Create manual asset */
+        post: operations["createAsset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1080,10 +1151,12 @@ export interface paths {
         get: operations["getAsset"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete asset */
+        delete: operations["deleteAsset"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update asset metadata */
+        patch: operations["updateAsset"];
         trace?: never;
     };
     "/findings": {
@@ -1758,11 +1831,20 @@ export interface components {
             kind?: string;
             key?: string;
             title?: string;
+            /** @enum {string} */
+            origin?: "scan" | "manual";
+            displayName?: string;
+            displayUrl?: string;
+            notes?: string;
+            tags?: string[];
             risk?: string;
             /** Format: date-time */
             firstSeen?: string;
             /** Format: date-time */
             lastSeen?: string;
+            /** Format: date-time */
+            restoredAt?: string;
+            restoreReason?: string;
             organizationIds?: string[];
             rootDomains?: string[];
             data?: {
@@ -2232,6 +2314,79 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    listRecycleBin: {
+        parameters: {
+            query?: {
+                type?: string;
+                q?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            type: string;
+                            id: string;
+                            label: string;
+                            /** Format: date-time */
+                            deletedAt: string;
+                            deletedBy?: string;
+                        }[];
+                        total: number;
+                        page: number;
+                        pageSize: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+        };
+    };
+    restoreDeletedRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        id: string;
+                        /** Format: date-time */
+                        restoredAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
     listUsers: {
         parameters: {
             query?: never;
@@ -2285,6 +2440,30 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     deleteUser: {
         parameters: {
             query?: never;
@@ -2307,6 +2486,40 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    role?: string;
+                    disabled?: boolean;
+                    password?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
         };
     };
     listAPIKeys: {
@@ -2578,6 +2791,35 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateScope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Scope"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scope"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listScopeAssets: {
@@ -2985,6 +3227,35 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    deleteOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                        deleted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
     updateOrganization: {
         parameters: {
             query?: never;
@@ -3016,6 +3287,70 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    deleteOrganizationDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                        deleted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    updateOrganizationDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    siteName?: string;
+                    homeSite?: string;
+                    icpNo?: string;
+                    auditDate?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationDomain"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listOrganizationDomains: {
@@ -3317,6 +3652,30 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    getMonitor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     deleteMonitor: {
         parameters: {
             query?: never;
@@ -3339,6 +3698,35 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateMonitor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Monitor"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listSchedules: {
@@ -3389,6 +3777,30 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    getSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     deleteSchedule: {
         parameters: {
             query?: never;
@@ -3411,6 +3823,35 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Schedule"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listGitHubTasks: {
@@ -3515,6 +3956,30 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    getGitHubMonitor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubMonitor"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     deleteGitHubMonitor: {
         parameters: {
             query?: never;
@@ -3537,6 +4002,35 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateGitHubMonitor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitHubMonitor"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubMonitor"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listGitHubFindings: {
@@ -3635,6 +4129,30 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    getFingerprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fingerprint"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     deleteFingerprint: {
         parameters: {
             query?: never;
@@ -3657,6 +4175,35 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    updateFingerprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Fingerprint"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fingerprint"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listPOCPlugins: {
@@ -3861,6 +4408,40 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    createAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    kind: string;
+                    key: string;
+                    displayName?: string;
+                    displayUrl?: string;
+                    notes?: string;
+                    tags?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EasmAsset"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
     getAsset: {
         parameters: {
             query?: {
@@ -3886,6 +4467,68 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+        };
+    };
+    deleteAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                        deleted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    updateAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    displayName?: string;
+                    displayUrl?: string;
+                    notes?: string;
+                    tags?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EasmAsset"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     listFindings: {

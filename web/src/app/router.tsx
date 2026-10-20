@@ -33,6 +33,9 @@ const PocPage = lazy(() => import('@/pages/poc-page').then((module) => ({ defaul
 const UsersPage = lazy(() => import('@/pages/users-page').then((module) => ({ default: module.UsersPage })))
 const APIKeysPage = lazy(() => import('@/pages/api-keys-page').then((module) => ({ default: module.APIKeysPage })))
 const AuditPage = lazy(() => import('@/pages/audit-page').then((module) => ({ default: module.AuditPage })))
+const RecycleBinPage = lazy(() =>
+  import('@/pages/recycle-bin-page').then((module) => ({ default: module.RecycleBinPage })),
+)
 const SystemPage = lazy(() => import('@/pages/system-page').then((module) => ({ default: module.SystemPage })))
 const NotFoundPage = lazy(() => import('@/pages/not-found-page').then((module) => ({ default: module.NotFoundPage })))
 
@@ -68,6 +71,7 @@ const router = createBrowserRouter([
       { path: 'admin/users', element: <AdminRoute>{page(<UsersPage />)}</AdminRoute> },
       { path: 'admin/api-keys', element: <AdminRoute>{page(<APIKeysPage />)}</AdminRoute> },
       { path: 'admin/audit', element: <AdminRoute>{page(<AuditPage />)}</AdminRoute> },
+      { path: 'admin/recycle-bin', element: <AdminRoute>{page(<RecycleBinPage />)}</AdminRoute> },
       { path: 'admin/system', element: <AdminRoute>{page(<SystemPage />)}</AdminRoute> },
       { path: '*', element: page(<NotFoundPage />) },
     ],

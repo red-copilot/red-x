@@ -1173,6 +1173,28 @@
           "title": {
             "type": "string"
           },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "scan",
+            "manual"
+          ]
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "displayUrl": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
           "risk": {
             "type": "string"
           },
@@ -1184,6 +1206,13 @@
             "type": "string",
             "format": "date-time"
           },
+        "restoredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoreReason": {
+          "type": "string"
+        },
           "organizationIds": {
             "type": "array",
             "items": {

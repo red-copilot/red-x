@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Fingerprint as FingerprintIcon, Plus, Trash2, Upload } from 'lucide-react'
+import { Fingerprint as FingerprintIcon, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Fingerprint } from '@/api'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,6 +27,7 @@ export function FingerprintsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [form, setForm] = useState({ name: '', rule: '' })
   const [content, setContent] = useState('')
@@ -59,6 +61,21 @@ export function FingerprintsPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () => api.updateFingerprint(editingId, form),
+    onSuccess: () => {
+      toast.success('指纹已更新')
+      setOpen(false)
+      setEditingId('')
+      void refresh()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  function edit(row: Fingerprint) {
+    setEditingId(row.id || '')
+    setForm({ name: row.name || '', rule: row.rule || '' })
+    setOpen(true)
+  }
   const rows = useMemo(
     () =>
       ((fingerprints.data?.items || []) as Fingerprint[]).filter(
@@ -78,7 +95,13 @@ export function FingerprintsPage() {
                 <Upload />
                 批量导入
               </Button>
-              <Button onClick={() => setOpen(true)}>
+              <Button
+                onClick={() => {
+                  setEditingId('')
+                  setForm({ name: '', rule: '' })
+                  setOpen(true)
+                }}
+              >
                 <Plus />
                 新增指纹
               </Button>
@@ -115,15 +138,24 @@ export function FingerprintsPage() {
               header: '操作',
               cell: (row) =>
                 canWrite(role) ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    onClick={() => remove.mutate(row.id || '')}
-                  >
-                    <Trash2 />
-                    删除
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => edit(row)}>
+                      <Pencil />
+                      编辑
+                    </Button>
+                    <ConfirmDialog
+                      title="删除指纹"
+                      description="指纹会移入回收站，后续站点识别不再加载该规则。"
+                      confirmLabel="移入回收站"
+                      onConfirm={() => remove.mutate(row.id || '')}
+                      trigger={
+                        <Button size="sm" variant="ghost" className="text-destructive">
+                          <Trash2 />
+                          删除
+                        </Button>
+                      }
+                    />
+                  </div>
                 ) : null,
             },
           ]}
@@ -132,8 +164,8 @@ export function FingerprintsPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新增指纹</DialogTitle>
-            <DialogDescription>使用 WIH 布尔表达式。</DialogDescription>
+            <DialogTitle>{editingId ? '编辑指纹' : '新增指纹'}</DialogTitle>
+            <DialogDescription>使用 WIH 布尔表达式，保存前会重新校验规则。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Field label="名称">
@@ -151,8 +183,11 @@ export function FingerprintsPage() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button disabled={!form.name.trim() || !form.rule.trim()} onClick={() => create.mutate()}>
-              创建指纹
+            <Button
+              disabled={!form.name.trim() || !form.rule.trim() || create.isPending || update.isPending}
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
+            >
+              {editingId ? '保存修改' : '创建指纹'}
             </Button>
           </DialogFooter>
         </DialogContent>

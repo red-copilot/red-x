@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   Radar,
+  RotateCcw,
   ScrollText,
   Search,
   Settings2,
@@ -79,6 +80,7 @@ const adminGroup: NavGroup = {
     { to: '/admin/users', label: '用户', icon: Users },
     { to: '/admin/api-keys', label: 'API Key', icon: FileKey2 },
     { to: '/admin/audit', label: '审计日志', icon: ScrollText },
+    { to: '/admin/recycle-bin', label: '回收站', icon: RotateCcw },
     { to: '/admin/system', label: '系统', icon: FileText },
   ],
 }

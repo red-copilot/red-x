@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Boxes, Plus, Trash2 } from 'lucide-react'
+import { Boxes, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Scope } from '@/api'
 import { DataTable } from '@/components/common/data-table'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -19,7 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { canWrite, isAdmin } from '@/lib/access'
+import { canWrite } from '@/lib/access'
 import { useAuth } from '@/app/auth'
 import { formatTime } from '@/lib/format'
 
@@ -27,6 +28,7 @@ export function ScopesPage() {
   const { role } = useAuth()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
   const [form, setForm] = useState({ name: '', type: 'domain', targets: '' })
   const scopes = useQuery({ queryKey: ['scopes'], queryFn: () => api.scopes() })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['scopes'] })
@@ -48,6 +50,25 @@ export function ScopesPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () =>
+      api.updateScope(editingId, {
+        ...form,
+        targets: form.targets.split(/[\s,]+/).filter(Boolean),
+      }),
+    onSuccess: () => {
+      toast.success('资产组已更新')
+      setOpen(false)
+      setEditingId('')
+      void refresh()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  function edit(row: Scope) {
+    setEditingId(row.id || '')
+    setForm({ name: row.name || '', type: row.type || 'domain', targets: (row.targets || []).join('\n') })
+    setOpen(true)
+  }
   const rows = (scopes.data?.items || []) as Scope[]
   return (
     <div>
@@ -56,7 +77,13 @@ export function ScopesPage() {
         description="兼容原有按域名或 IP 范围聚合资产的工作方式。"
         actions={
           canWrite(role) ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button
+              onClick={() => {
+                setEditingId('')
+                setForm({ name: '', type: 'domain', targets: '' })
+                setOpen(true)
+              }}
+            >
               <Plus />
               新建资产组
             </Button>
@@ -87,17 +114,24 @@ export function ScopesPage() {
               key: 'actions',
               header: '操作',
               cell: (row) =>
-                isAdmin(role) ? (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => remove.mutate(row.id || '')}
-                    >
-                      <Trash2 />
-                      删除
+                canWrite(role) ? (
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => edit(row)}>
+                      <Pencil />
+                      编辑
                     </Button>
+                    <ConfirmDialog
+                      title="删除资产组"
+                      description="资产组会移入回收站；仍被活动监控引用时无法删除。"
+                      confirmLabel="移入回收站"
+                      onConfirm={() => remove.mutate(row.id || '')}
+                      trigger={
+                        <Button size="sm" variant="ghost" className="text-destructive">
+                          <Trash2 />
+                          删除
+                        </Button>
+                      }
+                    />
                   </div>
                 ) : null,
             },
@@ -107,8 +141,10 @@ export function ScopesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建资产组</DialogTitle>
-            <DialogDescription>范围支持逗号、空格或换行分隔。</DialogDescription>
+            <DialogTitle>{editingId ? '编辑资产组' : '新建资产组'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? '范围修改只影响后续任务和监控，不会重建历史关联。' : '范围支持逗号、空格或换行分隔。'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Field label="名称">
@@ -133,8 +169,11 @@ export function ScopesPage() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button disabled={!form.name.trim() || !form.targets.trim()} onClick={() => create.mutate()}>
-              创建资产组
+            <Button
+              disabled={!form.name.trim() || !form.targets.trim() || create.isPending || update.isPending}
+              onClick={() => (editingId ? update.mutate() : create.mutate())}
+            >
+              {editingId ? '保存修改' : '创建资产组'}
             </Button>
           </DialogFooter>
         </DialogContent>

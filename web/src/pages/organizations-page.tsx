@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileUp, Plus, RefreshCw, Search } from 'lucide-react'
+import { FileUp, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { api } from '@/api'
+import { api, type Organization } from '@/api'
 import { RiskBadge, StatusBadge } from '@/components/common/badges'
 import { DataTable } from '@/components/common/data-table'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
 import { PageHeader } from '@/components/common/page-header'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -28,6 +29,8 @@ export function OrganizationsPage() {
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingId, setEditingId] = useState('')
   const [form, setForm] = useState({ canonicalName: '', aliases: '', region: '', uscc: '' })
   const orgs = useQuery({ queryKey: ['organizations', query], queryFn: () => api.organizations(query) })
   const map = useQuery({ queryKey: ['map'], queryFn: () => api.map() })
@@ -60,6 +63,47 @@ export function OrganizationsPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const update = useMutation({
+    mutationFn: () =>
+      api.updateOrganization(editingId, {
+        canonicalName: form.canonicalName,
+        aliases: form.aliases
+          .split('|')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        region: form.region,
+        uscc: form.uscc,
+      }),
+    onSuccess: () => {
+      toast.success('组织已更新')
+      setEditOpen(false)
+      setEditingId('')
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      void queryClient.invalidateQueries({ queryKey: ['organization', editingId] })
+      void queryClient.invalidateQueries({ queryKey: ['map'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteOrganization(id),
+    onSuccess: () => {
+      toast.success('组织已移入回收站')
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      void queryClient.invalidateQueries({ queryKey: ['map'] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  function editOrganization(org: Organization) {
+    setEditingId(org.id || '')
+    setForm({
+      canonicalName: org.canonicalName || '',
+      aliases: (org.aliases || []).join(' | '),
+      region: org.region || '',
+      uscc: org.uscc || '',
+    })
+    setEditOpen(true)
+  }
 
   const riskByOrg = new Map((map.data?.organizations || []).map((item) => [item.orgId, item]))
   const rows = orgs.data?.items || []
@@ -162,6 +206,31 @@ export function OrganizationsPage() {
               cell: (row) => (row.updatedAt ? new Date(row.updatedAt).toLocaleDateString('zh-CN') : '—'),
               hideOnTablet: true,
             },
+            {
+              key: 'actions',
+              header: '操作',
+              cell: (row) =>
+                canWrite(role) ? (
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => editOrganization(row)}>
+                      <Pencil />
+                      编辑
+                    </Button>
+                    <ConfirmDialog
+                      title="删除组织"
+                      description="组织会移入回收站，已有域名和任务历史不会永久删除。存在排队或运行任务时无法删除。"
+                      confirmLabel="移入回收站"
+                      onConfirm={() => remove.mutate(row.id || '')}
+                      trigger={
+                        <Button size="sm" variant="ghost" className="text-destructive">
+                          <Trash2 />
+                          删除
+                        </Button>
+                      }
+                    />
+                  </div>
+                ) : null,
+            },
           ]}
         />
       )}
@@ -225,6 +294,42 @@ export function OrganizationsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportOpen(false)}>
               取消
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑组织</DialogTitle>
+            <DialogDescription>名称、别名、地区和统一社会信用代码会同步到组织治理与图谱。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Field label="组织名称">
+              <Input
+                value={form.canonicalName}
+                onChange={(event) => setForm({ ...form, canonicalName: event.target.value })}
+              />
+            </Field>
+            <Field label="别名（用 | 分隔）">
+              <Input value={form.aliases} onChange={(event) => setForm({ ...form, aliases: event.target.value })} />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="地区">
+                <Input value={form.region} onChange={(event) => setForm({ ...form, region: event.target.value })} />
+              </Field>
+              <Field label="统一社会信用代码">
+                <Input value={form.uscc} onChange={(event) => setForm({ ...form, uscc: event.target.value })} />
+              </Field>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              取消
+            </Button>
+            <Button disabled={!form.canonicalName.trim() || update.isPending} onClick={() => update.mutate()}>
+              {update.isPending ? '保存中…' : '保存修改'}
             </Button>
           </DialogFooter>
         </DialogContent>
