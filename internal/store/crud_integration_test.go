@@ -72,6 +72,39 @@ func TestDeletedOrganizationHidesOwnedDomains(t *testing.T) {
 	}
 }
 
+func TestOrganizationRestoreReenqueuesConfirmedDomains(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	org := &domain.Organization{CanonicalName: "Restored Graph Organization"}
+	if err := st.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	row := &domain.OrganizationDomain{
+		OrganizationID: org.ID, RootDomain: "restore-graph.example.com", Source: "manual",
+		Confidence: domain.ConfidenceHigh, Status: domain.DomainStatusConfirmed,
+	}
+	if err := st.UpsertOrganizationDomain(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteOrganization(ctx, org.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ClearGraphOutbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RestoreRecord(ctx, "organization", org.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	var domainUpserts int64
+	if err := st.db.Model(&domain.GraphOutbox{}).
+		Where("entity_id = ? AND entity_type = ? AND op = ?", row.ID, "organization_domain", domain.OutboxOpUpsert).
+		Count(&domainUpserts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if domainUpserts != 1 {
+		t.Fatalf("domain upserts = %d, want 1", domainUpserts)
+	}
+}
+
 func TestOrganizationDomainMetadataUpdateAndRestoreConflict(t *testing.T) {
 	st, ctx := newPostgresTestStore(t)
 	owner := &domain.Organization{CanonicalName: "Domain Owner"}

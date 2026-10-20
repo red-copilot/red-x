@@ -157,6 +157,19 @@ func (s *Store) RestoreRecord(ctx context.Context, resourceType, id, actor strin
 				return err
 			}
 		}
+		if resourceType == "organization" {
+			var domainIDs []string
+			if err := tx.Model(&domain.OrganizationDomain{}).
+				Where("organization_id = ? AND status = ? AND deleted_at IS NULL", id, domain.DomainStatusConfirmed).
+				Pluck("id", &domainIDs).Error; err != nil {
+				return err
+			}
+			for _, domainID := range domainIDs {
+				if err := appendGraphOutboxTx(tx, "organization_domain", domainID, domain.OutboxOpUpsert); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	})
 }
