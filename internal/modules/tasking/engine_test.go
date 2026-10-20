@@ -2,6 +2,7 @@ package tasking
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/red-copilot/red-x/internal/domain"
@@ -93,5 +94,35 @@ func TestPrepareTargetAcceptsPublicSuffixRootsWithoutDNSRecords(t *testing.T) {
 				t.Fatalf("prepareTarget(%q) did not enable subfinder", input)
 			}
 		})
+	}
+}
+
+func TestDefaultDomainOptionsStayPassiveAndEnablePortScan(t *testing.T) {
+	opts := DefaultDomainOptions()
+	if !opts.DNSQueryPlugin || !opts.ARLSearch || !opts.PortScan || !opts.SiteIdentify {
+		t.Fatalf("expected passive discovery defaults: %+v", opts)
+	}
+	if opts.PortScanType != "top1000" || !opts.SkipScanCDNIP {
+		t.Fatalf("unexpected port defaults: %+v", opts)
+	}
+	if opts.DomainBrute || opts.AltDNS || opts.ServiceDetect || opts.OSDetect || opts.SSLCert ||
+		opts.SiteCapture || opts.SearchEngines || opts.SiteSpider || opts.FileLeak || opts.FindVhost ||
+		opts.NucleiScan || opts.WebInfoHunter || len(opts.POCPlugins) > 0 || len(opts.BrutePlugins) > 0 {
+		t.Fatalf("active options must stay disabled by default: %+v", opts)
+	}
+}
+
+func TestWithSafeDefaultsOnlyAppliesToEmptyDomainOptions(t *testing.T) {
+	got := withSafeDefaults(domain.TaskDomain, domain.TaskOptions{})
+	if !reflect.DeepEqual(got, DefaultDomainOptions()) {
+		t.Fatalf("empty domain options = %+v, want defaults", got)
+	}
+	explicit := domain.TaskOptions{PortScan: true}
+	if got := withSafeDefaults(domain.TaskDomain, explicit); !reflect.DeepEqual(got, explicit) {
+		t.Fatalf("explicit options changed: %+v", got)
+	}
+	risk := domain.TaskOptions{}
+	if got := withSafeDefaults(domain.TaskRiskCruising, risk); !reflect.DeepEqual(got, risk) {
+		t.Fatalf("risk cruising should not inherit domain defaults: %+v", got)
 	}
 }

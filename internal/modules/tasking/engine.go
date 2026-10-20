@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,28 @@ func (e *Engine) Plugins() []poc.Plugin {
 	return append([]poc.Plugin(nil), e.plugins...)
 }
 
+func DefaultDomainOptions() domain.TaskOptions {
+	return domain.TaskOptions{
+		DNSQueryPlugin: true,
+		ARLSearch:      true,
+		PortScan:       true,
+		PortScanType:   "top1000",
+		SkipScanCDNIP:  true,
+		SiteIdentify:   true,
+	}
+}
+
+func isZeroOptions(opts domain.TaskOptions) bool {
+	return reflect.DeepEqual(opts, domain.TaskOptions{})
+}
+
+func withSafeDefaults(kind domain.TaskKind, opts domain.TaskOptions) domain.TaskOptions {
+	if kind == domain.TaskDomain && isZeroOptions(opts) {
+		return DefaultDomainOptions()
+	}
+	return opts
+}
+
 func (e *Engine) Submit(ctx context.Context, in SubmitInput) ([]domain.Task, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		in.Name = "任务-" + time.Now().Format("20060102-150405")
@@ -94,6 +117,7 @@ func (e *Engine) Submit(ctx context.Context, in SubmitInput) ([]domain.Task, err
 	if in.Kind == "" {
 		in.Kind = domain.TaskDomain
 	}
+	in.Options = withSafeDefaults(in.Kind, in.Options)
 	if in.PolicyID != "" {
 		pid, err := domain.ParseID(in.PolicyID)
 		if err != nil {

@@ -12,9 +12,9 @@ func DefaultPolicy() domain.Policy {
 		Name:        "默认策略",
 		Description: "系统默认资产发现策略",
 		Config: domain.PolicyConfig{
-			Domain: domain.DomainPolicy{DomainBrute: true, DomainBruteType: "test", AltDNS: false, ARLSearch: true, DNSQueryPlugin: false},
+			Domain: domain.DomainPolicy{DomainBrute: false, DomainBruteType: "test", AltDNS: false, ARLSearch: true, DNSQueryPlugin: true},
 			IP: domain.IPPolicy{
-				PortScan: true, PortScanType: "test", ServiceDetection: false, OSDetection: false,
+				PortScan: true, PortScanType: "top1000", ServiceDetection: false, OSDetection: false,
 				SSLCert: false, SkipScanCDNIP: true, HostTimeout: 900, PortParallelism: 32, PortMinRate: 60,
 			},
 			Site: domain.SitePolicy{SiteIdentify: true, SiteCapture: false, SearchEngines: false, SiteSpider: false, NucleiScan: false, WebInfoHunter: false},
