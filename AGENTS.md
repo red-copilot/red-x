@@ -41,7 +41,7 @@ Use Go's `testing` package with table-driven tests and `httptest`. Name tests `T
 
 ## Commit & Pull Request Guidelines
 
-Use Conventional Commits, for example `feat: add EASM wallboard` or `fix: preserve ICP ownership`. After verification, stage only task-specific files and commit automatically; exclude unrelated changes, generated artifacts, and secrets. Do not push unless asked.
+Use Conventional Commits, for example `feat: add EASM wallboard` or `fix: preserve ICP ownership`. After verification, stage only task-specific files, commit automatically, and push the current branch to its configured upstream automatically. Never force-push. Exclude unrelated changes, generated artifacts, and secrets.
 
 PRs should cover the problem, change, verification commands, and linked issues; call out API/schema/config/security changes. Include UI screenshots and update `docs/PARITY.md` or `docs/SCANNER-DIFFERENCES.md` when behavior changes.
 
