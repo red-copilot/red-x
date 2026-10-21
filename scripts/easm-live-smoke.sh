@@ -13,7 +13,7 @@ chmod 600 "$cookie_jar" "$login_body"
 
 jq -n --arg username "$username" --arg password "$password" '{username:$username,password:$password}' >"$login_body"
 login="$(curl -fsS -c "$cookie_jar" -H 'Content-Type: application/json' --data-binary @"$login_body" "$base_url/auth/login")"
-csrf="$(jq -er '.data.csrfToken' <<<"$login")"
+csrf="$(jq -er '.csrfToken' <<<"$login")"
 
 call() {
   local method="$1" path="$2" body="${3:-}"
@@ -25,18 +25,18 @@ call() {
 }
 
 echo "[1/6] health"
-call GET /easm/health | jq -e '.data.chinaz != "unavailable" and .data.icpQuery == "ok" and .data.geoip == "ok" and .data.neo4j == "ok"' >/dev/null
+call GET /overview | jq -e '.health.chinaz != "unavailable" and .health.icpQuery == "ok" and .health.geoip == "ok" and .health.neo4j == "ok"' >/dev/null
 
 echo "[2/6] domain -> organization"
-lookup="$(call POST /icp/lookup "$(jq -n --arg domain "$domain" '{domain:$domain}')")"
-org_id="$(jq -er '.data.organization.id' <<<"$lookup")"
-echo "organization=$org_id confidence=$(jq -r '.data.confidence' <<<"$lookup")"
+lookup="$(call POST /domain-lookups "$(jq -n --arg domain "$domain" '{domain:$domain}')")"
+org_id="$(jq -er '.organization.id' <<<"$lookup")"
+echo "organization=$org_id confidence=$(jq -r '.confidence' <<<"$lookup")"
 
 echo "[3/6] organization -> filed domains"
-job="$(call POST "/organizations/$org_id/icp-domains/refresh" '{}')"
-job_id="$(jq -er '.data.id' <<<"$job")"
+job="$(call POST "/organizations/$org_id/icp-refresh" '{}')"
+job_id="$(jq -er '.id' <<<"$job")"
 for _ in $(seq 1 60); do
-  status="$(call GET "/icp/jobs/$job_id" | jq -r '.data.status')"
+  status="$(call GET "/domain-lookups/$job_id" | jq -r '.status')"
   [[ "$status" == "done" ]] && break
   [[ "$status" == "failed" ]] && { echo "ICP job failed" >&2; exit 1; }
   sleep 2
@@ -45,7 +45,7 @@ done
 
 echo "[4/6] review candidates"
 domains_json="$(call GET "/organizations/$org_id/domains?status=candidate")"
-candidates="$(jq -r '[.data.items[].rootDomain]' <<<"$domains_json")"
+candidates="$(jq -r '[.items[].rootDomain]' <<<"$domains_json")"
 if [[ "$(jq 'length' <<<"$candidates")" -gt 0 ]]; then
   call POST "/organizations/$org_id/domains/confirm" "$(jq -n --argjson domains "$candidates" '{domains:$domains}')" >/dev/null
 fi
@@ -53,26 +53,26 @@ fi
 if [[ "$scan" != "1" ]]; then
   echo "[5/6] scan skipped; set EASM_LIVE_SCAN=1 to run a bounded authorized scan"
   echo "[6/6] export"
-  export_json="$(call POST "/easm/organizations/$org_id/exports" '{"format":"xlsx"}')"
-  echo "artifact=$(jq -r '.data.file' <<<"$export_json")"
+  export_json="$(call POST "/organizations/$org_id/exports" '{"format":"xlsx"}')"
+  echo "artifact=$(jq -r '.file' <<<"$export_json")"
   exit 0
 fi
 
 echo "[5/6] bounded scan"
-confirmed="$(jq -r '[.data.items[] | select(.status == "confirmed") | .rootDomain] | .[0]' <<<"$(call GET "/organizations/$org_id/domains")")"
+confirmed="$(jq -r '[.items[] | select(.status == "confirmed") | .rootDomain] | .[0]' <<<"$(call GET "/organizations/$org_id/domains")")"
 [[ -n "$confirmed" && "$confirmed" != "null" ]] || { echo "no confirmed domain to scan" >&2; exit 1; }
 scan_body="$(jq -n --arg domain "$confirmed" '{rootDomains:[$domain],options:{portScan:true,portScanType:"top100",serviceDetection:true,siteIdentify:true,sslCert:true,nucleiScan:false}}')"
-scan_res="$(call POST "/easm/organizations/$org_id/scans" "$scan_body")"
-task_id="$(jq -er '.data.items[0].id' <<<"$scan_res")"
+scan_res="$(call POST "/organizations/$org_id/scans" "$scan_body")"
+task_id="$(jq -er '.items[0].id' <<<"$scan_res")"
 for _ in $(seq 1 180); do
-  status="$(call GET "/tasks/$task_id" | jq -r '.data.task.status')"
+  status="$(call GET "/tasks/$task_id" | jq -r '.task.status')"
   case "$status" in succeeded|partial|failed|canceled) break;; esac
   sleep 5
 done
 echo "task=$task_id status=${status:-unknown}"
 
-echo "[6/6] graph and export"
-call GET "/easm/organizations/$org_id/summary" | jq -e '.data.confirmedDomains >= 1' >/dev/null
-call GET "/easm/organizations/$org_id/findings?state=current&pageSize=1" >/dev/null
-export_json="$(call POST "/easm/organizations/$org_id/exports" '{"format":"xlsx"}')"
-echo "artifact=$(jq -r '.data.file' <<<"$export_json")"
+echo "[6/6] summary, findings, and export"
+call GET "/organizations/$org_id/summary" | jq -e '.confirmedDomains >= 1' >/dev/null
+call GET "/organizations/$org_id/findings?state=current&pageSize=1" >/dev/null
+export_json="$(call POST "/organizations/$org_id/exports" '{"format":"xlsx"}')"
+echo "artifact=$(jq -r '.file' <<<"$export_json")"

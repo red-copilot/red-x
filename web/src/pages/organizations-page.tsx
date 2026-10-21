@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileUp, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { api, type Organization } from '@/api'
+import { api, type LookupResult, type Organization } from '@/api'
 import { RiskBadge, StatusBadge } from '@/components/common/badges'
 import { DataTable } from '@/components/common/data-table'
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/common/states'
@@ -25,11 +25,15 @@ import { useAuth } from '@/app/auth'
 
 export function OrganizationsPage() {
   const { role } = useAuth()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [lookupOpen, setLookupOpen] = useState(false)
+  const [lookupDomain, setLookupDomain] = useState('')
+  const [lookupResult, setLookupResult] = useState<LookupResult | null>(null)
   const [editingId, setEditingId] = useState('')
   const [form, setForm] = useState({ canonicalName: '', aliases: '', region: '', uscc: '' })
   const orgs = useQuery({ queryKey: ['organizations', query], queryFn: () => api.organizations(query) })
@@ -84,6 +88,18 @@ export function OrganizationsPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const lookup = useMutation({
+    mutationFn: () => api.lookupDomain(lookupDomain.trim()),
+    onSuccess: (result) => {
+      setLookupResult(result)
+      void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      void queryClient.invalidateQueries({ queryKey: ['map'] })
+    },
+    onError: (error) => {
+      setLookupResult(null)
+      toast.error(error.message)
+    },
+  })
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteOrganization(id),
     onSuccess: () => {
@@ -93,6 +109,12 @@ export function OrganizationsPage() {
     },
     onError: (error) => toast.error(error.message),
   })
+
+  function openDomainLookup() {
+    setLookupDomain('')
+    setLookupResult(null)
+    setLookupOpen(true)
+  }
 
   function editOrganization(org: Organization) {
     setEditingId(org.id || '')
@@ -115,6 +137,10 @@ export function OrganizationsPage() {
         actions={
           canWrite(role) ? (
             <>
+              <Button variant="outline" onClick={openDomainLookup}>
+                <Search />
+                域名反查
+              </Button>
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 <FileUp />
                 导入 CSV
@@ -235,6 +261,110 @@ export function OrganizationsPage() {
         />
       )}
 
+      <Dialog
+        open={lookupOpen}
+        onOpenChange={(open) => {
+          setLookupOpen(open)
+          if (!open) {
+            setLookupDomain('')
+            setLookupResult(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>域名反查组织归属</DialogTitle>
+            <DialogDescription>
+              通过备案数据识别主域所属单位。查询成功的域名会作为待确认归属写入组织，不会自动进入统计、地图或图谱。
+            </DialogDescription>
+          </DialogHeader>
+          {lookupResult ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="text-base font-semibold">{lookupResult.organization.canonicalName}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>{lookupResult.organization.region || '地区未知'}</span>
+                  <span>·</span>
+                  <span>{confidenceLabel(lookupResult.confidence)}</span>
+                  <span>·</span>
+                  <span>{providerLabel(lookupResult.provider)}</span>
+                </div>
+              </div>
+              <dl className="grid gap-3 text-xs sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted-foreground">备案主体</dt>
+                  <dd className="mt-1 font-medium">{lookupResult.attribution.orgName || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">备案号</dt>
+                  <dd className="mono mt-1 font-medium">{lookupResult.attribution.icpNo || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">审核时间</dt>
+                  <dd className="mt-1 font-medium">{lookupResult.attribution.auditDate || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">归属状态</dt>
+                  <dd className="mt-1 font-medium">待人工确认</dd>
+                </div>
+              </dl>
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+                已写入候选归属。进入组织后请核对备案证据并确认，确认前不会纳入组织资产统计。
+              </p>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setLookupResult(null)
+                    setLookupDomain('')
+                  }}
+                >
+                  重新查询
+                </Button>
+                <Button
+                  disabled={!lookupResult.organization.id}
+                  onClick={() => {
+                    const organizationID = lookupResult.organization.id
+                    if (!organizationID) return
+                    setLookupOpen(false)
+                    navigate(`/organizations/${organizationID}?tab=domains`)
+                  }}
+                >
+                  进入组织并确认归属
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (lookupDomain.trim()) lookup.mutate()
+              }}
+            >
+              <Field label="已授权主域">
+                <Input
+                  autoFocus
+                  value={lookupDomain}
+                  onChange={(event) => setLookupDomain(event.target.value)}
+                  placeholder="输入已授权主域，例如 guc.edu.cn"
+                />
+              </Field>
+              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                只查询你有权开展安全评估的域名；结果会保留来源、时间和原始证据供复核。
+              </p>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setLookupOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit" disabled={!lookupDomain.trim() || lookup.isPending}>
+                  {lookup.isPending ? '查询中…' : '查询归属'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
@@ -345,4 +475,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   )
+}
+
+function confidenceLabel(value?: string) {
+  switch (value) {
+    case 'high':
+      return '高置信度'
+    case 'medium':
+      return '中置信度'
+    case 'low':
+      return '低置信度'
+    default:
+      return '置信度未知'
+  }
+}
+
+function providerLabel(value?: string) {
+  if (value === 'chinaz') return '站长 ICP'
+  if (value === 'icp_query') return 'ICP_Query'
+  return '备案数据源'
 }

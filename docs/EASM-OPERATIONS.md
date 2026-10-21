@@ -3,13 +3,13 @@
 ## Pages
 
 - `/easm`: map and graph overview.
-- `/easm/organizations`: organization list, CSV import and manual creation.
+- `/easm/organizations`: organization list, CSV import, manual creation and domain attribution lookup.
 - `/easm/organizations/:id`: domain review, assets, current findings, tasks and reports.
 - `/easm/assets`, `/easm/findings`, `/easm/tasks`: cross-organization EASM views.
 
 ## Ownership review
 
-Manual and CSV domain imports create `candidate` rows. They do not appear in the map, graph or organization statistics until an operator confirms them. Rejecting or moving a confirmed domain keeps the original row and its ICP evidence. Reassignment is transactional and writes graph outbox events for both the old and new rows.
+Domain attribution lookup, manual domain imports and CSV imports create `candidate` rows. The lookup entry point is available from the organization list and opens the matched organization for evidence review. Candidates do not appear in the map, graph or organization statistics until an operator confirms them. Rejecting or moving a confirmed domain keeps the original row and its ICP evidence. Reassignment is transactional and writes graph outbox events for both the old and new rows.
 
 ## External integrations
 
@@ -40,7 +40,7 @@ EASM_LIVE_SCAN=1 \
 ./scripts/easm-live-smoke.sh
 ```
 
-The smoke script never prints passwords or provider cookies. Scanning is opt-in through `EASM_LIVE_SCAN=1`; use only an explicitly authorized domain and bounded scan options.
+The smoke script uses the direct `/api/v1` contract, never prints passwords or provider cookies, and validates health, domain attribution, ICP refresh, candidate confirmation and export. Scanning is opt-in through `EASM_LIVE_SCAN=1`; use only an explicitly authorized domain and bounded scan options.
 
 ## Failure modes
 
