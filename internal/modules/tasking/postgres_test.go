@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/red-copilot/red-x/internal/domain"
+	"github.com/red-copilot/red-x/internal/platform/config"
+	"github.com/red-copilot/red-x/internal/platform/jobs"
+	"github.com/red-copilot/red-x/internal/platform/logx"
 	"github.com/red-copilot/red-x/internal/store"
 )
 
@@ -57,4 +61,106 @@ func dsnWithSearchPath(dsn, schema string) string {
 		return u.String()
 	}
 	return dsn + " search_path=" + schema + ",public"
+}
+
+func TestPortsForIPUsesDiscoveredCustomPort(t *testing.T) {
+	st, ctx := newTaskingPostgresStore(t)
+	taskID := domain.MustID()
+	if err := st.CreateTask(ctx, &domain.Task{ID: taskID, Name: "ip scan", Kind: domain.TaskIP, Target: "127.0.0.1", Status: domain.TaskQueued}); err != nil {
+		t.Fatal(err)
+	}
+	data := map[string]any{"ports": []map[string]any{{"portId": 58080, "protocol": "tcp"}}}
+	asset, err := st.UpsertAsset(ctx, domain.AssetIP, "127.0.0.1", data, taskID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ObserveAsset(ctx, taskID, asset, "port", data); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Store: st}
+	ports, err := engine.portsForIP(ctx, taskID, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("portsForIP: %v", err)
+	}
+	if len(ports) != 1 || ports[0] != 58080 {
+		t.Fatalf("ports = %v, want [58080]", ports)
+	}
+}
+
+func TestSitesForIPChoosesOneSchemePerPort(t *testing.T) {
+	cases := []struct {
+		name string
+		port int
+		tls  bool
+		want string
+	}{
+		{name: "plain custom port", port: 58081, want: "http://127.0.0.1:58081"},
+		{name: "tls custom port", port: 58443, tls: true, want: "https://127.0.0.1:58443"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ctx := newTaskingPostgresStore(t)
+			taskID := domain.MustID()
+			if err := st.CreateTask(ctx, &domain.Task{ID: taskID, Name: "ip scan", Kind: domain.TaskIP, Target: "127.0.0.1", Status: domain.TaskQueued}); err != nil {
+				t.Fatal(err)
+			}
+			data := map[string]any{"ports": []map[string]any{{"portId": tc.port, "tls": tc.tls}}}
+			asset, err := st.UpsertAsset(ctx, domain.AssetIP, "127.0.0.1", data, taskID, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.ObserveAsset(ctx, taskID, asset, "port", data); err != nil {
+				t.Fatal(err)
+			}
+			engine := &Engine{Store: st}
+			sites, err := engine.sitesForIP(ctx, taskID, "127.0.0.1")
+			if err != nil {
+				t.Fatalf("sitesForIP: %v", err)
+			}
+			if len(sites) != 1 || sites[0] != tc.want {
+				t.Fatalf("sites = %v, want [%s]", sites, tc.want)
+			}
+		})
+	}
+}
+
+func TestSubmitEnforcesScopeAllowlist(t *testing.T) {
+	st, ctx := newTaskingPostgresStore(t)
+	scope := &domain.Scope{Name: "authorized domain", Type: "domain", Targets: []string{"example.com"}}
+	if err := st.CreateScope(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	queue := jobs.NewMemory(logx.New("error", false))
+	defer queue.Close()
+	engine := &Engine{Store: st, Queue: queue, Config: config.Default(), Log: logx.New("error", false)}
+
+	_, err := engine.Submit(ctx, SubmitInput{
+		Name: "outside", Kind: domain.TaskDomain, Target: "google.com", ScopeID: scope.ID,
+	})
+	if err == nil {
+		t.Fatal("Submit accepted a target outside the scope")
+	}
+
+	created, err := engine.Submit(ctx, SubmitInput{
+		Name: "inside", Kind: domain.TaskDomain, Target: "example.com", ScopeID: scope.ID,
+	})
+	if err != nil {
+		t.Fatalf("Submit inside scope: %v", err)
+	}
+	if len(created) != 1 || created[0].ScopeID != scope.ID || created[0].Options.ScopeID != scope.ID {
+		t.Fatalf("created = %+v", created)
+	}
+}
+
+func TestSubmitRejectsUnknownScope(t *testing.T) {
+	st, ctx := newTaskingPostgresStore(t)
+	queue := jobs.NewMemory(logx.New("error", false))
+	defer queue.Close()
+	engine := &Engine{Store: st, Queue: queue, Config: config.Default(), Log: logx.New("error", false)}
+	_, err := engine.Submit(ctx, SubmitInput{
+		Name: "missing scope", Kind: domain.TaskDomain, Target: "example.com", ScopeID: domain.MustID(),
+	})
+	if err == nil {
+		t.Fatal("Submit accepted an unknown scope")
+	}
 }

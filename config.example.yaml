@@ -35,6 +35,7 @@ scan:
     - "169.254.0.0/16"
     - "::1/128"
     - "fe80::/10"
+  # Exact domains and their subdomains are rejected before any task starts.
   forbiddenDomains: []
   dnsServers:
     - "223.5.5.5:53"

@@ -76,6 +76,10 @@ func BlockedTargets(policy netsafe.Policy) []string {
 		}
 	}
 	for _, prefix := range policy.BlockedPrefixes {
+		addr := prefix.Addr()
+		if (policy.AllowLoopback && addr.IsLoopback()) || (policy.AllowPrivate && addr.IsPrivate()) {
+			continue
+		}
 		add(prefix.String())
 	}
 	if !policy.AllowLoopback {

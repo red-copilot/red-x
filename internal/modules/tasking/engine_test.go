@@ -2,11 +2,14 @@ package tasking
 
 import (
 	"context"
+	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"github.com/red-copilot/red-x/internal/modules/discovery"
+	"github.com/red-copilot/red-x/internal/platform/config"
 )
 
 func TestMergePolicy(t *testing.T) {
@@ -125,4 +128,113 @@ func TestWithSafeDefaultsOnlyAppliesToEmptyDomainOptions(t *testing.T) {
 	if got := withSafeDefaults(domain.TaskRiskCruising, risk); !reflect.DeepEqual(got, risk) {
 		t.Fatalf("risk cruising should not inherit domain defaults: %+v", got)
 	}
+}
+
+func TestScopeAllowsTarget(t *testing.T) {
+	tests := []struct {
+		name   string
+		scope  *domain.Scope
+		target discovery.Target
+		want   bool
+	}{
+		{
+			name:   "domain exact match",
+			scope:  &domain.Scope{Type: "domain", Targets: []string{"example.com"}},
+			target: discovery.Target{Kind: "domain", Host: "example.com"},
+			want:   true,
+		},
+		{
+			name:   "domain subdomain match",
+			scope:  &domain.Scope{Type: "domain", Targets: []string{"example.com"}},
+			target: discovery.Target{Kind: "domain", Host: "www.example.com"},
+			want:   true,
+		},
+		{
+			name:   "domain suffix spoof rejected",
+			scope:  &domain.Scope{Type: "domain", Targets: []string{"example.com"}},
+			target: discovery.Target{Kind: "domain", Host: "example.com.evil"},
+			want:   false,
+		},
+		{
+			name:   "black scope overrides domain match",
+			scope:  &domain.Scope{Type: "domain", Targets: []string{"example.com"}, BlackScope: []string{"blocked.example.com"}},
+			target: discovery.Target{Kind: "domain", Host: "api.blocked.example.com"},
+			want:   false,
+		},
+		{
+			name:   "url host uses domain scope",
+			scope:  &domain.Scope{Type: "domain", Targets: []string{"example.com"}},
+			target: discovery.Target{Kind: "url", Host: "api.example.com"},
+			want:   true,
+		},
+		{
+			name:   "ip inside cidr",
+			scope:  &domain.Scope{Type: "ip", Targets: []string{"10.0.0.0/8"}},
+			target: discovery.Target{Kind: "ip", Host: "10.2.3.4"},
+			want:   true,
+		},
+		{
+			name:   "ip in black cidr rejected",
+			scope:  &domain.Scope{Type: "ip", Targets: []string{"10.0.0.0/8"}, BlackScope: []string{"10.1.0.0/16"}},
+			target: discovery.Target{Kind: "ip", Host: "10.1.2.3"},
+			want:   false,
+		},
+		{
+			name:   "cidr contained by scope",
+			scope:  &domain.Scope{Type: "ip", Targets: []string{"10.0.0.0/8"}},
+			target: discovery.Target{Kind: "cidr", Prefix: mustPrefix(t, "10.2.0.0/16")},
+			want:   true,
+		},
+		{
+			name:   "cidr crossing scope boundary rejected",
+			scope:  &domain.Scope{Type: "ip", Targets: []string{"10.0.0.0/8"}},
+			target: discovery.Target{Kind: "cidr", Prefix: mustPrefix(t, "10.0.0.0/7")},
+			want:   false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scopeAllowsTarget(tc.scope, tc.target); got != tc.want {
+				t.Fatalf("scopeAllowsTarget() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDomainForbiddenMatchesExactAndSubdomain(t *testing.T) {
+	tests := []struct {
+		host    string
+		blocked []string
+		want    bool
+	}{
+		{host: "example.com", blocked: []string{"example.com"}, want: true},
+		{host: "api.example.com", blocked: []string{"EXAMPLE.COM."}, want: true},
+		{host: "example.com.evil", blocked: []string{"example.com"}, want: false},
+		{host: "other.test", blocked: []string{"example.com"}, want: false},
+	}
+	for _, tc := range tests {
+		if got := domainForbidden(tc.host, tc.blocked); got != tc.want {
+			t.Errorf("domainForbidden(%q, %v) = %v, want %v", tc.host, tc.blocked, got, tc.want)
+		}
+	}
+}
+
+func TestValidateTargetRejectsForbiddenDomain(t *testing.T) {
+	engine := Engine{Config: config.Default()}
+	engine.Config.Scan.ForbiddenDomains = []string{"example.com"}
+	err := engine.validateTarget(context.Background(), discovery.Target{
+		Raw: "api.example.com", Host: "api.example.com", Kind: "domain",
+	}, domain.TaskDomain, true)
+	if err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("validateTarget error = %v, want forbidden-domain error", err)
+	}
+}
+
+func mustPrefix(t *testing.T, raw string) netip.Prefix {
+	t.Helper()
+	prefix, err := netip.ParsePrefix(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prefix
 }

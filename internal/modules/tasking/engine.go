@@ -139,41 +139,69 @@ func (e *Engine) Submit(ctx context.Context, in SubmitInput) ([]domain.Task, err
 	if len(targets) > e.Config.Scan.MaxHosts {
 		return nil, fmt.Errorf("too many targets: %d > %d", len(targets), e.Config.Scan.MaxHosts)
 	}
+	var scope *domain.Scope
 	if in.ScopeID != "" {
-		if _, err := domain.ParseID(in.ScopeID); err != nil {
+		scopeID, err := domain.ParseID(in.ScopeID)
+		if err != nil {
 			return nil, fmt.Errorf("invalid scope id: %w", err)
+		}
+		scope, err = e.Store.GetScope(ctx, scopeID)
+		if err != nil {
+			return nil, fmt.Errorf("load scope: %w", err)
+		}
+		if scope == nil {
+			return nil, errors.New("scope not found")
 		}
 		in.Options.ScopeID = in.ScopeID
 	}
 	if in.ResultSetID != "" {
 		in.Options.ResultSetID = in.ResultSetID
 	}
-	var created []domain.Task
+	plans := make([]store.TaskPlan, 0, len(targets))
 	for _, target := range targets {
+		if scope != nil && !scopeAllowsTarget(scope, target) {
+			return nil, fmt.Errorf("%w: target %q is outside scope %q", ErrTargetOutsideScope, target.Raw, scope.Name)
+		}
 		options, err := e.prepareTarget(ctx, in.Options, in.Kind, target)
 		if err != nil {
-			return created, err
+			return nil, err
+		}
+		taskID, err := domain.NewID()
+		if err != nil {
+			return nil, err
 		}
 		t := &domain.Task{
-			Name: in.Name, Kind: in.Kind, Target: target.Raw, Targets: []string{target.Raw},
+			ID: taskID, Name: in.Name, Kind: in.Kind, Target: target.Raw, Targets: []string{target.Raw},
 			Status: domain.TaskQueued, Options: options, PolicyID: in.PolicyID,
 			ScopeID: in.ScopeID, OrganizationID: in.OrganizationID, RootDomain: in.RootDomain,
 			Origin: in.Origin, CreatedBy: in.CreatedBy,
 		}
-		if err := e.Store.CreateTask(ctx, t); err != nil {
-			return created, err
-		}
 		steps := StepPlan(t)
-		if err := e.Store.CreateSteps(ctx, steps); err != nil {
-			return created, err
-		}
-		if len(steps) > 0 {
-			if err := e.enqueueStep(ctx, t.ID, steps[0].ID); err != nil {
-				_ = e.Store.UpdateTaskFields(ctx, t.ID, store.TaskPatch{Status: ptr(domain.TaskFailed), Error: ptr(err.Error())})
-				return created, err
+		for i := range steps {
+			stepID, err := domain.NewID()
+			if err != nil {
+				return nil, err
 			}
-			_ = e.Store.UpdateStepFields(ctx, steps[0].ID, store.StepPatch{Status: ptr(domain.StepQueued)})
+			steps[i].ID = stepID
 		}
+		plan := store.TaskPlan{Task: t, Steps: steps}
+		if len(steps) > 0 {
+			steps[0].Status = domain.StepQueued
+			payload, err := json.Marshal(jobPayload{TaskID: t.ID, StepID: steps[0].ID})
+			if err != nil {
+				return nil, err
+			}
+			plan.OutboxRoutingKey = queueForStep(steps[0].Kind)
+			plan.OutboxPayload = payload
+		}
+		plans = append(plans, plan)
+	}
+	if err := e.Store.CreateTaskPlans(ctx, plans); err != nil {
+		return nil, err
+	}
+	created := make([]domain.Task, 0, len(plans))
+	for _, plan := range plans {
+		t := plan.Task
 		_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 			TaskID: t.ID, Type: "task.status", Message: "任务已创建",
 			Payload: map[string]any{"status": string(domain.TaskQueued), "target": t.Target},
@@ -213,6 +241,9 @@ func deriveTaskOptions(base domain.TaskOptions, kind domain.TaskKind, target dis
 func (e *Engine) validateTarget(ctx context.Context, t discovery.Target, kind domain.TaskKind, enumerateSubdomains bool) error {
 	switch t.Kind {
 	case "domain":
+		if domainForbidden(t.Host, e.Config.Scan.ForbiddenDomains) {
+			return fmt.Errorf("domain %q is forbidden", t.Host)
+		}
 		if strings.Contains(t.Host, "{fuzz}") {
 			return nil
 		}
@@ -231,6 +262,9 @@ func (e *Engine) validateTarget(ctx context.Context, t discovery.Target, kind do
 		}
 		return nil
 	case "url":
+		if domainForbidden(t.Host, e.Config.Scan.ForbiddenDomains) {
+			return fmt.Errorf("domain %q is forbidden", t.Host)
+		}
 		_, err := netsafe.ValidateURL(t.Raw, e.Policy)
 		return err
 	default:
@@ -344,10 +378,7 @@ func (e *Engine) enqueueStep(ctx context.Context, taskID, stepID string) error {
 	if step != nil {
 		queue = queueForStep(step.Kind)
 	}
-	if err := e.Store.AddOutbox(ctx, queue, payload); err != nil {
-		return err
-	}
-	return e.Queue.Publish(ctx, queue, payload)
+	return e.Store.AddOutbox(ctx, queue, payload)
 }
 
 func queueForStep(kind string) string {
@@ -384,7 +415,11 @@ func (e *Engine) HandleDelivery(ctx context.Context, d jobs.Delivery) error {
 	if err != nil {
 		return err
 	}
-	return e.RunStep(ctx, taskID, stepID)
+	err = e.RunStep(ctx, taskID, stepID)
+	if err != nil && d.Envelope.Attempt >= jobs.MaxRetries {
+		_ = e.FailStep(ctx, taskID, stepID, err)
+	}
+	return err
 }
 
 func (e *Engine) RunStep(ctx context.Context, taskID, stepID string) error {
@@ -392,8 +427,10 @@ func (e *Engine) RunStep(ctx context.Context, taskID, stepID string) error {
 	if err != nil || task == nil {
 		return fmt.Errorf("task not found")
 	}
-	if task.Status == domain.TaskCanceled {
-		_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepCanceled), Message: ptr("task canceled")})
+	if task.Status.Terminal() {
+		if task.Status == domain.TaskCanceled {
+			_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepCanceled), Message: ptr("task canceled")})
+		}
 		return nil
 	}
 	step, err := e.Store.GetStep(ctx, stepID)
@@ -403,44 +440,136 @@ func (e *Engine) RunStep(ctx context.Context, taskID, stepID string) error {
 	if step.Status == domain.StepSucceeded || step.Status == domain.StepCanceled || step.Status == domain.StepSkipped {
 		return nil
 	}
-	now := time.Now().UTC()
-	_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepRunning), StartedAt: &now, Progress: ptr(0), Attempts: ptr(step.Attempts + 1)})
-	if task.Status == domain.TaskQueued {
-		_ = e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{Status: ptr(domain.TaskRunning), StartedAt: &now})
+	owner, err := domain.NewID()
+	if err != nil {
+		return err
 	}
-	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
+	claimed, err := e.Store.ClaimStep(ctx, taskID, stepID, owner, stepLeaseTTL)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return nil
+	}
+	stopLease := e.keepStepLease(ctx, stepID, owner)
+	defer stopLease()
+
+	now := time.Now().UTC()
+	if task.Status == domain.TaskQueued {
+		if err := e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{Status: ptr(domain.TaskRunning), StartedAt: &now}); err != nil {
+			return err
+		}
+	}
+	if err := e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 		TaskID: taskID, Type: "step.status", Message: "步骤开始: " + step.Kind,
 		Payload: map[string]any{"stepId": stepID, "kind": step.Kind, "status": "running"},
-	})
+	}); err != nil {
+		return err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, e.Config.MaxRuntime())
 	defer cancel()
 	err = e.executeStep(runCtx, task, step)
 	finished := time.Now().UTC()
 	if err != nil {
 		if step.Optional {
-			_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepFailed), Error: ptr(err.Error()), FinishedAt: &finished})
+			updated, updateErr := e.Store.UpdateClaimedStepFields(ctx, stepID, owner, store.StepPatch{Status: ptr(domain.StepFailed), Error: ptr(err.Error()), FinishedAt: &finished})
+			if updateErr != nil {
+				return updateErr
+			}
+			if !updated {
+				return errors.New("step lease lost")
+			}
 			task.Warnings = append(task.Warnings, fmt.Sprintf("%s: %v", step.Kind, err))
-			_ = e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{Warnings: ptr(task.Warnings)})
+			if updateErr := e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{Warnings: ptr(task.Warnings)}); updateErr != nil {
+				return updateErr
+			}
 			_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 				TaskID: taskID, Type: "step.status", Message: "可选步骤失败: " + step.Kind,
 				Payload: map[string]any{"stepId": stepID, "kind": step.Kind, "status": "failed", "error": err.Error()},
 			})
 			return e.advance(ctx, task, step)
 		}
-		_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepFailed), Error: ptr(err.Error()), FinishedAt: &finished})
-		_ = e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{Status: ptr(domain.TaskFailed), Error: ptr(err.Error()), FinishedAt: &finished})
+		updated, updateErr := e.Store.UpdateClaimedStepFields(ctx, stepID, owner, store.StepPatch{Status: ptr(domain.StepQueued), Error: ptr(err.Error())})
+		if updateErr != nil {
+			return updateErr
+		}
+		if !updated {
+			return errors.New("step lease lost")
+		}
 		_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
-			TaskID: taskID, Type: "task.status", Message: "任务失败",
-			Payload: map[string]any{"status": "failed", "error": err.Error()},
+			TaskID: taskID, Type: "step.status", Message: "步骤失败，等待重试: " + step.Kind,
+			Payload: map[string]any{"stepId": stepID, "kind": step.Kind, "status": "retrying", "error": err.Error()},
 		})
 		return err
 	}
-	_ = e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{Status: ptr(domain.StepSucceeded), Progress: ptr(100), FinishedAt: &finished, Message: ptr("ok")})
+	updated, err := e.Store.UpdateClaimedStepFields(ctx, stepID, owner, store.StepPatch{Status: ptr(domain.StepSucceeded), Progress: ptr(100), FinishedAt: &finished, Message: ptr("ok")})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return errors.New("step lease lost")
+	}
 	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
 		TaskID: taskID, Type: "step.status", Message: "步骤完成: " + step.Kind,
 		Payload: map[string]any{"stepId": stepID, "kind": step.Kind, "status": "succeeded"},
 	})
 	return e.advance(ctx, task, step)
+}
+
+const (
+	stepLeaseTTL     = 2 * time.Minute
+	stepLeaseRefresh = 30 * time.Second
+)
+
+func (e *Engine) keepStepLease(ctx context.Context, stepID, owner string) func() {
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(stepLeaseRefresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ok, err := e.Store.RefreshStepLease(refreshCtx, stepID, owner, stepLeaseTTL)
+				cancel()
+				if err != nil || !ok {
+					if e.Log != nil {
+						e.Log.Warn("refresh step lease failed", "stepId", stepID, "error", err)
+					}
+					return
+				}
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
+}
+
+func (e *Engine) FailStep(ctx context.Context, taskID, stepID string, cause error) error {
+	now := time.Now().UTC()
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	if err := e.Store.UpdateStepFields(ctx, stepID, store.StepPatch{
+		Status: ptr(domain.StepFailed), Error: ptr(message), FinishedAt: &now,
+	}); err != nil {
+		return err
+	}
+	if err := e.Store.UpdateTaskFields(ctx, taskID, store.TaskPatch{
+		Status: ptr(domain.TaskFailed), Error: ptr(message), FinishedAt: &now,
+	}); err != nil {
+		return err
+	}
+	_ = e.Store.AppendTaskEvent(ctx, &domain.TaskEvent{
+		TaskID: taskID, Type: "task.status", Message: "任务失败",
+		Payload: map[string]any{"status": "failed", "error": message},
+	})
+	return nil
 }
 
 func (e *Engine) advance(ctx context.Context, task *domain.Task, step *domain.TaskStep) error {

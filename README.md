@@ -153,6 +153,7 @@ set +a
 | `auth.bootstrapPassword` | `ARL_ADMIN_PASSWORD` | 首次启动的管理员密码；留空则随机生成并打印 |
 | `auth.cookieSecure` | `ARL_COOKIE_SECURE` | HTTPS 环境应为 `true` |
 | `scan.blackCIDRs` | — | 出站黑名单 |
+| `scan.forbiddenDomains` | — | 禁止扫描的域名及其子域 |
 | `scan.allowPrivate` / `scan.allowLoopback` | `ARL_ALLOW_PRIVATE` / `ARL_ALLOW_LOOPBACK` | 仅限授权内网/本地靶场 |
 | `scan.maxHosts` / `scan.maxPorts` / `scan.maxRuntime` | — | 任务规模与时长上限 |
 | `scanners.nuclei.templatesDir` | `ARL_NUCLEI_TEMPLATES_DIR` | nuclei 模板目录 |
@@ -206,9 +207,9 @@ set +a
 
 ## 安全模型
 
-- Argon2id 密码哈希；默认 15 分钟访问 JWT、7 天可轮换刷新令牌；刷新令牌重放会撤销整个会话族。
+- Argon2id 密码哈希；默认 15 分钟访问 JWT、7 天可轮换刷新令牌；刷新令牌历史用于检测重放并撤销整个会话族，首次登录强制改密。
 - `viewer` / `operator` / `admin` 三级 RBAC；API Key 支持 `read` / `scan` / `admin` 范围。
-- 扫描类出站 HTTP 使用安全拨号器，校验解析后的 IP；默认阻止回环、链路本地、云元数据地址和配置的黑名单。
+- 扫描类出站 HTTP 使用安全拨号器，校验解析后的 IP；默认阻止回环、链路本地、云元数据地址和配置的黑名单。任务声明 Scope 时，目标和黑名单会强制执行。
 - 写请求默认要求 CSRF Token；安全响应头、请求 ID、审计日志与结构化日志默认开启。
 - 写操作记录审计日志；ICP 原始证据独立存储且不包含 provider cookie，候选域名在确认前不会进入地图、关系图和组织统计。
 - 扫描默认拒绝私网与回环地址；仅在明确授权的内网或靶场中通过 `scan.allowPrivate` / `scan.allowLoopback` 放开。

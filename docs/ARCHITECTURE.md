@@ -65,15 +65,19 @@ to the application's structured logger.
 
 ```text
 POST /tasks
-  -> tasks(status=queued)
-  -> task_steps
-  -> outbox
+  -> one PostgreSQL transaction:
+       tasks(status=queued) + task_steps + outbox
   -> Redis Streams
-  -> worker executes one step
+  -> worker atomically claims one step with a renewable lease
   -> task_events + observations/findings
   -> enqueue next step
   -> finalize(status=succeeded|partial|failed)
 ```
+
+The outbox relay is the only publisher for task steps. A duplicate delivery
+cannot execute a step while its lease is active; expired leases are reclaimable
+after a crash. Critical steps return to `queued` for broker retries and become
+`failed` only after the final delivery attempt.
 
 Optional steps (screenshots, WIH, file leak, PoC, nuclei) fail to `partial`
 without aborting the task. Critical steps (target validation, DNS, HTTP,
@@ -159,6 +163,9 @@ so queued jobs are not evicted.
 
 - `netsafe` remains the source of truth for blocked CIDRs, private ranges,
   loopback and URL redirects.
+- When a task declares a scope, its targets must belong to that scope allowlist;
+  `blackScope` always takes precedence. `scan.forbiddenDomains` applies to every
+  domain and URL task.
 - `pdtools` converts that policy into ProjectDiscovery `networkpolicy` options.
 - nuclei disables code/file/headless protocols, local file access, interactsh
   and automatic upload/update checks by default.

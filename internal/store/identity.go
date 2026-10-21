@@ -7,6 +7,7 @@ import (
 
 	"github.com/red-copilot/red-x/internal/domain"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
@@ -123,7 +124,15 @@ func (s *Store) CreateSession(ctx context.Context, sess *domain.Session) error {
 	}
 	sess.CreatedAt = time.Now().UTC()
 	sess.SchemaVersion = domain.SchemaVersion
-	return s.db.WithContext(ctx).Create(sess).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(sess).Error; err != nil {
+			return err
+		}
+		if sess.RefreshHash != "" {
+			return createSessionTokenTx(tx, sess.ID, sess.RefreshHash)
+		}
+		return nil
+	})
 }
 
 func (s *Store) GetSessionByHash(ctx context.Context, hash string) (*domain.Session, error) {
@@ -138,10 +147,71 @@ func (s *Store) GetSessionByHash(ctx context.Context, hash string) (*domain.Sess
 	return &sess, nil
 }
 
-func (s *Store) RotateSession(ctx context.Context, id, newHash string, expires time.Time) error {
-	now := time.Now().UTC()
-	return s.db.WithContext(ctx).Model(&domain.Session{}).Where("id = ?", id).Updates(map[string]any{
-		"refresh_hash": newHash, "expires_at": expires, "rotated_at": now,
+func (s *Store) SessionActive(ctx context.Context, id string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&domain.Session{}).
+		Where("id = ? AND revoked_at IS NULL AND expires_at > ?", id, time.Now().UTC()).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (s *Store) RotateSession(ctx context.Context, oldHash, newHash string, expires time.Time) (*domain.Session, error) {
+	var result domain.Session
+	reuse := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var token domain.SessionToken
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("refresh_hash = ?", oldHash).First(&token).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrInvalidRefreshToken
+			}
+			return err
+		}
+		if token.UsedAt != nil {
+			now := time.Now().UTC()
+			_ = tx.Model(&domain.Session{}).Where("id = ?", token.SessionID).Update("revoked_at", now).Error
+			reuse = true
+			return nil
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", token.SessionID).First(&result).Error; err != nil {
+			if isNotFound(err) {
+				return domain.ErrInvalidRefreshToken
+			}
+			return err
+		}
+		now := time.Now().UTC()
+		if result.RevokedAt != nil || now.After(result.ExpiresAt) {
+			return domain.ErrInvalidRefreshToken
+		}
+		if err := tx.Model(&domain.SessionToken{}).Where("id = ?", token.ID).Update("used_at", now).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&domain.Session{}).Where("id = ?", result.ID).Updates(map[string]any{
+			"refresh_hash": newHash, "expires_at": expires.UTC(), "rotated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		result.RefreshHash, result.ExpiresAt, result.RotatedAt = newHash, expires.UTC(), &now
+		return createSessionTokenTx(tx, result.ID, newHash)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if reuse {
+		return nil, domain.ErrRefreshTokenReuse
+	}
+	return &result, nil
+}
+
+func createSessionTokenTx(tx *gorm.DB, sessionID, refreshHash string) error {
+	id, err := domain.NewID()
+	if err != nil {
+		return err
+	}
+	return tx.Create(&domain.SessionToken{
+		ID: id, SessionID: sessionID, RefreshHash: refreshHash,
+		CreatedAt: time.Now().UTC(), SchemaVersion: domain.SchemaVersion,
 	}).Error
 }
 

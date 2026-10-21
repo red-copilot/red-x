@@ -207,6 +207,7 @@ type GraphOutbox struct {
 
 func (User) TableName() string               { return "users" }
 func (Session) TableName() string            { return "sessions" }
+func (SessionToken) TableName() string       { return "session_tokens" }
 func (APIKey) TableName() string             { return "api_keys" }
 func (AuditEvent) TableName() string         { return "audit_events" }
 func (Policy) TableName() string             { return "policies" }

@@ -142,3 +142,18 @@ func TestEnsureNucleiIgnore(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBlockedTargetsHonorsAllowedLoopbackAndPrivate(t *testing.T) {
+	policy, err := netsafe.NewPolicy([]string{"127.0.0.0/8", "::1/128", "10.0.0.0/8"}, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := BlockedTargets(policy)
+	for _, wantAllowed := range []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8"} {
+		for _, target := range blocked {
+			if target == wantAllowed {
+				t.Errorf("BlockedTargets kept %s despite allowLoopback/allowPrivate", wantAllowed)
+			}
+		}
+	}
+}

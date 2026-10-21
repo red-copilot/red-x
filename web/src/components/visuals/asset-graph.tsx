@@ -54,7 +54,10 @@ export function AssetGraph({ snapshot, onSelect }: { snapshot?: GraphSnapshot; o
   }, [snapshot])
 
   return (
-    <div data-testid="asset-graph" className="relative h-full min-h-[260px] w-full cursor-grab overflow-hidden rounded-lg border bg-card active:cursor-grabbing">
+    <div
+      data-testid="asset-graph"
+      className="relative h-full min-h-[260px] w-full cursor-grab overflow-hidden rounded-lg border bg-card active:cursor-grabbing"
+    >
       <ReactECharts
         option={option}
         notMerge

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,6 +35,10 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		PolicyID: req.PolicyID, ScopeID: req.ScopeID, ResultSetID: req.ResultSetID, CreatedBy: p.Username,
 	})
 	if err != nil {
+		if errors.Is(err, tasking.ErrTargetOutsideScope) {
+			httpx.WriteProblem(w, r, http.StatusForbidden, "task.scope_forbidden", err.Error())
+			return
+		}
 		httpx.WriteProblem(w, r, http.StatusBadRequest, "task_create_failed", err.Error())
 		return
 	}

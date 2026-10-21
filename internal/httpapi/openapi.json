@@ -295,6 +295,12 @@
           },
           "maxFindings": {
             "type": "integer"
+          },
+          "relatedScopeId": {
+            "type": "string"
+          },
+          "monitorId": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -360,6 +366,21 @@
             "type": "object",
             "properties": {},
             "additionalProperties": true
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/TaskOptions"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": true
@@ -390,6 +411,26 @@
             "format": "date-time"
           },
           "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "leaseOwner": {
+            "type": "string"
+          },
+          "leaseUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
             "type": "string",
             "format": "date-time"
           }

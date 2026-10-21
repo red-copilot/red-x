@@ -158,11 +158,12 @@ func TestPruneExpired(t *testing.T) {
 	if err := st.PruneExpired(ctx, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	var sessions, audits int64
+	var sessions, audits, sessionTokens int64
 	_ = st.db.WithContext(ctx).Model(&domain.Session{}).Count(&sessions).Error
 	_ = st.db.WithContext(ctx).Model(&domain.AuditEvent{}).Count(&audits).Error
-	if sessions != 0 || audits != 0 {
-		t.Fatalf("sessions=%d audits=%d, want 0", sessions, audits)
+	_ = st.db.WithContext(ctx).Model(&domain.SessionToken{}).Count(&sessionTokens).Error
+	if sessions != 0 || audits != 0 || sessionTokens != 0 {
+		t.Fatalf("sessions=%d audits=%d sessionTokens=%d, want 0", sessions, audits, sessionTokens)
 	}
 }
 
@@ -254,3 +255,108 @@ func TestListAssetsDefaultOrderUsesLastSeen(t *testing.T) {
 		t.Fatalf("assets total=%d items=%+v want newest asset first", total, items)
 	}
 }
+
+func TestClaimStepIsExclusiveAndReclaimableAfterLease(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	task := &domain.Task{Name: "step claim", Kind: domain.TaskDomain, Target: "example.com", Status: domain.TaskQueued}
+	if err := st.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	step := domain.TaskStep{TaskID: task.ID, Sequence: 1, Kind: "http", Status: domain.StepQueued}
+	if err := st.CreateSteps(ctx, []domain.TaskStep{step}); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := st.ListSteps(ctx, task.ID)
+	if err != nil || len(steps) != 1 {
+		t.Fatalf("steps=%+v err=%v", steps, err)
+	}
+	stepID := steps[0].ID
+
+	claimed, err := st.ClaimStep(ctx, task.ID, stepID, "owner-a", 80*time.Millisecond)
+	if err != nil || !claimed {
+		t.Fatalf("first claim = %v, %v", claimed, err)
+	}
+	claimed, err = st.ClaimStep(ctx, task.ID, stepID, "owner-b", 80*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("second owner claimed an active step lease")
+	}
+	failure := "previous attempt"
+	if updated, err := st.UpdateClaimedStepFields(ctx, stepID, "owner-a", StepPatch{Error: &failure}); err != nil || !updated {
+		t.Fatalf("record previous failure = %v, %v", updated, err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	claimed, err = st.ClaimStep(ctx, task.ID, stepID, "owner-b", time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("reclaim after expiry = %v, %v", claimed, err)
+	}
+	reclaimed, err := st.GetStep(ctx, stepID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reclaimed.Error != "" {
+		t.Fatalf("reclaimed step retained stale error %q", reclaimed.Error)
+	}
+	if updated, err := st.UpdateClaimedStepFields(ctx, stepID, "owner-a", StepPatch{Progress: ptrInt(50)}); err != nil || updated {
+		t.Fatalf("stale owner update = %v, %v", updated, err)
+	}
+	if updated, err := st.UpdateClaimedStepFields(ctx, stepID, "owner-b", StepPatch{Progress: ptrInt(50)}); err != nil || !updated {
+		t.Fatalf("current owner update = %v, %v", updated, err)
+	}
+}
+
+func TestCreateTaskPlansCommitsTaskStepsAndOutbox(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	task := &domain.Task{ID: domain.MustID(), Name: "atomic submit", Kind: domain.TaskDomain, Target: "example.com", Status: domain.TaskQueued}
+	steps := []domain.TaskStep{{ID: domain.MustID(), TaskID: task.ID, Sequence: 1, Kind: "dns", Status: domain.StepQueued}}
+	if err := st.CreateTaskPlans(ctx, []TaskPlan{{
+		Task: task, Steps: steps, OutboxRoutingKey: "q.discovery.dns", OutboxPayload: []byte(`{"taskId":"` + task.ID + `"}`),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetTask(ctx, task.ID)
+	if err != nil || got == nil {
+		t.Fatalf("task=%+v err=%v", got, err)
+	}
+	gotSteps, err := st.ListSteps(ctx, task.ID)
+	if err != nil || len(gotSteps) != 1 || gotSteps[0].Status != domain.StepQueued {
+		t.Fatalf("steps=%+v err=%v", gotSteps, err)
+	}
+	outbox, err := st.PendingOutbox(ctx, 10)
+	if err != nil || len(outbox) != 1 {
+		t.Fatalf("outbox=%+v err=%v", outbox, err)
+	}
+}
+
+func TestCreateTaskPlansRollsBackEverythingOnStepFailure(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	task := &domain.Task{ID: domain.MustID(), Name: "rollback", Kind: domain.TaskDomain, Target: "example.com", Status: domain.TaskQueued}
+	steps := []domain.TaskStep{
+		{ID: domain.MustID(), TaskID: task.ID, Sequence: 1, Kind: "dns", Status: domain.StepQueued},
+		{ID: domain.MustID(), TaskID: task.ID, Sequence: 1, Kind: "http", Status: domain.StepPending},
+	}
+	err := st.CreateTaskPlans(ctx, []TaskPlan{{
+		Task: task, Steps: steps, OutboxRoutingKey: "q.discovery.dns", OutboxPayload: []byte(`{}`),
+	}})
+	if err == nil {
+		t.Fatal("expected duplicate step sequence to fail the transaction")
+	}
+	got, getErr := st.GetTask(ctx, task.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got != nil {
+		t.Fatalf("task was committed despite failed plan: %+v", got)
+	}
+	outbox, getErr := st.PendingOutbox(ctx, 10)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if len(outbox) != 0 {
+		t.Fatalf("outbox committed despite failed plan: %+v", outbox)
+	}
+}
+
+func ptrInt(v int) *int { return &v }

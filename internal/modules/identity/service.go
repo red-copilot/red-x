@@ -15,13 +15,14 @@ import (
 )
 
 type Principal struct {
-	UserID   string
-	Username string
-	Role     domain.Role
-	Scopes   []string
-	Via      string
-	Session  string
-	APIKeyID string
+	UserID             string
+	Username           string
+	Role               domain.Role
+	Scopes             []string
+	Via                string
+	Session            string
+	APIKeyID           string
+	MustChangePassword bool
 }
 
 func (p *Principal) IsAdmin() bool { return p != nil && p.Role == domain.RoleAdmin }
@@ -123,31 +124,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*Lo
 	if refreshToken == "" {
 		return nil, errors.New("missing refresh token")
 	}
-	hash := security.SHA256Hex(refreshToken)
-	sess, err := s.store.GetSessionByHash(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	if sess == nil {
-		return nil, errors.New("invalid refresh token")
-	}
-	if sess.RevokedAt != nil || sess.RotatedAt != nil {
-		// Reuse of a rotated token is treated as compromise: revoke the whole family.
-		_ = s.store.RevokeUserSessions(ctx, sess.UserID)
-		return nil, errors.New("refresh token reuse detected")
-	}
-	if time.Now().UTC().After(sess.ExpiresAt) {
-		return nil, errors.New("refresh token expired")
-	}
-	u, err := s.store.GetUserByID(ctx, sess.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if u == nil || u.Disabled {
-		return nil, errors.New("user disabled")
-	}
 	accessTTL, refreshTTL := s.cfg.AccessTTL(), s.cfg.RefreshTTL()
-	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID, u.Username, string(u.Role), sess.ID, accessTTL)
 	newRefresh, err := security.RandomToken(32)
 	if err != nil {
 		return nil, err
@@ -157,7 +134,20 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*Lo
 		return nil, err
 	}
 	now := time.Now().UTC()
-	if err := s.store.RotateSession(ctx, sess.ID, security.SHA256Hex(newRefresh), now.Add(refreshTTL)); err != nil {
+	sess, err := s.store.RotateSession(ctx, security.SHA256Hex(refreshToken), security.SHA256Hex(newRefresh), now.Add(refreshTTL))
+	if err != nil {
+		return nil, err
+	}
+	u, err := s.store.GetUserByID(ctx, sess.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil || u.Disabled {
+		_ = s.store.RevokeSession(ctx, sess.ID)
+		return nil, errors.New("user disabled")
+	}
+	access, err := security.NewAccessToken(s.cfg.Auth.AccessSecret, u.ID, u.Username, string(u.Role), sess.ID, accessTTL)
+	if err != nil {
 		return nil, err
 	}
 	return &LoginResult{
@@ -214,7 +204,19 @@ func (s *Service) Authenticate(ctx context.Context, accessToken, apiKey string) 
 	if claims.SessionID != "" {
 		sessionID, _ = domain.ParseID(claims.SessionID)
 	}
-	return &Principal{UserID: u.ID, Username: u.Username, Role: u.Role, Via: "cookie", Session: sessionID}, nil
+	if sessionID != "" {
+		active, err := s.store.SessionActive(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if !active {
+			return nil, errors.New("session revoked or expired")
+		}
+	}
+	return &Principal{
+		UserID: u.ID, Username: u.Username, Role: u.Role, Via: "cookie",
+		Session: sessionID, MustChangePassword: u.MustChangePassword,
+	}, nil
 }
 
 func (s *Service) ChangePassword(ctx context.Context, p *Principal, oldPassword, newPassword string) error {

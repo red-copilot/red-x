@@ -98,7 +98,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("acquire schema lock: %w", err)
 		}
 		if err := tx.AutoMigrate(
-			&domain.User{}, &domain.Session{}, &domain.APIKey{}, &domain.AuditEvent{},
+			&domain.User{}, &domain.Session{}, &domain.SessionToken{}, &domain.APIKey{}, &domain.AuditEvent{},
 			&domain.Policy{}, &domain.Scope{},
 			&domain.Task{}, &domain.TaskStep{}, &domain.TaskEvent{},
 			&domain.OutboxMessage{}, &domain.Lease{}, &ResultSet{},
@@ -133,6 +133,8 @@ var postgresIndexes = []string{
 	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_refresh_hash ON sessions (refresh_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_session_tokens_refresh_hash ON session_tokens (refresh_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_session_tokens_session_id ON session_tokens (session_id)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uniq_api_keys_key_hash ON api_keys (key_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (revoked_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_actor_id ON audit_events (actor_id)`,

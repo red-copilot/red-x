@@ -30,7 +30,12 @@ export function DataTable<T>({
   if (!rows.length) return <>{empty}</>
   return (
     <>
-      <div className={cn('hidden overflow-hidden rounded-lg border bg-card md:block', scrollable && 'max-h-[calc(100vh-18rem)] overflow-y-auto scrollbar-thin')}>
+      <div
+        className={cn(
+          'hidden overflow-hidden rounded-lg border bg-card md:block',
+          scrollable && 'max-h-[calc(100vh-18rem)] overflow-y-auto scrollbar-thin',
+        )}
+      >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs">
             <thead className="sticky top-0 z-10 border-b bg-[#fafbfc] text-[11px] uppercase tracking-[0.06em] text-muted-foreground">

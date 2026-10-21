@@ -709,19 +709,25 @@ func (e *Engine) taskSiteSnapshots(ctx context.Context, taskID string) ([]map[st
 }
 
 func (e *Engine) sitesForIP(ctx context.Context, taskID string, ip string) ([]string, error) {
-	ports, err := e.portsForIP(ctx, taskID, ip)
+	ports, err := e.portDetailsForIP(ctx, taskID, ip)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, p := range ports {
-		switch p {
-		case 80:
+		port := p.PortID
+		if port <= 0 {
+			continue
+		}
+		switch {
+		case p.TLS:
+			out = append(out, fmt.Sprintf("https://%s:%d", ip, port))
+		case port == 80:
 			out = append(out, "http://"+ip)
-		case 443:
+		case port == 443:
 			out = append(out, "https://"+ip)
 		default:
-			out = append(out, fmt.Sprintf("http://%s:%d", ip, p), fmt.Sprintf("https://%s:%d", ip, p))
+			out = append(out, fmt.Sprintf("http://%s:%d", ip, port))
 		}
 	}
 	if len(out) == 0 {
@@ -731,6 +737,20 @@ func (e *Engine) sitesForIP(ctx context.Context, taskID string, ip string) ([]st
 }
 
 func (e *Engine) portsForIP(ctx context.Context, taskID string, ip string) ([]int, error) {
+	ports, err := e.portDetailsForIP(ctx, taskID, ip)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int, 0, len(ports))
+	for _, p := range ports {
+		if p.PortID > 0 {
+			out = append(out, p.PortID)
+		}
+	}
+	return out, nil
+}
+
+func (e *Engine) portDetailsForIP(ctx context.Context, taskID string, ip string) ([]discovery.PortInfo, error) {
 	assets, _, err := e.Store.ListAssets(ctx, string(domain.AssetIP), taskID, "", store.PageQuery{Page: 1, PageSize: 200})
 	if err != nil {
 		return nil, err
@@ -743,19 +763,15 @@ func (e *Engine) portsForIP(ctx context.Context, taskID string, ip string) ([]in
 		if !ok {
 			return nil, nil
 		}
-		b, _ := json.Marshal(raw)
-		var ports []map[string]any
-		_ = json.Unmarshal(b, &ports)
-		out := make([]int, 0, len(ports))
-		for _, p := range ports {
-			switch v := p["portId"].(type) {
-			case float64:
-				out = append(out, int(v))
-			case int:
-				out = append(out, v)
-			}
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return nil, err
 		}
-		return out, nil
+		var ports []discovery.PortInfo
+		if err := json.Unmarshal(b, &ports); err != nil {
+			return nil, err
+		}
+		return ports, nil
 	}
 	return nil, nil
 }

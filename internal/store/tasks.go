@@ -95,6 +95,13 @@ type ResultSet struct {
 
 func (ResultSet) TableName() string { return "result_sets" }
 
+type TaskPlan struct {
+	Task             *domain.Task
+	Steps            []domain.TaskStep
+	OutboxRoutingKey string
+	OutboxPayload    []byte
+}
+
 func (s *Store) CreateTask(ctx context.Context, t *domain.Task) error {
 	now := time.Now().UTC()
 	t.CreatedAt, t.SchemaVersion = now, domain.SchemaVersion
@@ -185,6 +192,61 @@ func (s *Store) CreateSteps(ctx context.Context, steps []domain.TaskStep) error 
 	return s.db.WithContext(ctx).Create(&steps).Error
 }
 
+// CreateTaskPlans commits tasks, their steps, and the first outbox messages in
+// one transaction so a crash cannot leave a task without an executable step.
+func (s *Store) CreateTaskPlans(ctx context.Context, plans []TaskPlan) error {
+	if len(plans) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i := range plans {
+			plan := &plans[i]
+			if plan.Task == nil {
+				return errors.New("task plan requires a task")
+			}
+			now := time.Now().UTC()
+			if plan.Task.ID == "" {
+				id, err := domain.NewID()
+				if err != nil {
+					return err
+				}
+				plan.Task.ID = id
+			}
+			plan.Task.CreatedAt, plan.Task.SchemaVersion = now, domain.SchemaVersion
+			if err := tx.Create(plan.Task).Error; err != nil {
+				return err
+			}
+			for j := range plan.Steps {
+				step := &plan.Steps[j]
+				if step.ID == "" {
+					id, err := domain.NewID()
+					if err != nil {
+						return err
+					}
+					step.ID = id
+				}
+				step.TaskID = plan.Task.ID
+				if step.Status == "" {
+					step.Status = domain.StepPending
+				}
+				step.CreatedAt, step.UpdatedAt = now, now
+				step.SchemaVersion = domain.SchemaVersion
+			}
+			if len(plan.Steps) > 0 {
+				if err := tx.Create(&plan.Steps).Error; err != nil {
+					return err
+				}
+			}
+			if plan.OutboxRoutingKey != "" {
+				if err := addOutboxTx(tx, plan.OutboxRoutingKey, plan.OutboxPayload); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 func (s *Store) ListSteps(ctx context.Context, taskID string) ([]domain.TaskStep, error) {
 	var out []domain.TaskStep
 	err := s.db.WithContext(ctx).Where("task_id = ?", taskID).Order("sequence ASC").Find(&out).Error
@@ -206,6 +268,54 @@ func (s *Store) GetStep(ctx context.Context, id string) (*domain.TaskStep, error
 func (s *Store) UpdateStepFields(ctx context.Context, id string, patch StepPatch) error {
 	updates := patch.updates()
 	return s.db.WithContext(ctx).Model(&domain.TaskStep{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (s *Store) ClaimStep(ctx context.Context, taskID, stepID, owner string, lease time.Duration) (bool, error) {
+	if owner == "" {
+		return false, errors.New("step lease owner is required")
+	}
+	if lease <= 0 {
+		lease = 2 * time.Minute
+	}
+	now := time.Now().UTC()
+	res := s.db.WithContext(ctx).Exec(`
+UPDATE task_steps
+SET status = ?, started_at = COALESCE(started_at, ?), progress = 0,
+    attempts = attempts + 1, lease_owner = ?, lease_until = ?, updated_at = ?,
+    error = '', message = '', finished_at = NULL
+WHERE id = ? AND task_id = ? AND (
+  status IN (?, ?) OR (status = ? AND (lease_until IS NULL OR lease_until < ?))
+)`, domain.StepRunning, now, owner, now.Add(lease), now, stepID, taskID,
+		domain.StepPending, domain.StepQueued, domain.StepRunning, now)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+func (s *Store) RefreshStepLease(ctx context.Context, stepID, owner string, lease time.Duration) (bool, error) {
+	if owner == "" {
+		return false, errors.New("step lease owner is required")
+	}
+	if lease <= 0 {
+		lease = 2 * time.Minute
+	}
+	res := s.db.WithContext(ctx).Model(&domain.TaskStep{}).
+		Where("id = ? AND lease_owner = ? AND status = ?", stepID, owner, domain.StepRunning).
+		Updates(map[string]any{"lease_until": time.Now().UTC().Add(lease), "updated_at": time.Now().UTC()})
+	return res.RowsAffected == 1, res.Error
+}
+
+func (s *Store) UpdateClaimedStepFields(ctx context.Context, id, owner string, patch StepPatch) (bool, error) {
+	updates := patch.updates()
+	if patch.Status != nil && *patch.Status != domain.StepRunning {
+		updates["lease_owner"] = ""
+		updates["lease_until"] = nil
+	}
+	res := s.db.WithContext(ctx).Model(&domain.TaskStep{}).
+		Where("id = ? AND lease_owner = ? AND status = ?", id, owner, domain.StepRunning).
+		Updates(updates)
+	return res.RowsAffected == 1, res.Error
 }
 
 func (s *Store) GetNextStep(ctx context.Context, taskID string, sequence int) (*domain.TaskStep, error) {
@@ -253,6 +363,10 @@ func (s *Store) ListTaskEvents(ctx context.Context, taskID string, after int64, 
 }
 
 func (s *Store) AddOutbox(ctx context.Context, routingKey string, payload []byte) error {
+	return addOutboxTx(s.db.WithContext(ctx), routingKey, payload)
+}
+
+func addOutboxTx(tx *gorm.DB, routingKey string, payload []byte) error {
 	now := time.Now().UTC()
 	id, err := domain.NewID()
 	if err != nil {
@@ -262,7 +376,7 @@ func (s *Store) AddOutbox(ctx context.Context, routingKey string, payload []byte
 		ID: id, RoutingKey: routingKey, Payload: payload, Status: "pending",
 		AvailableAt: now, CreatedAt: now,
 	}
-	return s.db.WithContext(ctx).Create(&msg).Error
+	return tx.Create(&msg).Error
 }
 
 func (s *Store) PendingOutbox(ctx context.Context, limit int) ([]domain.OutboxMessage, error) {

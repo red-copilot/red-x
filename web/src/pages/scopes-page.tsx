@@ -29,15 +29,20 @@ export function ScopesPage() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
-  const [form, setForm] = useState({ name: '', type: 'domain', targets: '' })
+  const [form, setForm] = useState({ name: '', type: 'domain', targets: '', blackScope: '' })
   const scopes = useQuery({ queryKey: ['scopes'], queryFn: () => api.scopes() })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['scopes'] })
   const create = useMutation({
-    mutationFn: () => api.createScope({ ...form, targets: form.targets.split(/[\s,]+/).filter(Boolean) }),
+    mutationFn: () =>
+      api.createScope({
+        ...form,
+        targets: form.targets.split(/[\s,]+/).filter(Boolean),
+        blackScope: form.blackScope.split(/[\s,]+/).filter(Boolean),
+      }),
     onSuccess: () => {
       toast.success('资产组已创建')
       setOpen(false)
-      setForm({ name: '', type: 'domain', targets: '' })
+      setForm({ name: '', type: 'domain', targets: '', blackScope: '' })
       void refresh()
     },
     onError: (error) => toast.error(error.message),
@@ -55,6 +60,7 @@ export function ScopesPage() {
       api.updateScope(editingId, {
         ...form,
         targets: form.targets.split(/[\s,]+/).filter(Boolean),
+        blackScope: form.blackScope.split(/[\s,]+/).filter(Boolean),
       }),
     onSuccess: () => {
       toast.success('资产组已更新')
@@ -66,7 +72,12 @@ export function ScopesPage() {
   })
   function edit(row: Scope) {
     setEditingId(row.id || '')
-    setForm({ name: row.name || '', type: row.type || 'domain', targets: (row.targets || []).join('\n') })
+    setForm({
+      name: row.name || '',
+      type: row.type || 'domain',
+      targets: (row.targets || []).join('\n'),
+      blackScope: (row.blackScope || []).join('\n'),
+    })
     setOpen(true)
   }
   const rows = (scopes.data?.items || []) as Scope[]
@@ -74,13 +85,13 @@ export function ScopesPage() {
     <div>
       <PageHeader
         title="资产组"
-        description="兼容原有按域名或 IP 范围聚合资产的工作方式。"
+        description="定义任务授权白名单；声明 Scope 的任务只能扫描其域名或 IP/CIDR 范围，黑名单优先。"
         actions={
           canWrite(role) ? (
             <Button
               onClick={() => {
                 setEditingId('')
-                setForm({ name: '', type: 'domain', targets: '' })
+                setForm({ name: '', type: 'domain', targets: '', blackScope: '' })
                 setOpen(true)
               }}
             >
@@ -161,8 +172,15 @@ export function ScopesPage() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="范围">
+            <Field label="授权范围">
               <Textarea value={form.targets} onChange={(e) => setForm({ ...form, targets: e.target.value })} />
+            </Field>
+            <Field label="排除范围">
+              <Textarea
+                value={form.blackScope}
+                placeholder="留空表示不额外排除"
+                onChange={(e) => setForm({ ...form, blackScope: e.target.value })}
+              />
             </Field>
           </div>
           <DialogFooter>

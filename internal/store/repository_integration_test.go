@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -28,8 +29,12 @@ func TestPolicyIdentityAndSessionRepositories(t *testing.T) {
 	if err := st.CreateSession(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RotateSession(ctx, sess.ID, "refresh-two", time.Now().Add(2*time.Hour)); err != nil {
+	rotatedSession, err := st.RotateSession(ctx, "refresh-one", "refresh-two", time.Now().Add(2*time.Hour))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if rotatedSession == nil || rotatedSession.ID != sess.ID {
+		t.Fatalf("rotated session = %+v", rotatedSession)
 	}
 	rotated, err := st.GetSessionByHash(ctx, "refresh-two")
 	if err != nil || rotated == nil || rotated.RotatedAt == nil {
@@ -42,6 +47,34 @@ func TestPolicyIdentityAndSessionRepositories(t *testing.T) {
 	keyGot, err := st.GetAPIKeyByHash(ctx, "key-hash")
 	if err != nil || keyGot == nil || len(keyGot.Scopes) != 1 {
 		t.Fatalf("api key=%+v err=%v", keyGot, err)
+	}
+}
+
+func TestRefreshTokenRotationAllowsRepeatedUseAndDetectsOldTokenReuse(t *testing.T) {
+	st, ctx := newPostgresTestStore(t)
+	u := &domain.User{Username: "refresh-user", PasswordHash: "hash", Role: domain.RoleOperator}
+	if err := st.CreateUser(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	sess := &domain.Session{UserID: u.ID, RefreshHash: "refresh-one", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := st.CreateSession(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RotateSession(ctx, "refresh-one", "refresh-two", time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+	if _, err := st.RotateSession(ctx, "refresh-two", "refresh-three", time.Now().Add(3*time.Hour)); err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+	if _, err := st.RotateSession(ctx, "refresh-one", "refresh-four", time.Now().Add(4*time.Hour)); !errors.Is(err, domain.ErrRefreshTokenReuse) {
+		t.Fatalf("old token reuse error = %v, want ErrRefreshTokenReuse", err)
+	}
+	got, err := st.GetSessionByHash(ctx, "refresh-three")
+	if err != nil || got == nil {
+		t.Fatalf("session=%+v err=%v", got, err)
+	}
+	if got.RevokedAt == nil {
+		t.Fatal("reuse did not revoke the refresh token family")
 	}
 }
 

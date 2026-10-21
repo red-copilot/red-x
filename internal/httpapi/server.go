@@ -220,9 +220,22 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			httpx.WriteProblem(w, r, http.StatusUnauthorized, "auth.unauthorized", "authentication required")
 			return
 		}
+		if principal.MustChangePassword && !passwordChangeAllowedPath(r.URL.Path) {
+			httpx.WriteProblem(w, r, http.StatusForbidden, "auth.password_change_required", "password change required")
+			return
+		}
 		ctx := context.WithValue(r.Context(), principalKey{}, principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func passwordChangeAllowedPath(path string) bool {
+	switch path {
+	case "/api/v1/auth/me", "/api/v1/auth/password", "/api/v1/auth/logout":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {

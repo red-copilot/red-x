@@ -14,7 +14,8 @@ import (
 
 const (
 	// maxRetries is the number of retries after the initial delivery.
-	maxRetries = 3
+	MaxRetries = 3
+	maxRetries = MaxRetries
 	// retryDelay is the delay before a failed delivery is published again.
 	retryDelay = 10 * time.Second
 )

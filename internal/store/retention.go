@@ -15,6 +15,7 @@ func (s *Store) PruneExpired(ctx context.Context, now time.Time) error {
 			query string
 			arg   any
 		}{
+			{`DELETE FROM session_tokens WHERE session_id IN (SELECT id FROM sessions WHERE expires_at <= ?)`, now},
 			{`DELETE FROM sessions WHERE expires_at <= ?`, now},
 			{`DELETE FROM leases WHERE expires_at <= ?`, now},
 			{`DELETE FROM audit_events WHERE created_at < ?`, now.Add(-180 * 24 * time.Hour)},

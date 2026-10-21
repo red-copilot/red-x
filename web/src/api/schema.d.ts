@@ -1506,6 +1506,8 @@ export interface components {
             maxHttpRequests?: number;
             maxRuntime?: string;
             maxFindings?: number;
+            relatedScopeId?: string;
+            monitorId?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1533,6 +1535,9 @@ export interface components {
             statistics?: {
                 [key: string]: unknown;
             };
+            targets?: string[];
+            options?: components["schemas"]["TaskOptions"];
+            warnings?: string[];
         } & {
             [key: string]: unknown;
         };
@@ -1547,6 +1552,14 @@ export interface components {
             startedAt?: string;
             /** Format: date-time */
             finishedAt?: string;
+            kind?: string;
+            optional?: boolean;
+            attempts?: number;
+            leaseOwner?: string;
+            /** Format: date-time */
+            leaseUntil?: string;
+            /** Format: date-time */
+            createdAt?: string;
         } & {
             [key: string]: unknown;
         };

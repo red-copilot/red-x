@@ -144,6 +144,15 @@ type Session struct {
 	SchemaVersion int        `json:"schemaVersion"`
 }
 
+type SessionToken struct {
+	ID            string     `gorm:"primaryKey;size:24" json:"id"`
+	SessionID     string     `json:"sessionId"`
+	RefreshHash   string     `json:"-"`
+	UsedAt        *time.Time `json:"usedAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	SchemaVersion int        `json:"schemaVersion"`
+}
+
 type APIKey struct {
 	ID            string     `gorm:"primaryKey;size:24" json:"id"`
 	Name          string     `json:"name"`
@@ -321,6 +330,8 @@ type TaskStep struct {
 	Status        StepStatus `json:"status"`
 	Optional      bool       `json:"optional"`
 	Attempts      int        `json:"attempts"`
+	LeaseOwner    string     `json:"leaseOwner,omitempty"`
+	LeaseUntil    *time.Time `json:"leaseUntil,omitempty"`
 	Progress      int        `json:"progress"`
 	Message       string     `json:"message,omitempty"`
 	Error         string     `json:"error,omitempty"`

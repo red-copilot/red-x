@@ -11,3 +11,7 @@ var ErrResourceInUse = errors.New("resource is in use")
 var ErrSelfDelete = errors.New("cannot delete the current user")
 
 var ErrLastAdmin = errors.New("cannot delete the last active administrator")
+
+var ErrInvalidRefreshToken = errors.New("invalid refresh token")
+
+var ErrRefreshTokenReuse = errors.New("refresh token reuse detected")
